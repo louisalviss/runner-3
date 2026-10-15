@@ -15,6 +15,9 @@ on:
     # Avoid winter's prior +2-minute scan that often hit upstream session staleness.
     # SPY preflight is only a benchmark: verify every symbol and >=80% fresh coverage.
     - cron: '45 22 * * 1-5'
+    # 04:45 UTC Tue-Sat = 11:45 Vietnam time. Same workflow, delayed repair
+    # only when today's original market packet is not COMPLETE >=80%.
+    - cron: '45 4 * * 2-6'
 
 # Bootstrap trigger after the workflow exists on main.
 concurrency:
@@ -22,7 +25,74 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  freshness_gate:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    outputs:
+      run_scan: ${{ steps.guard.outputs.run_scan }}
+    steps:
+      - name: Checkout latest committed market health
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Skip delayed scan only after independently accepted current-session packet
+        id: guard
+        env:
+          TRIGGER_EVENT: ${{ github.event_name }}
+          TRIGGER_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          run_scan = True
+          delayed = os.environ.get('TRIGGER_EVENT') == 'schedule' and os.environ.get('TRIGGER_SCHEDULE') == '45 4 * * 2-6'
+          if delayed:
+              try:
+                  root = Path('data/opportunity-radar')
+                  health = json.loads((root / 'market-health.json').read_text())
+                  signal = json.loads((root / 'market-signals.json').read_text())
+                  prefilter_bytes = (root / 'market-prefilter.json').read_bytes()
+                  prefilter = json.loads(prefilter_bytes)
+                  stamped = datetime.fromisoformat(health['generated_at'])
+                  if stamped.tzinfo is None:
+                      raise ValueError('naive market packet timestamp')
+                  today_vn = datetime.now(ZoneInfo('Asia/Ho_Chi_Minh')).date()
+                  session = health.get('source_session_date')
+                  expected = health.get('expected_latest_completed_us_session')
+                  coverage = float(health.get('fresh_history_coverage') or 0)
+                  accepted = (
+                      stamped.astimezone(ZoneInfo('Asia/Ho_Chi_Minh')).date() == today_vn
+                      and health.get('status') == 'COMPLETE'
+                      and health.get('complete') is True
+                      and session == expected and bool(session)
+                      and coverage >= 0.80
+                      and signal.get('source_session_date') == session
+                      and signal.get('status') == 'COMPLETE'
+                      and signal.get('complete') is True
+                      and prefilter.get('source_session_date') == session
+                      and prefilter.get('status') == 'COMPLETE'
+                      and prefilter.get('complete') is True
+                      and hashlib.sha256(prefilter_bytes).hexdigest() == health.get('prefilter_sha256')
+                  )
+                  run_scan = not accepted
+                  print(f'Delayed recovery preflight: previously accepted={accepted}, coverage={coverage:.2%}')
+              except (OSError, ValueError, KeyError, TypeError) as exc:
+                  print(f'Delayed recovery preflight degraded ({type(exc).__name__}); fail-open to re-SCAN, not to BUY')
+                  run_scan = True
+          else:
+              print('Primary/push/manual run: execute scanner normally')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'run_scan={str(run_scan).lower()}\n')
+          PY
+
   scan:
+    needs: freshness_gate
+    if: needs.freshness_gate.outputs.run_scan == 'true'
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -88,8 +158,8 @@ jobs:
           # Re-run the same scanner (no separate flow or state) on a bounded delay.
           # The scanner writes diagnostic DEGRADED packets; persist enforces the
           # existing gate and still fails if no COMPLETE run can be obtained.
-          for attempt in 1 2 3; do
-            echo "Full-universe scan attempt $attempt/3"
+          for attempt in 1 2; do
+            echo "Full-universe scan attempt $attempt/2"
             python scripts/opportunity_radar_market_v2.py
             if python - <<'PY'
           import json
@@ -110,7 +180,7 @@ jobs:
               echo "Fresh completed-session coverage accepted."
               break
             fi
-            if [ "$attempt" -lt 3 ]; then
+            if [ "$attempt" -lt 2 ]; then
               echo "Coverage DEGRADED; waiting 7 minutes for provider bars to update."
               sleep 420
             else
