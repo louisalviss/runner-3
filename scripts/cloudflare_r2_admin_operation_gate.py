@@ -18,6 +18,7 @@ OPERATIONS = frozenset((
     "runner3-r2-bootstrap",
     "r2-media-bootstrap",
     "r2-lifecycle-30d",
+    "artifact-list-proof",
 ))
 
 def validate_admin_policy(raw, operation):
