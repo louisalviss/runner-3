@@ -38,8 +38,21 @@ def normalize_domain(s):
     return s[4:] if s.startswith("www.") else s
 
 def existing_flippa_states(exclude):
-    p = [*ROOT.glob("flippa-????????-state.json"), *ROOT.glob("flippa-????????-pm-state.json"), *ROOT.glob("flippa-????????-daily-state.json")]
-    return sorted([x for x in p if x != exclude and load(x, {}).get("recent_done")], key=lambda x:x.stat().st_mtime, reverse=True)
+    """Only earlier Flippa snapshots may be used for historical change comparisons."""
+    stamp = re.fullmatch(r'flippa-(\d{8})(?:-(?:pm|daily))?-state\.json', exclude.name)
+    anchor = stamp.group(1) if stamp else None
+    paths = [*ROOT.glob('flippa-????????-state.json'),
+             *ROOT.glob('flippa-????????-pm-state.json'),
+             *ROOT.glob('flippa-????????-daily-state.json')]
+    eligible = []
+    for path in paths:
+        if path == exclude or not load(path, {}).get('recent_done'):
+            continue
+        match = re.fullmatch(r'flippa-(\d{8})(?:-(?:pm|daily))?-state\.json', path.name)
+        if not match or (anchor is not None and match.group(1) >= anchor):
+            continue
+        eligible.append((match.group(1), path))
+    return [p for _, p in sorted(eligible, key=lambda r:(r[0],r[1].stat().st_mtime),reverse=True)]
 
 def run_flippa(day):
     """Invoke existing authenticated RawCDP source-owner, incremental recent/First Access only."""
@@ -86,18 +99,20 @@ def read_seo(day):
         reason = str(provider.get("reason", ""))
         terminal = terminals.get(domain, {})
         terminal_verdict = str(terminal.get("verdict") or "")
-        if auth_blocked(provider) or final.get("status") == "BLOCKED" or (provider.get("status") not in ("PASS",) and final.get("status") != "PASS"):
+        # A successful domain export does not clear an unfinished exact-SERP gate.
+        # Preserve the source's per-domain BLOCKED status instead of labelling it WATCH.
+        if auth_blocked(provider) or provider.get("status") != "PASS":
             state = "BLOCKED_PROVIDER"
+        elif final.get("status") not in ("PASS", "DEGRADED") or terminal_verdict in ("", "BLOCKED"):
+            state = "BLOCKED_SERP"
         elif terminal_verdict == "DROP":
             state = "DROP"
         elif terminal_verdict == "BUILD":
             state = "SEO_BUILD_TEST"
         elif terminal_verdict == "WATCH":
             state = "WATCH_DD" if terminal.get("product_intent_checked") else "WATCH_RESEARCH"
-        elif provider.get("status") == "PASS":
-            state = "WATCH_RESEARCH"
         else:
-            state = "BLOCKED_PROVIDER"
+            state = "BLOCKED_SERP"
         rows.append({"identity":domain, "domain":domain, "source":"SEOTRENDS", "title":x.get("title", ""), "score":x.get("discovery_score",0), "verdict":state, "reason":(terminal.get("reason") or reason)[:200], "metrics":terminal.get("metrics") or {}, "product_intent_checked":terminal.get("product_intent_checked") is True, "serp_gate":terminal.get("serp_gate"), "terminal_verdict":terminal_verdict or None, "research":["Semrush existing broker","exact SERP","business/Niche DD"]})
     return {"items":rows, "added":queue.get("added_total"),"scanned":queue.get("scanned"),"pending":queue.get("pending"),"source_complete":bool(queue.get("scan_terminal")),"provider_status":sem.get("status","MISSING"),"terminal_status":final.get("status","MISSING")}
 
@@ -240,11 +255,14 @@ def main(argv=None):
     ap=argparse.ArgumentParser()
     ap.add_argument("--date",default=dt.datetime.now(TZ).date().isoformat())
     ap.add_argument("--run-flippa",action="store_true")
+    ap.add_argument("--checkpoint-only",action="store_true")
     ap.add_argument("--flippa-state")
     ap.add_argument("--previous-state")
     ap.add_argument("--deep")
     ap.add_argument("--dry-run",action="store_true")
     args=ap.parse_args(argv)
+    if args.checkpoint_only and args.run_flippa:
+        ap.error("--checkpoint-only cannot run source scanners")
     scan_error = None
     default_current = ROOT/("flippa-"+args.date.replace("-","")+"-daily-state.json")
     current = pathlib.Path(args.flippa_state) if args.flippa_state else default_current
@@ -261,8 +279,25 @@ def main(argv=None):
         preliminary=read_flippa(current,prev)
         if preliminary.get('status')=='PASS':
             ids=candidates_for_daily(preliminary,limit=3)
-            detail_check=capture_flippa_deep(ids,args.date)
+            # Detail browser dependencies live in the existing bridge venv, not /usr/bin/python3.
+            # Run only these bounded listing IDs in that interpreter; never rescan Flippa discovery.
+            try:
+                detail_proc=subprocess.run([VENV,str(ROOT/'flippa_deep_daily.py'),'--date',args.date,'--ids',*ids],capture_output=True,text=True,timeout=240,check=False)
+                if detail_proc.returncode:
+                    detail_check={'status':'BLOCKED','reason':'DETAIL_SUBPROCESS_EXIT_'+str(detail_proc.returncode),'requested':len(ids),'items':0}
+                else:
+                    detail_check=json.loads(detail_proc.stdout.strip().splitlines()[-1])
+            except (OSError,ValueError,IndexError,subprocess.TimeoutExpired) as detail_exc:
+                detail_check={'status':'BLOCKED','reason':'DETAIL_RUNNER_'+type(detail_exc).__name__,'requested':len(ids),'items':0}
             deep_path=resolve_deep(args.date)
+    if args.checkpoint_only:
+        state = load(ROOT/("flippa-deep-"+args.date.replace("-","")+"-state.json"),{})
+        observed = load(deep_path,[]) if deep_path else []
+        valid = (state.get("date")==args.date and state.get("status")=="PASS" and
+                 isinstance(observed,list) and len(observed)==state.get("items") and
+                 all(x.get("status")==200 and x.get("challenge")=="NONE" for x in observed))
+        detail_check = ({"status":"PASS","items":len(observed),"requested":state.get("requested"),"source":"VALID_CACHED_DEEP"}
+                        if valid else {"status":"BLOCKED","items":0,"reason":"SAME_DAY_DETAIL_CACHE_INVALID"})
     value = build(args.date,current,prev,deep_path)
     if detail_check is not None:
         value['flippa_detail']=detail_check
@@ -308,7 +343,7 @@ def main(argv=None):
     prior = load(target,{})
     if prior.get("source_sha256") == source_hash:
         print("ALREADY_CHECKPOINTED",target)
-        if args.run_flippa:
+        if args.run_flippa or args.checkpoint_only:
             persisted=load(OUT/(args.date+"-research-queue.json"),{})
             saved=OUT/(args.date+"-report.md")
             saved_text=saved.read_text(encoding="utf-8") if saved.is_file() else txt
@@ -321,7 +356,7 @@ def main(argv=None):
     atomic(OUT/(args.date+"-research-queue.json"),json.dumps(value,ensure_ascii=False,indent=2))
     atomic(target,json.dumps({"date":args.date,"source_sha256":source_hash,"status":value["overall"],"flippa_state":str(current),"previous_state":str(prev) if prev else None,"research_count":len(value["research_queue"]),"qualification_status":value["qualification"]["status"],"qualified_dd_count":len(value["qualification"]["actionable_dd"]),"approved_buy":0,"approved_build":0},indent=2))
     print("CHECKPOINT_PASS",target,"status",value["overall"],"research",len(value["research_queue"]))
-    if args.run_flippa:
+    if args.run_flippa or args.checkpoint_only:
         p=publish_daily(args.date,value,txt)
         print("DAILY_DROPBOX",json.dumps({"status":p["status"],"label":p.get("label")}))
         if p["status"] not in ("PASS","ALREADY_PUBLISHED"):
