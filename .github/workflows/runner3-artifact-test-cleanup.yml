@@ -24,7 +24,25 @@ jobs:
       RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
       BASE_URL: https://runner3-core.ducduy2411.workers.dev
     steps:
+      - name: Checkout billing HOLD gate
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Admit R2 cleanup only after reviewed billing release
+        id: r2_admission
+        shell: bash
+        run: |
+          if python3 scripts/cloudflare_r2_migration_gate.py; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            echo "R2_TEST_CLEANUP_RELEASE_ACCEPTED"
+          else
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "R2_TEST_CLEANUP_SKIPPED_COST_HOLD"
+          fi
+
       - name: Dry-run, delete strict test artifacts, verify DCC safety
+        if: ${{ steps.r2_admission.outputs.allowed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
