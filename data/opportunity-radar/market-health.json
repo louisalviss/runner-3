@@ -1,16 +1,16 @@
 {
   "schema_version": 2.0,
-  "generated_at": "2026-10-16T07:59:23.114575+07:00",
+  "generated_at": "2026-10-16T16:18:51.839338+07:00",
   "source_session_date": "2026-10-15",
   "expected_latest_completed_us_session": "2026-10-15",
-  "status": "DEGRADED",
-  "reason_code": "INSUFFICIENT_FRESH_SESSION_COVERAGE",
-  "complete": false,
+  "status": "COMPLETE",
+  "reason_code": null,
+  "complete": true,
   "signal_count": 80,
-  "prefilter_count": 1611,
+  "prefilter_count": 2749,
   "prefilter_schema": "opportunity-radar-market-prefilter-v1",
-  "prefilter_sha256": "6b29ad87093c054366a73163ea50e6b8a2132037340db9a31de74a5cbae3c55b",
-  "prefilter_built_utc": "2026-10-16T00:59:23.114575+00:00",
+  "prefilter_sha256": "ba5924f916b6258ce3b0f33a91014c6716c7550beeb3c82cf6232dd0ffb7ba91",
+  "prefilter_built_utc": "2026-10-16T09:18:51.839338+00:00",
   "prefilter_source": "data/opportunity-radar/market-prefilter.json",
   "scanner_version": "2.3-nasdaq-raw-review",
   "d1_checkpoint_binding": {
@@ -24,292 +24,26 @@
   "history_requested": 2753,
   "history_returned": 2753,
   "history_coverage": 1.0,
-  "fresh_history_coverage": 0.5851798038503451,
-  "stale_history_suppressed": 1142,
+  "fresh_history_coverage": 0.998547039593171,
+  "stale_history_suppressed": 4,
   "freshness_recovery": {
-    "stale_before_retry": 1142,
-    "retry_attempted": 63,
+    "stale_before_retry": 4,
+    "retry_attempted": 4,
     "retry_recovered": 0,
     "retry_errors": 0,
-    "retry_unattempted": 1079,
+    "retry_unattempted": 0,
     "retry_source": "YAHOO_EXPLICIT_WINDOW_SERIAL",
-    "independent_snapshot_shocks_unverified": [
-      {
-        "symbol": "BSP",
-        "pctchange": 41.204,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "LQDA",
-        "pctchange": 26.595,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "BLZE",
-        "pctchange": -22.262,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "DFH",
-        "pctchange": -19.523,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "PWP",
-        "pctchange": -19.13,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "EOSE",
-        "pctchange": -15.948,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "BRUN",
-        "pctchange": -15.867,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "CRWV",
-        "pctchange": -15.461,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "UNIT",
-        "pctchange": -15.188,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "FRMI",
-        "pctchange": -15.054,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "DOCN",
-        "pctchange": -14.757,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "EROC",
-        "pctchange": -14.1,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "WOLF",
-        "pctchange": -13.966,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "PENG",
-        "pctchange": -13.568,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "RXT",
-        "pctchange": -13.361,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "GDS",
-        "pctchange": -12.635,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "ULCC",
-        "pctchange": -12.545,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "CORZ",
-        "pctchange": -12.443,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "CIFR",
-        "pctchange": -12.346,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "PSIX",
-        "pctchange": -12.298,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "IREN",
-        "pctchange": -12.184,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "AAOI",
-        "pctchange": -11.822,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "XMTR",
-        "pctchange": -11.816,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "ABTC",
-        "pctchange": -11.663,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "CDNL",
-        "pctchange": -11.6,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "KOD",
-        "pctchange": -11.503,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "DELL",
-        "pctchange": -11.274,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "U",
-        "pctchange": -11.216,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "BTDR",
-        "pctchange": -11.183,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "KEEL",
-        "pctchange": -11.15,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      }
-    ],
-    "wide_retry_skipped_reason": "LOW_PROBE_RECOVERY",
+    "independent_snapshot_shocks_unverified": [],
+    "wide_retry_skipped_reason": null,
     "nasdaq_raw_shock_probe": {
-      "source": "NASDAQ_PUBLIC_HISTORICAL_RAW_OHLC",
-      "source_session_date": "2026-10-15",
-      "policy": "DIAGNOSTIC_ONLY_NOT_ADJUSTED_NO_SIGNALS_NO_COVERAGE_CREDIT",
-      "requested": 20,
-      "confirmed_raw_moves": [],
-      "unverified": [
-        {
-          "symbol": "BSP",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "LQDA",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "BLZE",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "DFH",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "PWP",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "EOSE",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "BRUN",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "CRWV",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "UNIT",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "FRMI",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "DOCN",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "EROC",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "WOLF",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "PENG",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "RXT",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "GDS",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "ULCC",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "CORZ",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "CIFR",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        },
-        {
-          "symbol": "PSIX",
-          "reason": "MISSING_COMPLETED_SESSION_BAR"
-        }
-      ],
-      "errors": 0
+      "policy": "NOT_NEEDED_FRESH_COVERAGE_PASS",
+      "requested": 0,
+      "confirmed_raw_moves": []
     }
   },
   "snapshot_ok": true,
   "snapshot_error": null,
-  "early_watch": 24,
+  "early_watch": 43,
   "early_watch_emitted": 24,
   "raw_anomaly_emitted": 56,
   "continuation": 0,
