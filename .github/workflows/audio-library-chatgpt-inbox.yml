@@ -41,18 +41,33 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      - name: Admit Audio Library R2 read operations only when billing released
+        id: billing_admission
+        shell: bash
+        run: |
+          if python3 scripts/cloudflare_r2_migration_gate.py; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            echo "AUDIO_R2_INBOX_ADMITTED"
+          else
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "AUDIO_R2_INBOX_SKIPPED_COST_HOLD"
+          fi
+
       - uses: actions/setup-python@v5
+        if: steps.billing_admission.outputs.allowed == 'true'
         with:
           python-version: '3.12'
           cache: pip
 
       - name: Install extraction dependencies
+        if: steps.billing_admission.outputs.allowed == 'true'
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install -q -U requests beautifulsoup4 lxml pypdf yt-dlp playwright 'cryptography>=45,<47'
 
       - name: Validate shared Reddit and Audio Library extractors
+        if: steps.billing_admission.outputs.allowed == 'true'
         run: |
           set -euo pipefail
           python -m py_compile \
@@ -62,12 +77,14 @@ jobs:
             scripts/audio_library_extract_for_chatgpt_r2.py
 
       - name: Require scoped Core credential
+        if: steps.billing_admission.outputs.allowed == 'true'
         shell: bash
         run: |
           set -euo pipefail
           test -n "${RUNNER3_CORE_TOKEN:-}"
 
       - name: Read Library and extract raw source for ChatGPT
+        if: steps.billing_admission.outputs.allowed == 'true'
         id: extract
         continue-on-error: true
         shell: bash
@@ -81,7 +98,7 @@ jobs:
           exit $code
 
       - name: Publish encrypted inbox and checkpoint
-        if: always()
+        if: always() && steps.billing_admission.outputs.allowed == 'true'
         env:
           EXTRACT_OUTCOME: ${{ steps.extract.outcome }}
           EXTRACT_EXIT_CODE: ${{ steps.extract.outputs.exit_code }}
