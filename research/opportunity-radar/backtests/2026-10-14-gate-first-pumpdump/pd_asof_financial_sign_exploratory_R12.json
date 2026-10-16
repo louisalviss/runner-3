@@ -1,0 +1,133 @@
+{
+  "source_all_events": 1139,
+  "matured_events": 951,
+  "filter_exploratory_posthoc": true,
+  "groups": {
+    "MIXED_SIGNS": {
+      "n": 196,
+      "days": 12,
+      "issuers": 117,
+      "net5_mean_pct": -0.044,
+      "net5_median_pct": -0.827,
+      "win_pct": 46.4,
+      "net5_SPY_excess_mean_pp": -0.566
+    },
+    "LOSS_AND_CASH_BURN": {
+      "n": 286,
+      "days": 12,
+      "issuers": 178,
+      "net5_mean_pct": -2.323,
+      "net5_median_pct": -3.101,
+      "win_pct": 37.4,
+      "net5_SPY_excess_mean_pp": -2.614
+    },
+    "MISSING_COMPARABLE": {
+      "n": 175,
+      "days": 12,
+      "issuers": 131,
+      "net5_mean_pct": -0.614,
+      "net5_median_pct": -1.389,
+      "win_pct": 38.3,
+      "net5_SPY_excess_mean_pp": -0.953
+    },
+    "PROFIT_AND_CFO_POSITIVE": {
+      "n": 294,
+      "days": 12,
+      "issuers": 210,
+      "net5_mean_pct": 1.094,
+      "net5_median_pct": 0.599,
+      "win_pct": 53.7,
+      "net5_SPY_excess_mean_pp": 0.452
+    }
+  },
+  "summary": {
+    "positive": {
+      "n": 294,
+      "days": 12,
+      "issuers": 210,
+      "net5_mean_pct": 1.094,
+      "net5_median_pct": 0.599,
+      "win_pct": 53.7,
+      "net5_SPY_excess_mean_pp": 0.452
+    },
+    "non_positive_or_missing": {
+      "n": 657,
+      "days": 12,
+      "issuers": 426,
+      "net5_mean_pct": -1.188,
+      "net5_median_pct": -1.868,
+      "win_pct": 40.3,
+      "net5_SPY_excess_mean_pp": -1.561
+    },
+    "positive_subgroups": {
+      "PUMP": {
+        "n": 138,
+        "days": 12,
+        "issuers": 105,
+        "net5_mean_pct": -0.195,
+        "net5_median_pct": -0.288,
+        "win_pct": 48.6,
+        "net5_SPY_excess_mean_pp": -0.535
+      },
+      "DUMP": {
+        "n": 156,
+        "days": 11,
+        "issuers": 140,
+        "net5_mean_pct": 2.234,
+        "net5_median_pct": 1.721,
+        "win_pct": 58.3,
+        "net5_SPY_excess_mean_pp": 1.326
+      }
+    },
+    "first_per_issuer": {
+      "n": 210,
+      "days": 12,
+      "issuers": 210,
+      "net5_mean_pct": 1.21,
+      "net5_median_pct": 0.491,
+      "win_pct": 53.3,
+      "net5_SPY_excess_mean_pp": 0.357
+    },
+    "matched_day_direction_vs_not_positive": {
+      "n_date_clusters": 12,
+      "n_event_rows": 294,
+      "observed_matched_diff_pp": 0.3514,
+      "bootstrap_seed": 314159,
+      "runs": 25000,
+      "lower_2p5": -1.7214,
+      "upper_97p5": 2.7847
+    },
+    "winsorization": {
+      "cutoffs_2p5_97p5": [
+        -22.317,
+        22.1439
+      ],
+      "positive": 0.9768,
+      "other": -1.2704
+    },
+    "positive_restricted_liquid": {
+      "n": 150,
+      "days": 12,
+      "issuers": 117,
+      "net5_mean_pct": 0.791,
+      "net5_median_pct": 0.284,
+      "win_pct": 53.3,
+      "net5_SPY_excess_mean_pp": 0.283
+    },
+    "positive_no_recent_sec": {
+      "n": 241,
+      "days": 12,
+      "issuers": 178,
+      "net5_mean_pct": 1.377,
+      "net5_median_pct": 1.099,
+      "win_pct": 56.0,
+      "net5_SPY_excess_mean_pp": 0.753
+    }
+  },
+  "failure_modes": [
+    "Profit+CFO positive is already available as-of acceptance but the hypothesis was selected after inspecting R12; no OOS alpha proof.",
+    "Quarter NI and YTD CFO reported periods vary; only signs compared, not true common TTM.",
+    "Price-only next-open execution violates any undefined original Entry zone.",
+    "Causal catalyst, Score, MQ, fair-value upside and downside remain missing, so no original full Gate PASS invented."
+  ]
+}
