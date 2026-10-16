@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse, json, pathlib, subprocess, time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 BASE=pathlib.Path('/var/lib/seotrends-public'); SCANS=BASE/'scans'; SEM=BASE/'scripts/semrush_daily.py'; TERM=BASE/'scripts/terminal_funnel.py'
 REPORT=BASE/'backfill-repair-latest.json'
@@ -27,9 +28,20 @@ def quota_blocked(day):
             'SEMRUSH_REPORT_LIMIT' in str(sem.get('global_blocker') or '') or
             '-2004' in str(sem.get('global_blocker') or ''))
 
+def auth_blocked(day):
+    sem=load(SCANS/f'{day}-semrush-results.json')
+    term=load(SCANS/f'{day}-serp-dd-product-v2/state.json')
+    markers=('SEMRUSH_LIVE_AUTH_UNAVAILABLE','NOX_LOGIN_CHALLENGE',
+             'NOX_DASHBOARD_CHALLENGE','NOX_LOGIN_REQUIRED',
+             'SEMRUSH_ONE_SHOT_RECOVERY_FAILED')
+    return ((sem.get('status')=='BLOCKED' and
+             any(x in str(sem.get('global_blocker') or '') for x in markers)) or
+            (term.get('stage')=='BLOCKED_LIVE_AUTH' and
+             any(x in str(term.get('blocker') or '') for x in markers)))
+
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--days',type=int,default=14); ap.add_argument('--exclude-today',action='store_true'); a=ap.parse_args()
-    today=datetime.now(timezone.utc).date(); report=[]
+    today=datetime.now(ZoneInfo('Asia/Ho_Chi_Minh')).date(); report=[]
     for delta in range(0,a.days+1):
         d=today-timedelta(days=delta)
         if a.exclude_today and d==today: continue
@@ -43,6 +55,11 @@ def main():
             rec['retry_after_seconds']=cooldown_remaining()
             report.append(rec)
             break
+        if auth_blocked(day):
+            # Only a verified handoff resume may reopen this provider-auth gate.
+            rec['status']='BLOCKED_LIVE_AUTH'
+            report.append(rec)
+            break
         if before not in ('PASS','PASS_EMPTY'):
             try: rec['semrush']=run(['python3',str(SEM),'--date',day],1200)
             except subprocess.TimeoutExpired: rec['semrush']={'rc':124,'stderr':'timeout'}
@@ -53,6 +70,9 @@ def main():
         terminal_after=load(tr).get('status'); rec['terminal_after']=terminal_after
         rec['changed']=(before!=after) or (terminal_before!=terminal_after)
         report.append(rec)
+        if auth_blocked(day):
+            rec['status']='BLOCKED_LIVE_AUTH'
+            break
         if quota_blocked(day):
             rec['status']='BLOCKED_QUOTA_LIMIT'
             break
@@ -60,6 +80,6 @@ def main():
             rec['status']='BLOCKED_RATE_LIMIT'
             rec['retry_after_seconds']=cooldown_remaining()
             break
-    payload={'status':(report[-1]['status'] if report and report[-1].get('status') in ('BLOCKED_RATE_LIMIT','BLOCKED_QUOTA_LIMIT') else 'PASS'),'generated_at':datetime.now(timezone.utc).isoformat(),'window_days':a.days,'exclude_today':a.exclude_today,'checked':len(report),'changed_dates':[r['date'] for r in report if r.get('changed')],'report':report}
+    payload={'status':(report[-1]['status'] if report and report[-1].get('status') in ('BLOCKED_RATE_LIMIT','BLOCKED_QUOTA_LIMIT','BLOCKED_LIVE_AUTH') else 'PASS'),'generated_at':datetime.now(timezone.utc).isoformat(),'window_days':a.days,'exclude_today':a.exclude_today,'checked':len(report),'changed_dates':[r['date'] for r in report if r.get('changed')],'report':report}
     atomic(REPORT,payload); print(json.dumps(payload,ensure_ascii=False)); return 0
 if __name__=='__main__': raise SystemExit(main())
