@@ -1,0 +1,132 @@
+{
+  "DUMP_matured_total": 432,
+  "positive": {
+    "n": 156,
+    "days": 11,
+    "tickers": 140,
+    "avg_net5": 2.2343,
+    "median_net5": 1.7211,
+    "SPY_excess": 1.3257,
+    "winpct": 58.3
+  },
+  "non_positive": {
+    "n": 276,
+    "days": 12,
+    "tickers": 237,
+    "avg_net5": -0.9482,
+    "median_net5": -1.4966,
+    "SPY_excess": -1.4475,
+    "winpct": 40.6
+  },
+  "positive_first_event_per_issuer": {
+    "n": 140,
+    "days": 11,
+    "tickers": 140,
+    "avg_net5": 2.6528,
+    "median_net5": 1.9555,
+    "SPY_excess": 1.6235,
+    "winpct": 58.6
+  },
+  "positive_liquid_vol": {
+    "n": 72,
+    "days": 11,
+    "tickers": 65,
+    "avg_net5": 1.3131,
+    "median_net5": 0.2138,
+    "SPY_excess": 0.5545,
+    "winpct": 51.4
+  },
+  "positive_no_recent_SEC": {
+    "n": 129,
+    "days": 10,
+    "tickers": 115,
+    "avg_net5": 2.4358,
+    "median_net5": 2.026,
+    "SPY_excess": 1.5356,
+    "winpct": 61.2
+  },
+  "positive_recent_SEC": {
+    "n": 27,
+    "days": 9,
+    "tickers": 26,
+    "avg_net5": 1.2718,
+    "median_net5": -0.0575,
+    "SPY_excess": 0.3229,
+    "winpct": 44.4
+  },
+  "date_matched_vs_other_dump": {
+    "events": 156,
+    "source_dates": 11,
+    "mean_gap_pp": 0.3949,
+    "date_bootstrap_reps": 30000,
+    "seed": 271828,
+    "CI95_pp": [
+      -2.6483,
+      3.6406
+    ],
+    "positive_date_count": 7,
+    "per_day": {
+      "2026-09-14": {
+        "positive_events": 54,
+        "difference_pp": -0.307,
+        "outperform_eventshare": 0.35
+      },
+      "2026-09-15": {
+        "positive_events": 20,
+        "difference_pp": -7.458,
+        "outperform_eventshare": 0.1
+      },
+      "2026-09-16": {
+        "positive_events": 13,
+        "difference_pp": -2.903,
+        "outperform_eventshare": 0.31
+      },
+      "2026-09-17": {
+        "positive_events": 4,
+        "difference_pp": 3.325,
+        "outperform_eventshare": 1.0
+      },
+      "2026-09-18": {
+        "positive_events": 2,
+        "difference_pp": -9.478,
+        "outperform_eventshare": 0.0
+      },
+      "2026-09-21": {
+        "positive_events": 5,
+        "difference_pp": 4.018,
+        "outperform_eventshare": 0.8
+      },
+      "2026-09-22": {
+        "positive_events": 7,
+        "difference_pp": 2.766,
+        "outperform_eventshare": 1.0
+      },
+      "2026-09-23": {
+        "positive_events": 36,
+        "difference_pp": 3.376,
+        "outperform_eventshare": 0.72
+      },
+      "2026-09-24": {
+        "positive_events": 8,
+        "difference_pp": 1.834,
+        "outperform_eventshare": 0.62
+      },
+      "2026-09-25": {
+        "positive_events": 5,
+        "difference_pp": 15.22,
+        "outperform_eventshare": 1.0
+      },
+      "2026-10-05": {
+        "positive_events": 2,
+        "difference_pp": 9.502,
+        "outperform_eventshare": 1.0
+      }
+    }
+  },
+  "critical_caveats": [
+    "Selected as exploratory posthoc after viewing R12 results: not OOS pre-registered strategy.",
+    "Only 11 dates with positive NI+CFO DUMP; event outcomes not statistically independent",
+    "Issuer/daily bar may lack intraday entry compliance and market hours; canonical original Gate not reconstructed",
+    "Financial sign of reported quarter/YTD CFO not normalized common TTM."
+  ]
+}

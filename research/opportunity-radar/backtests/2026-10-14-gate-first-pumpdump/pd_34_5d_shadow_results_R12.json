@@ -1,0 +1,164 @@
+{
+  "source": "R9 original time-qualified event list and R10 originally predeclared due diligence queue (no forward selection)",
+  "full_events": 1139,
+  "matured_5d": 951,
+  "original_queue_all": 34,
+  "queue_matured_5d": 30,
+  "queue_censored_5d": 4,
+  "all_matured": {
+    "n": 951,
+    "issuers": 636,
+    "days": 12,
+    "mean_net5_pct": -0.4823,
+    "median_net5_pct": -1.097,
+    "winrate_pct": 44.48,
+    "mean_SPY_excess_pp": -0.9385,
+    "min_net5_pct": -40.5,
+    "max_net5_pct": 76.861
+  },
+  "queue": {
+    "n": 30,
+    "issuers": 24,
+    "days": 12,
+    "mean_net5_pct": -1.2871,
+    "median_net5_pct": -1.8357,
+    "winrate_pct": 33.33,
+    "mean_SPY_excess_pp": -1.94,
+    "min_net5_pct": -18.442,
+    "max_net5_pct": 33.137
+  },
+  "not_queue": {
+    "n": 921,
+    "issuers": 617,
+    "days": 12,
+    "mean_net5_pct": -0.4561,
+    "median_net5_pct": -1.0453,
+    "winrate_pct": 44.84,
+    "mean_SPY_excess_pp": -0.9059,
+    "min_net5_pct": -40.5,
+    "max_net5_pct": 76.861
+  },
+  "queue_PUMP": {
+    "n": 15,
+    "issuers": 12,
+    "days": 11,
+    "mean_net5_pct": -3.0645,
+    "median_net5_pct": -1.8924,
+    "winrate_pct": 33.33,
+    "mean_SPY_excess_pp": -3.6173,
+    "min_net5_pct": -18.442,
+    "max_net5_pct": 15.734
+  },
+  "queue_DUMP": {
+    "n": 15,
+    "issuers": 14,
+    "days": 9,
+    "mean_net5_pct": 0.4903,
+    "median_net5_pct": -1.4352,
+    "winrate_pct": 33.33,
+    "mean_SPY_excess_pp": -0.2626,
+    "min_net5_pct": -10.946,
+    "max_net5_pct": 33.137
+  },
+  "queue_no_FPS": {
+    "n": 27,
+    "issuers": 23,
+    "days": 12,
+    "mean_net5_pct": -2.2386,
+    "median_net5_pct": -2.8293,
+    "winrate_pct": 29.63,
+    "mean_SPY_excess_pp": -2.8266,
+    "min_net5_pct": -18.442,
+    "max_net5_pct": 33.137
+  },
+  "queue_first_event_per_symbol": {
+    "n": 24,
+    "issuers": 24,
+    "days": 11,
+    "mean_net5_pct": 0.0309,
+    "median_net5_pct": -1.351,
+    "winrate_pct": 37.5,
+    "mean_SPY_excess_pp": -0.7893,
+    "min_net5_pct": -18.442,
+    "max_net5_pct": 33.137
+  },
+  "queue_matured_unique_issuers": 24,
+  "matching": {
+    "by": "original signal session + direction (PUMP or DUMP) vs all other matured events, no future outcome in selection",
+    "matched_n": 30,
+    "source_days": 12,
+    "observations_weighted_diff_pp": -0.9473,
+    "equal_dates_diff_pp": -1.5071,
+    "bootstrap_seed": 20261017,
+    "bootstrap_reps": 25000,
+    "cluster_observation_weight_CI95pp": [
+      -3.705,
+      1.477
+    ],
+    "cluster_equal_date_CI95pp": [
+      -4.816,
+      1.458
+    ]
+  },
+  "univariate_and_pair_sensitivity_not_decision_rules": {
+    "profit_positive": [
+      {
+        "n": 294,
+        "issuers": 210,
+        "days": 12,
+        "mean_net5_pct": 1.0941,
+        "median_net5_pct": 0.5985,
+        "winrate_pct": 53.74,
+        "mean_SPY_excess_pp": 0.4522,
+        "min_net5_pct": -22.927,
+        "max_net5_pct": 33.137
+      }
+    ],
+    "profit_plus_liquid": [
+      {
+        "n": 150,
+        "issuers": 117,
+        "days": 12,
+        "mean_net5_pct": 0.7913,
+        "median_net5_pct": 0.2838,
+        "winrate_pct": 53.33,
+        "mean_SPY_excess_pp": 0.2825,
+        "min_net5_pct": -22.927,
+        "max_net5_pct": 33.137
+      }
+    ],
+    "profit_plus_recent_SEC": [
+      {
+        "n": 53,
+        "issuers": 45,
+        "days": 12,
+        "mean_net5_pct": -0.191,
+        "median_net5_pct": -0.2911,
+        "winrate_pct": 43.4,
+        "mean_SPY_excess_pp": -0.9143,
+        "min_net5_pct": -18.442,
+        "max_net5_pct": 33.137
+      }
+    ],
+    "liquid_plus_recent_SEC": [
+      {
+        "n": 96,
+        "issuers": 84,
+        "days": 12,
+        "mean_net5_pct": -2.2799,
+        "median_net5_pct": -2.2336,
+        "winrate_pct": 35.42,
+        "mean_SPY_excess_pp": -2.7016,
+        "min_net5_pct": -24.947,
+        "max_net5_pct": 33.137
+      }
+    ]
+  },
+  "guardrails": [
+    "This is an as-of-exposure price-only counterfactual ignoring actual Gate Score/RR/Entry fill, NOT original canonical Gate P&L.",
+    "Price-only outcomes have overlapping issuer/5D periods and date clustering; 12 dates cannot establish alpha.",
+    "All date and direction matching is AFTER outcomes for diagnostic only; no hindsight selection.",
+    "Once-per-issuer de-dup uses first chronological matched matured occurrence, not best return.",
+    "20D not evaluated as fully matured for all event dates; never selectively infer strategy profitability."
+  ]
+}
