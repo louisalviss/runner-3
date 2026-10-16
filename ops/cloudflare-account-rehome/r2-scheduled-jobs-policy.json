@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "gate_id": "CLOUDFLARE-R2-SCHEDULED-JOBS-001",
+  "account_source": "7415a87f6bce7884e73ad7cfed5782df",
+  "account_target": "748a80810f77f447ee476543ef0e5014",
+  "status": "HOLD",
+  "permit_scheduled_r2_jobs": false,
+  "jobs": {
+    "runner3-artifact-test-cleanup": false,
+    "reader-r2-catalog-enrich": false,
+    "audio-library-chatgpt-inbox": false,
+    "audio-library-chatgpt-packets": false
+  },
+  "rule": "A migration budget approval must NOT automatically restart scheduled R2 cleanup/enrichment/audio-media jobs. Each scheduled job requires separately documented explicit release.",
+  "required_releases": [
+    "Canonical R2 cost task VERIFYING->CONTROLLED and user-approved budget",
+    "General R2 migration gate USER_APPROVED+permit true",
+    "This scheduled job policy USER_APPROVED+permit_scheduled_r2_jobs true",
+    "Exact job approved=true after per-job impact review"
+  ],
+  "no_token_or_env_override": true
+}
