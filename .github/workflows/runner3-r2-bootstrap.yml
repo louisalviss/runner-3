@@ -25,7 +25,19 @@ jobs:
         with:
           ref: main
 
+      - name: Require R2 cost and per-operation release
+        id: r2_admin
+        shell: bash
+        run: |
+          if python3 scripts/cloudflare_r2_admin_operation_gate.py runner3-r2-bootstrap; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "R2_ADMIN_WORKFLOW_SKIPPED_BILLING_HOLD"
+          fi
+
       - name: Create or reuse private R2 bucket
+        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -103,7 +115,7 @@ jobs:
           PY
 
       - name: Persist R2 bootstrap proof
-        if: always()
+        if: ${{ always() && steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
