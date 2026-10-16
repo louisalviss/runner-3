@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "status": "SOURCE_ONLY_USAGE_DELTA_NO_CONTENT_PARITY",
+  "source_account_id": "7415a87f6bce7884e73ad7cfed5782df",
+  "target_account_id": "748a80810f77f447ee476543ef0e5014",
+  "source": "GitHub Actions D1 Account Usage Watch authenticated source account job logs",
+  "source_inventory_count": 9,
+  "observation_window": "2026-10-16 UTC",
+  "samples": [
+    {
+      "run_id": 38836099829,
+      "observed_utc": "2026-10-16T01:37:15Z",
+      "total": 1592,
+      "by_database": {
+        "runner3-content-intelligence": 1437,
+        "louis-task-context": 123,
+        "runner3-core": 32,
+        "clm-copilot-calibration": 0,
+        "runner3-rss": 0,
+        "clm-copilot-v1": 0,
+        "volamidle-rogue-data": 0,
+        "personal-library": 0,
+        "runner3-opportunity-radar": 0
+      }
+    },
+    {
+      "run_id": 38867512726,
+      "observed_utc": "2026-10-16T07:29:10Z",
+      "total": 10359,
+      "by_database": {
+        "runner3-content-intelligence": 9705,
+        "louis-task-context": 513,
+        "runner3-core": 141,
+        "clm-copilot-calibration": 0,
+        "runner3-rss": 0,
+        "clm-copilot-v1": 0,
+        "volamidle-rogue-data": 0,
+        "personal-library": 0,
+        "runner3-opportunity-radar": 0
+      }
+    },
+    {
+      "run_id": 38902358160,
+      "observed_utc": "2026-10-16T12:41:58Z",
+      "total": 14722,
+      "by_database": {
+        "runner3-content-intelligence": 13620,
+        "louis-task-context": 867,
+        "runner3-core": 235,
+        "clm-copilot-calibration": 0,
+        "runner3-rss": 0,
+        "clm-copilot-v1": 0,
+        "volamidle-rogue-data": 0,
+        "personal-library": 0,
+        "runner3-opportunity-radar": 0
+      }
+    },
+    {
+      "run_id": 38941513602,
+      "observed_utc": "2026-10-16T17:40:38Z",
+      "total": 23161,
+      "by_database": {
+        "runner3-content-intelligence": 21620,
+        "louis-task-context": 1216,
+        "runner3-core": 325,
+        "clm-copilot-calibration": 0,
+        "runner3-rss": 0,
+        "clm-copilot-v1": 0,
+        "volamidle-rogue-data": 0,
+        "personal-library": 0,
+        "runner3-opportunity-radar": 0
+      }
+    }
+  ],
+  "last_observed_interval": {
+    "from_utc": "2026-10-16T12:41:58Z",
+    "to_utc": "2026-10-16T17:40:38Z",
+    "additional_write_operations": 8439,
+    "by_database": {
+      "runner3-content-intelligence": 8000,
+      "louis-task-context": 349,
+      "runner3-core": 90,
+      "clm-copilot-calibration": 0,
+      "runner3-rss": 0,
+      "clm-copilot-v1": 0,
+      "volamidle-rogue-data": 0,
+      "personal-library": 0,
+      "runner3-opportunity-radar": 0
+    },
+    "hot_database_priority": [
+      "runner3-content-intelligence",
+      "louis-task-context",
+      "runner3-core"
+    ]
+  },
+  "interpretation": "Each sample is day-to-date Cloudflare D1 rowsWritten metric. Differences approximate workload volume only. They DO NOT reveal exact new keys, row identity, updates vs inserts, target replication lag, or parity.",
+  "migration_preconditions": [
+    "Authorized current source+target D1 metadata and schema read-only",
+    "Immutable or scoped PK index plus row-digest and idempotent UPSERT policy",
+    "Retention of target-only rows, auth/mailbox state and write ordering",
+    "Initial schema/row sync in a distinct staged migration lane",
+    "Final delta catch-up with source as production authority",
+    "Independent target Worker/cron/service/binding parity",
+    "R2 COST_HOLD independent release and reversible user-approved cutover"
+  ],
+  "source_live_authority": true,
+  "target_live_parity_verified": false,
+  "remote_d1_writes_permitted": false,
+  "source_delete_permitted": false,
+  "target_worker_deploy_permitted": false,
+  "r2_cost_hold": true
+}
