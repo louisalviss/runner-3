@@ -24,7 +24,19 @@ jobs:
       EXPECTED_ACCOUNT_ID: '7415a87f6bce7884e73ad7cfed5782df'
     steps:
       - uses: actions/checkout@v4
+      - name: Require R2 cost and per-operation release
+        id: r2_admin
+        shell: bash
+        run: |
+          if python3 scripts/cloudflare_r2_admin_operation_gate.py cloudflare-rehome-r2-inventory; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "R2_ADMIN_WORKFLOW_SKIPPED_BILLING_HOLD"
+          fi
+
       - name: Aggregate R2 counts without exposing object keys or credentials
+        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -94,6 +106,7 @@ jobs:
           print('SOURCE_R2_INVENTORY_COMPLETE',len(result['buckets']))
           PY
       - name: Persist sanitized inventory
+        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
