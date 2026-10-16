@@ -38,7 +38,7 @@ jobs:
         id: billing_admission
         shell: bash
         run: |
-          if python3 scripts/cloudflare_r2_migration_gate.py; then
+          if python3 scripts/cloudflare_r2_scheduled_job_gate.py audio-library-chatgpt-packets; then
             echo "allowed=true" >> "$GITHUB_OUTPUT"
             echo "AUDIO_R2_PACKETS_ADMITTED"
           else
