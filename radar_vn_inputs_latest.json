@@ -1,40 +1,43 @@
 {
-  "generated_at": "2026-10-16T16:32:08.443512+00:00",
-  "status": "READY",
-  "render_allowed": true,
-  "full_quality": true,
-  "blocking_reasons": [],
-  "target_vietnam_date": "2026-10-16",
+  "generated_at": "2026-10-16T17:29:03.338279+00:00",
+  "status": "BLOCKED",
+  "render_allowed": false,
+  "full_quality": false,
+  "blocking_reasons": [
+    "trends_not_healthy_fresh_top10",
+    "f33_not_full_healthy_fresh"
+  ],
+  "target_vietnam_date": "2026-10-17",
   "inputs": {
     "trends": {
       "path": "trends_vn_latest.json",
-      "ok": true,
+      "ok": false,
       "status": "HEALTHY",
       "captured_at": "2026-10-16T12:44:51.067445+00:00",
-      "age_minutes": 227.3,
+      "age_minutes": 284.2,
       "top10_count": 10
     },
     "f33": {
       "path": "voz_f33_latest.json",
       "vietnam_date": "2026-10-16",
-      "ok": true,
+      "ok": false,
       "status": "HEALTHY",
-      "generated_at": "2026-10-16T12:47:42.563Z",
-      "age_minutes": 224.4,
-      "run_id": 38902746720,
-      "artifact_id": 12046293047,
+      "generated_at": "2026-10-16T17:28:46.604Z",
+      "age_minutes": 0.3,
+      "run_id": 38939605838,
+      "artifact_id": 12062307592,
       "threads_discovered": 20,
-      "expected_pages_total": 71,
-      "fetched_pages_total": 71,
+      "expected_pages_total": 107,
+      "fetched_pages_total": 107,
       "missing_pages_total": 0,
-      "posts_total": 1051
+      "posts_total": 1730
     },
     "forum_signal": {
       "path": "forum_signal_latest.json",
       "ok": true,
       "status": "HEALTHY",
       "generated_at": "2026-10-16T12:47:11.303Z",
-      "age_minutes": 225.0,
+      "age_minutes": 281.9,
       "run_id": 38902043581,
       "artifact_id": 12047171774,
       "crawl_outcome": "success"
