@@ -24,7 +24,7 @@ import json,sys
 try: j=json.load(open(sys.argv[1],encoding='utf-8'))
 except Exception: j={}
 why=str(j.get('global_blocker') or '')
-print('yes' if j.get('status')=='BLOCKED' and any(x in why for x in ('SEMRUSH_LIVE_AUTH_UNAVAILABLE','NOX_LOGIN_CHALLENGE','NOX_LOGIN_FORM_MISSING','SEMRUSH_HUMAN_HANDOFF_ACTIVE')) else 'no')
+print('yes' if j.get('status')=='BLOCKED' and any(x in why for x in ('SEMRUSH_LIVE_AUTH_UNAVAILABLE','NOX_LOGIN_CHALLENGE','NOX_LOGIN_FORM_MISSING','NOX_DASHBOARD_CHALLENGE','NOX_LOGIN_REQUIRED','NOX_SEMRUSH_LINKS_MISSING','SEMRUSH_HUMAN_HANDOFF_ACTIVE')) else 'no')
 PY
 }
 terminal_status(){
