@@ -26,7 +26,19 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      - name: Require R2 cost and per-operation release
+        id: r2_admin
+        shell: bash
+        run: |
+          if python3 scripts/cloudflare_r2_admin_operation_gate.py r2-lifecycle-30d; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "R2_ADMIN_WORKFLOW_SKIPPED_BILLING_HOLD"
+          fi
+
       - name: Read, merge and apply lifecycle rule
+        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -95,7 +107,7 @@ jobs:
           PY
 
       - name: Persist lifecycle verification
-        if: always()
+        if: ${{ always() && steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
