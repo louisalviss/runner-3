@@ -74,7 +74,8 @@ jobs:
           echo CLM_R2_COPY_VERIFY_OK
 
       - name: Deploy R2-backed CLM worker
-        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
+        # Explicitly disabled: old-account deploy/cutover requires independent parity and authorization.
+        if: ${{ false }}
         shell: bash
         working-directory: ops/clm-copilot-r2
         run: |
@@ -83,7 +84,8 @@ jobs:
           npx --yes wrangler@4 deploy
 
       - name: Live CLM R2 smoke and feedback readback
-        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
+        # Explicitly disabled: old-account deploy/cutover requires independent parity and authorization.
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
