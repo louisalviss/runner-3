@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resume the SAME day's stored Semrush shortlist only after a genuine completed human handoff.
+"""Resume the SAME day's stored Semrush shortlist only after a verified human handoff.
 Never refresh the discovery corpus, bypass CAPTCHA, auto-login or replay a previous day.
 """
 from __future__ import annotations
@@ -20,7 +20,8 @@ def decision(day):
     today=datetime.datetime.now(ZoneInfo('Asia/Ho_Chi_Minh')).date()
     try: target=datetime.date.fromisoformat(day)
     except ValueError: return {'state':'INVALID_DAY'}
-    if not 0 <= (today-target).days <= 1:
+    age_days=(today-target).days
+    if not 0 <= age_days <= 7:
         return {'state':'OUTSIDE_RECOVERY_WINDOW'}
     q=SEO/(day+'-semrush-queue.json')
     s=SEO/(day+'-semrush-results.json')
@@ -43,6 +44,8 @@ def decision(day):
         mode='SERP_ONLY'
         last_attempt=t
     elif r.get('status')=='BLOCKED':
+        if age_days>1:
+            return {'state':'OUTSIDE_EXPORT_RECOVERY_WINDOW'}
         reason=str(r.get('global_blocker') or '')
         if not any(x in reason for x in ('SEMRUSH_LIVE_AUTH_UNAVAILABLE', 'NOX_LOGIN_CHALLENGE',
                                          'NOX_LOGIN_FORM_MISSING','SEMRUSH_HUMAN_HANDOFF_ACTIVE')):
@@ -59,7 +62,8 @@ def decision(day):
         except ValueError: pass
     valid=[x for x in events if x.get('event')=='HUMAN_HANDOFF_RESULT'
            and x.get('status')=='CAPTCHA_ACCEPTED' and x.get('ok') is True
-           and x.get('same_session') is True and x.get('service','semrush')=='semrush']
+           and x.get('same_session') is True and x.get('service')=='semrush'
+           and x.get('profile')=='noxtools-main' and x.get('auth_verified') is True]
     if not valid:
         return {'state':'NO_ACCEPTED_SAME_SESSION_HANDOFF'}
     age=time.time()-LOG.stat().st_mtime
