@@ -23,11 +23,24 @@ jobs:
           ref: main
           fetch-depth: 1
 
+      - name: Require R2 cost and per-operation release
+        id: r2_admin
+        shell: bash
+        run: |
+          if python3 scripts/cloudflare_r2_admin_operation_gate.py clm-d1-to-r2-migration; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "R2_ADMIN_WORKFLOW_SKIPPED_BILLING_HOLD"
+          fi
+
       - uses: actions/setup-node@v4
+        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
         with:
           node-version: '22'
 
       - name: Export CLM D1 and materialize R2 samples
+        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -61,6 +74,7 @@ jobs:
           echo CLM_R2_COPY_VERIFY_OK
 
       - name: Deploy R2-backed CLM worker
+        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         working-directory: ops/clm-copilot-r2
         run: |
@@ -69,6 +83,7 @@ jobs:
           npx --yes wrangler@4 deploy
 
       - name: Live CLM R2 smoke and feedback readback
+        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -96,13 +111,9 @@ jobs:
           print('CLM_R2_LIVE_READBACK_OK')
           PY
 
-      - name: Retire CLM D1
+      - name: Preserve original CLM D1 until separate data-parity and cutover authorization
+        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         run: |
-          set -euo pipefail
-          W='npx --yes wrangler@4'
-          if $W d1 list --json | grep -q '"name": "clm-copilot-v1"'; then
-            $W d1 delete clm-copilot-v1 --skip-confirmation
-          fi
-          echo CLM_D1_TO_R2_MIGRATION_OK
-          echo "RealDayTrading uses R2 + SQLite/JSONL + Telegram; do not create runner3-reddit."
+          echo "CLM_D1_SOURCE_RETAINED_NO_DELETE"
+          echo "R2 copy and smoke are not approval to retire clm-copilot-v1."
