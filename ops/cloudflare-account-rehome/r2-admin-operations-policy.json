@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "gate_id": "CLOUDFLARE-R2-ADMIN-OPERATIONS-001",
+  "account_source": "7415a87f6bce7884e73ad7cfed5782df",
+  "account_target": "748a80810f77f447ee476543ef0e5014",
+  "status": "HOLD",
+  "permit_admin_r2_operations": false,
+  "operations": {
+    "cloudflare-rehome-r2-inventory": false,
+    "clm-d1-to-r2-migration": false,
+    "runner3-r2-bootstrap": false,
+    "r2-media-bootstrap": false,
+    "r2-lifecycle-30d": false
+  },
+  "require_both": "General R2 cost gate USER_APPROVED+permit true AND this admin-operation policy USER_APPROVED+permit true AND specific operation true.",
+  "source_retirement_permitted": false,
+  "source_account_cutover_permitted": false,
+  "note": "No generic billing release enables any potentially billable/irreversible R2 admin workflow automatically. CLM source D1 deletion separately prohibited."
+}
