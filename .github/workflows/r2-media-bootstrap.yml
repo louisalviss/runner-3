@@ -25,7 +25,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Require R2 cost and per-operation release
+        id: r2_admin
+        shell: bash
+        run: |
+          if python3 scripts/cloudflare_r2_admin_operation_gate.py r2-media-bootstrap; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "R2_ADMIN_WORKFLOW_SKIPPED_BILLING_HOLD"
+          fi
+
       - name: Validate direct R2 permission
+        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -39,6 +51,7 @@ jobs:
           test "$code" = 200 || { echo "R2 account permission unavailable HTTP=$code"; exit 2; }
 
       - name: Ensure R2 bucket through account API
+        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -61,6 +74,7 @@ jobs:
           fi
 
       - name: Enable managed read-only public URL
+        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -79,6 +93,7 @@ jobs:
           PY
 
       - name: Prove remote R2 delivery before WordPress mutation
+        if: ${{ steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -97,7 +112,7 @@ jobs:
           test "$head_code" = 200
 
       - name: Persist safe R2 status
-        if: always()
+        if: ${{ always() && steps.r2_admin.outputs.allowed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
