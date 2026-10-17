@@ -36,7 +36,7 @@ Executed an isolated Python `sqlite3(:memory:)` fixture through the connected `r
 4. For `runner3-content-intelligence`, conduct schema-scoped, idempotent initial transfer to a distinct staged destination, then bounded delta catch-up. Use a proven complete CDC stream (including deletes/tombstones), **or** a final full primary-key/content reconciliation while source writers are quiesced. Newer timestamps alone do not close the delete gap.
 5. Before cutover, pause/drain all writers and scheduled/event-driven consumers of the source D1, certify no in-flight transactions, perform final keyed reconciliation including deletions, inspect conflicts manually by owner policy, and re-check counts and row-hashes against a stable source point. Resume on target only after Worker/binding/cron/R2 parity, smoke and rollback PASS. No duplicate cron.
 6. Cloudflare D1 export blocks other requests while running; do not export hot Core/CI blindly. D1 Free tier limits as documented: 5M rows read/day, 100k written/day, enforced from 2026-09-01. A read-backfill plan must be bounded with budget preflight. Time Travel may help restore but is **not** a cross-account copy, a substitute for parity or a license to overwrite target.
-7. Keep R2 `COST_HOLD` (Dropbox `/Task/active/CLOUDFLARE-R2-COST-001.md` rev16), pending native PutObject attribution and fresh provider billing; no R2 migration or Worker cutover until independently released.
+7. Keep R2 `COST_HOLD` (Dropbox `/Task/active/CLOUDFLARE-R2-COST-001.md` rev18), pending native PutObject attribution and fresh provider billing; no R2 migration or Worker cutover until independently released.
 
 ## Current blocker and safe resume
 
@@ -53,3 +53,17 @@ Executed an isolated Python `sqlite3(:memory:)` fixture through the connected `r
 - https://developers.cloudflare.com/d1/platform/pricing/
 - https://developers.cloudflare.com/changelog/post/2026-09-01-d1-free-tier-limit-enforcement/
 - https://developers.cloudflare.com/d1/reference/time-travel/
+
+## 2026-10-17 continuation — audited coverage gap (source 2/9; target names only)
+
+**Read-only review of current GitHub main and canonical Dropbox R2 cost task rev18; no Cloudflare source/target D1 query and no production mutation.**
+
+- The existing manually-dispatched source script `scripts/cloudflare_d1_encrypted_parity.py` hard-codes `ALLOW={"runner3-core","runner3-content-intelligence"}`. It only collects schema DDL digests and `COUNT(*)` for those **two** physical D1 databases, not all nine. Even if re-run successfully, it cannot establish 9/9 parity; row-body / primary-key comparisons are not implemented.
+- `scripts/cloudflare_target_readonly_inventory.py` and `.github/workflows/cloudflare-target-d1-workers-readonly-inventory.yml` enumerate target database **names** and Worker metadata only. They do not fetch target per-table schema, row counts, stable primary keys or row content digests. An empty set of matching names proves no data equivalence.
+- Read-only `gh secret list` on `louisalviss/runner-3` on 17 Oct still shows **no** `CLOUDFLARE_TARGET_AUDIT_TOKEN` name. The presence of source Cloudflare API and target R2 S3 secret names is not proof of target D1 Read privileges. Earlier authenticated Super Admin session evidence is retained, but current approved target D1 audit surface has not been demonstrated. Do not reroute a denied command or reuse unrelated credentials.
+- Current reference matrix has **9 source D1 names, 9 historical target names, 8 common names** (different observation dates). `clm-copilot-calibration` exists in source and is staging/retention-review; old `louis-context-index` appears in historical target and has no deletion approval. Two database name mismatches cannot be auto-resolved from inventory names.
+- October 8 source/target schema+row-count audit is confined to `runner3-core` (12 versus 0 tables) and `runner3-content-intelligence` (11 versus 8 tables). Keyed row-content parity for **all nine** remains unverified.
+- Source `D1 Account Usage Watch` run 38987762461 at 2026-10-17T00:44:36Z finished SUCCESS; this is source-only activity, not a target transfer receipt.
+- Canonical Dropbox `/Task/active/CLOUDFLARE-R2-COST-001.md` has advanced to rev18, remains `VERIFYING` and `COST_HOLD`; R2 operations must not resume from this D1 task.
+
+**Next precise executable gate:** Use a sanctioned target-account read-only session for a fresh **complete** D1 database list. Extend source/target audit capture to all retained physical D1 databases, collecting schema and key-level digests with D1 read-budget preflight and no sensitive row exports. Compare same-window receipts, preserve target-only data, then stage bounded import and final writer-quiesced full keyed reconciliation including deletions. Keep Core auth/mailbox invariant, R2 hold and Worker cutover independent. A read-only list of database names alone does **not** release the migration gate.
