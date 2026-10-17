@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Bounded, read-only D1 schema/primary-key manifest for the two fixed accounts.
+"""Bounded, target-only D1 schema/primary-key encrypted manifest.
 
 No row payload, COUNT(*), export, import, D1 mutation, Worker or R2 request.
 No fallback to other account tokens. This is audit evidence, NOT row parity.
 """
 import argparse
+import base64
+import secrets
 import datetime as dt
 import hashlib
 import json
@@ -14,6 +16,10 @@ import re
 import sys
 import urllib.error
 import urllib.request
+
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 SOURCE = "7415a87f6bce7884e73ad7cfed5782df"
 TARGET = "748a80810f77f447ee476543ef0e5014"
@@ -222,7 +228,36 @@ def self_test():
         return d
     extra = inventory("target", "dummy_token_for_offline", extra_target)
     assert EXTRA_TARGET_REVIEW in extra["database_schemas"]
-    print("OFFLINE_D1_NINE_SCHEMA_CONTRACT: PASS (8 checks, 0 external requests)")
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pub = key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo)
+    envelope = encrypt_manifest(extra, pub)
+    sym = key.decrypt(base64.b64decode(envelope["wrapped_key"]),
+        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                     algorithm=hashes.SHA256(), label=None))
+    body = AESGCM(sym).decrypt(base64.b64decode(envelope["nonce"]),
+        base64.b64decode(envelope["ciphertext"]),
+        base64.b64decode(envelope["aad"]))
+    assert json.loads(body)["role"] == "target"
+    print("OFFLINE_D1_NINE_SCHEMA_CONTRACT: PASS (9 checks, 0 external requests)")
+
+def encrypt_manifest(report, public_key_pem):
+    public = serialization.load_pem_public_key(public_key_pem)
+    key = secrets.token_bytes(32)
+    nonce = secrets.token_bytes(12)
+    aad = b"cf-d1-target-nine-schema-pk-v1"
+    data = json.dumps(report, sort_keys=True, separators=(",", ":")).encode()
+    encrypted = AESGCM(key).encrypt(nonce, data, aad)
+    wrapped = public.encrypt(key,
+        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                     algorithm=hashes.SHA256(), label=None))
+    return {"version": 1, "kind": "target-nine-schema-pk-no-rows",
+            "wrapped_key": base64.b64encode(wrapped).decode(),
+            "nonce": base64.b64encode(nonce).decode(),
+            "aad": base64.b64encode(aad).decode(),
+            "ciphertext": base64.b64encode(encrypted).decode()}
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -232,25 +267,23 @@ def main():
     if options.self_test:
         self_test()
         return 0
-    ensure(options.role is not None, "ROLE_REQUIRED")
-    if options.role == "source":
-        ensure(os.environ.get("CLOUDFLARE_ACCOUNT_ID") == SOURCE,
-               "SOURCE_ACCOUNT_ID_MISMATCH")
-        token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
-    else:
-        token = os.environ.get("CLOUDFLARE_TARGET_AUDIT_TOKEN", "")
-    result = inventory(options.role, token)
-    path = pathlib.Path("migration-out") / (
-        "d1-schema-" + options.role + "-readonly.json")
+    ensure(options.role == "target", "TARGET_ONLY_NO_SOURCE_DUPLICATION")
+    token = os.environ.get("CLOUDFLARE_TARGET_AUDIT_TOKEN", "")
+    report = inventory("target", token)
+    public_pem = pathlib.Path(
+        "ops/cloudflare-account-rehome/courier-public-20261008.pem").read_bytes()
+    encrypted = encrypt_manifest(report, public_pem)
+    path = pathlib.Path("courier-out/d1-target-nine-schema-envelope.json")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n")
-    print("D1_SCHEMA_READ_ONLY_DONE", options.role,
-          "databases=" + str(len(result["database_schemas"])))
+    path.write_text(json.dumps(encrypted, sort_keys=True) + "\n")
+    print("D1_TARGET_NINE_SCHEMA_ENCRYPTED_READY",
+          "databases=" + str(len(report["database_schemas"])))
     return 0
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except Blocked as err:
-        print("D1_SCHEMA_AUDIT_BLOCKED", str(err))
+    except (Blocked, OSError, ValueError, TypeError) as err:
+        reason = str(err) if isinstance(err, Blocked) else "AUDIT_PROCESSING_ERROR"
+        print("D1_SCHEMA_AUDIT_BLOCKED", reason)
         raise SystemExit(3) from None
