@@ -18,6 +18,9 @@ GLOBAL_BLOCKERS = (
     'NOX_LOGIN_FORM_MISSING', 'NOX_LOGIN_CHALLENGE', 'NOX_DASHBOARD_CHALLENGE',
     'NOX_LOGIN_REQUIRED', 'NOX_SEMRUSH_LINKS_MISSING', 'SEMRUSH_HUMAN_HANDOFF_ACTIVE',
     'SEMRUSH_RATE_LIMIT', 'SEMRUSH_REPORT_LIMIT', 'BLOCKED_RATE_LIMIT', 'BLOCKED_QUOTA_LIMIT',
+    # A proxied shard can retain an API key while NoxTools invalidates its
+    # server-side session. This is a shared auth failure, not 14 bad domains.
+    'Session expired, access again from Dashboard',
     '-2004', 'Report limit reached',
 )
 
