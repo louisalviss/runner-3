@@ -37,7 +37,8 @@ def decision(day):
         last=terminal.get('serp_run') or {}
         evidence=last.get('state') or {}
         trigger=str((evidence.get('runtime_recovery') or {}).get('trigger') or '')
-        auth_triggers={'SEMRUSH_LIVE_AUTH_UNAVAILABLE','NOX_DASHBOARD_CHALLENGE','NOX_LOGIN_REQUIRED'}
+        auth_triggers={'SEMRUSH_LIVE_AUTH_UNAVAILABLE','NOX_DASHBOARD_CHALLENGE',
+                       'NOX_LOGIN_REQUIRED','SEMRUSH_PROXY_SESSION_EXPIRED'}
         if not (evidence.get('stage')=='BLOCKED_LIVE_AUTH' and
                 (trigger in auth_triggers or evidence.get('blocker') in
                  (auth_triggers | {'SEMRUSH_ONE_SHOT_RECOVERY_FAILED'}))):
@@ -50,7 +51,9 @@ def decision(day):
         reason=str(r.get('global_blocker') or '')
         if not any(x in reason for x in ('SEMRUSH_LIVE_AUTH_UNAVAILABLE', 'NOX_LOGIN_CHALLENGE',
                                          'NOX_LOGIN_FORM_MISSING','NOX_DASHBOARD_CHALLENGE',
-                                         'NOX_LOGIN_REQUIRED','SEMRUSH_HUMAN_HANDOFF_ACTIVE')):
+                                         'NOX_LOGIN_REQUIRED','SEMRUSH_HUMAN_HANDOFF_ACTIVE',
+                                         'SEMRUSH_AUTO_RECOVERY_FAILED','SEMRUSH_AUTO_RECOVERY_RETRY_FAILED',
+                                         'Session expired, access again from Dashboard')):
             return {'state':'NOT_HUMAN_AUTH_BLOCKER'}
         mode='EXPORT_THEN_SERP'
         last_attempt=s
