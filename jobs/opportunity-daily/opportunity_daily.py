@@ -3,6 +3,7 @@
 import argparse, datetime as dt, hashlib, json, os, pathlib, re, subprocess, sys, tempfile
 from build_buy_decision import qualify
 from flippa_semrush_bridge import inspect as inspect_flippa_semrush
+from seo_upside import attach as attach_seo_upside
 from daily_publish import publish as publish_daily
 from flippa_deep_daily import capture as capture_flippa_deep, candidates_for_daily
 from zoneinfo import ZoneInfo
@@ -248,6 +249,12 @@ def format_report(v):
             lines.append("- "+item["domain"]+": "+item["status"]+"; modeled US organic traffic: "+str(m.get("estimated_us_organic_visits","N/A"))+"; organic keyword rows: "+str(m.get("organic_keyword_rows","N/A"))+"; "+str(item.get("reason") or "Source estimates, not buyer analytics"))
     else:
         lines += ["", "## Flippa independent Semrush cross-check", "- NOT_RUN; cannot certify Flippa keyword/SERP evidence."]
+    upside=v.get('seo_upside') or {}
+    if upside:
+        lines += ["", "## SEO Upside advisory (SHADOW; BUY/BUILD unchanged)",
+                  "- Checked Flippa listings: "+str(upside.get('evaluated_flippa',0))+
+                  "; statuses: "+str(upside.get('status_counts') or {})+
+                  ". Ranking headroom is not proof of authority, link gaps, GSC, ROI or purchase suitability."]
     lines += ["", "## Enforcement", "- Source results cannot be promoted by traffic/revenue headline alone; Semrush auth failure is BLOCKED, never zero demand.","- First Access/recent-window absence is NOT delisted/sold.", "- All social verification is candidate-targeted through existing source-owned adapters.", "- This is a machine-readable handoff. Human/semantic DD and source-local durability remain separately owned."]
     return "\n".join(lines)+"\n"
 
@@ -320,6 +327,8 @@ def main(argv=None):
                 {'status':c.get('status'),'domain':c.get('domain'),'metrics':c.get('metrics'),'modeled_not_analytics':True}
                 if c else {'status':'NOT_RUN_OR_UNVERIFIED_DOMAIN'}
             )
+    # Read-only SEO upside advisory; rank headroom never upgrades BUY/BUILD.
+    attach_seo_upside(value, ROOT, independent_dir=ROOT / 'seo-upside-evidence')
     value['qualification']['end_to_end_social_check']='NOT_RUN'
     value['qualification']['end_to_end_business_dd']='NOT_AUTOMATED'
     value['qualification']['business_semantic_source_status']=value['qualification'].get('semantic_dd_status')
