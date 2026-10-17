@@ -141,14 +141,19 @@ def build_backlog(day, root=ROOT, report_root=OUT):
         if match and match.group(1)<=day.replace('-',''):
             snapshots.append((match.group(1),path))
     snapshots.sort(reverse=True)
-    recent_day=None;recent_ids=set();recent_rows={}
+    recent_day=None;recent_ids=set();historical_cards={}
     for date,path in snapshots:
         d=load(path,{})
         if d.get('recent_done') is True and len(set(d.get('recent_ids') or []))>=400:
-            recent_day=date[:4]+'-'+date[4:6]+'-'+date[6:]
-            recent_ids=set(map(str,d.get('recent_ids') or []))
-            recent_rows=d.get('recent_rows') or {}
-            break
+            observed=date[:4]+'-'+date[4:6]+'-'+date[6:]
+            if recent_day is None:
+                recent_day=observed
+                recent_ids=set(map(str,d.get('recent_ids') or []))
+            # Most recent observed card from *any* dated Recent-500 snapshot,
+            # not just today's rolling feed. Absence carries the last evidence.
+            for ident,card in (d.get('recent_rows') or {}).items():
+                if str(ident) not in historical_cards and isinstance(card,dict):
+                    historical_cards[str(ident)]=(observed,card)
     rows={}
     for ident,name,category,rank,gate,source_day in SEEDS:
         if source_day>day:
@@ -180,11 +185,12 @@ def build_backlog(day, root=ROOT, report_root=OUT):
     audit=historical_audits(day) if root==ROOT else {}
     active=[]
     for ident,item in rows.items():
-        card=recent_rows.get(ident) if ident in recent_ids else None
+        latest=historical_cards.get(ident)
         original=base_rows.get(ident)
-        if card:
-            item['last_card_observation_on']=recent_day
-            item['last_card_source']='RECENT_500'
+        if latest:
+            last_observed,card=latest
+            item['last_card_observation_on']=last_observed
+            item['last_card_source']='RECENT_500_HISTORICAL'
             item['card']=budget_card(card)
             item['url']=str(card.get('href') or ('https://flippa.com/'+ident))
         elif original:
