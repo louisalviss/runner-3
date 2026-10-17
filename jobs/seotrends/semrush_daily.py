@@ -21,6 +21,7 @@ GLOBAL_BLOCKERS = (
     # A proxied shard can retain an API key while NoxTools invalidates its
     # server-side session. This is a shared auth failure, not 14 bad domains.
     'Session expired, access again from Dashboard',
+    'SEMRUSH_AUTO_RECOVERY_FAILED', 'SEMRUSH_AUTO_RECOVERY_RETRY_FAILED',
     '-2004', 'Report limit reached',
 )
 
@@ -120,6 +121,22 @@ def run_export(domain: str, output: pathlib.Path, timeout: int) -> dict:
     return parsed
 
 
+def recover_expired_session() -> dict:
+    """One credentialed, bounded refresh of the real dashboard; no CAPTCHA bypass."""
+    try:
+        p = subprocess.run(['/usr/local/bin/semrush-noxtools-login', '--refresh-shard'],
+                           text=True, capture_output=True, timeout=220, check=False)
+        try:
+            response = json.loads((p.stdout or '').strip())
+        except (ValueError, TypeError):
+            response = {}
+        state = str(response.get('state') or response.get('error_code') or 'UNVERIFIED')[:80]
+        return {'ok': (p.returncode == 0 and response.get('ok') is True
+                       and state in {'SHARD_REFRESHED', 'RECOVERED'}), 'state': state}
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return {'ok': False, 'state': type(exc).__name__}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description='Consume one SeoTrends daily Semrush queue on the VPS.')
     ap.add_argument('--date', default=datetime.now(timezone.utc).strftime('%Y-%m-%d'))
@@ -151,6 +168,7 @@ def main() -> int:
     items = list(queue.get('items') or [])
     results = []
     blocked_reason = ''
+    session_recovery_attempted = False
 
     for idx, item in enumerate(items):
         domain = str(item.get('domain') or '').strip().lower()
@@ -180,6 +198,19 @@ def main() -> int:
             continue
 
         exp = run_export(domain, out, args.per_domain_timeout)
+        exp_reason = str(exp.get('reason') or '')
+        if (str(exp.get('status') or '').upper() != 'PASS' and not session_recovery_attempted
+            and ('Session expired, access again from Dashboard' in exp_reason
+                 or 'NOX_LOGIN_REQUIRED' in exp_reason)):
+            session_recovery_attempted = True
+            recovery = recover_expired_session()
+            if recovery['ok']:
+                exp = run_export(domain, out, args.per_domain_timeout)
+                if str(exp.get('status') or '').upper() != 'PASS':
+                    exp = {'status': 'FAIL', 'reason': 'SEMRUSH_AUTO_RECOVERY_RETRY_FAILED:'
+                           + str(exp.get('reason') or 'UNVERIFIED')[:250]}
+            else:
+                exp = {'status': 'FAIL', 'reason': 'SEMRUSH_AUTO_RECOVERY_FAILED:' + recovery['state']}
         if str(exp.get('status') or '').upper() == 'PASS':
             ok2, data2 = existing_export_ok(out, domain)
             if ok2:
