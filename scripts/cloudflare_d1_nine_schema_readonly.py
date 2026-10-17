@@ -111,7 +111,7 @@ def inventory(role, token, transport=api):
     sql = ("SELECT name,type,sql FROM sqlite_master "
            "WHERE type IN ('table','view','index','trigger') "
            "AND name NOT LIKE 'sqlite_%' ORDER BY type,name")
-    for db_name in NAMES:
+    for db_name in NAMES + ((EXTRA_TARGET_REVIEW,) if role == "target" else ()):
         if db_name not in mapping:
             continue
         path = "/d1/database/" + mapping[db_name] + "/query"
@@ -138,12 +138,19 @@ def inventory(role, token, transport=api):
             name = table["name"]
             cols = get_rows(transport(account, token, "POST", path,
                             'PRAGMA table_xinfo("' + name + '")'))
-            ensure(len(cols) <= 100, "TOO_MANY_COLUMNS")
-            pk_items = sorted(((int(c["pk"]), c["name"])
-                               for c in cols if int(c.get("pk") or 0) > 0))
-            ensure(all(isinstance(c, dict) for c in cols) and
-                   all(isinstance(v, str) and NAME.fullmatch(v)
-                       for _,v in pk_items), "BAD_PRIMARY_KEY_METADATA")
+            ensure(len(cols) <= 100 and all(isinstance(x, dict) for x in cols),
+                   "BAD_COLUMN_METADATA")
+            pk_items = []
+            for col in cols:
+                ensure(isinstance(col.get("name"), str) and
+                       isinstance(col.get("pk"), int), "BAD_PK_FIELD")
+                if col["pk"] > 0:
+                    ensure(NAME.fullmatch(col["name"]) is not None,
+                           "BAD_PRIMARY_KEY_METADATA")
+                    pk_items.append((col["pk"], col["name"]))
+            pk_items.sort()
+            ensure(len({rank for rank, _ in pk_items}) == len(pk_items),
+                   "DUPLICATE_PK_ORDINAL")
             table["pk_columns"] = [v for _,v in pk_items]
             table["declared_pk_present"] = bool(pk_items)
         report["database_schemas"][db_name] = {
@@ -182,7 +189,40 @@ def self_test():
         raise AssertionError("empty token accepted")
     except Blocked as e:
         assert str(e) == "TOKEN_UNAVAILABLE"
-    print("OFFLINE_D1_NINE_SCHEMA_CONTRACT: PASS (5 checks, 0 external requests)")
+    # Reject incomplete target pagination without fetching anything beyond page 1.
+    def incomplete(account, token, method, path, sql=None):
+        d = fake(account, token, method, path, sql)
+        if method == "GET":
+            d["result_info"]["total_count"] += 1
+        return d
+    try:
+        inventory("target", "dummy_token_for_offline", incomplete)
+        raise AssertionError("truncated target list accepted")
+    except Blocked as e:
+        assert str(e) == "INCOMPLETE_D1_LIST"
+    # Source census cannot silently skip one of nine authorities.
+    def missing_source(account, token, method, path, sql=None):
+        d = fake(account, token, method, path, sql)
+        if method == "GET":
+            d["result"].pop()
+            d["result_info"]["total_count"] -= 1
+        return d
+    try:
+        inventory("source", "dummy_token_for_offline", missing_source)
+        raise AssertionError("source missing one D1 was accepted")
+    except Blocked as e:
+        assert str(e) == "MISSING_SOURCE_D1"
+    # Historic destination-only legacy context index gets schema audit too.
+    def extra_target(account, token, method, path, sql=None):
+        d = fake(account, token, method, path, sql)
+        if method == "GET":
+            d["result"].append({"name": EXTRA_TARGET_REVIEW,
+                "uuid": "00000000-0000-0000-0000-000000000010"})
+            d["result_info"]["total_count"] += 1
+        return d
+    extra = inventory("target", "dummy_token_for_offline", extra_target)
+    assert EXTRA_TARGET_REVIEW in extra["database_schemas"]
+    print("OFFLINE_D1_NINE_SCHEMA_CONTRACT: PASS (8 checks, 0 external requests)")
 
 def main():
     parser = argparse.ArgumentParser()
