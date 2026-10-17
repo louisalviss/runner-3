@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from collections import Counter
 
 from runtime_preflight import require_semrush_preflight
-from runtime_recovery import ensure_with_one_shot_recovery
+from runtime_recovery import ensure_with_one_shot_recovery, refresh_expired_proxy_session
 from runtime_metrics import SemrushJobMetrics, is_rate_limit, is_quota_limit
 
 JOB_METRICS=SemrushJobMetrics('serp_dd_live')
@@ -53,6 +53,50 @@ def rpc_many(calls):
     vals=out.get('results')
     if not isinstance(vals,list): raise RuntimeError('BROKER_RPC_RESULTS_INVALID')
     return vals
+
+AUTH_EXPIRED_MARKERS = (
+    'session expired, access again from dashboard',
+    'api_key_missing',
+    'auth error',
+    'nox_login_required',
+)
+
+class SerpAuthBlocked(RuntimeError):
+    pass
+
+def expired_proxy_error(value):
+    text = (json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list))
+            else str(value or '')).lower()
+    return any(marker in text for marker in AUTH_EXPIRED_MARKERS)
+
+def rpc_many_with_one_shard_refresh(calls, refresh_used=False):
+    """Read-only SERP RPC: retry once only after a verified dashboard renewal."""
+    try:
+        values = rpc_many(calls)
+    except RuntimeError as exc:
+        if not expired_proxy_error(exc):
+            raise
+        values = [{'error': {'message': str(exc)[:150]}}]
+    errors = [v.get('error') for v in values if isinstance(v, dict) and v.get('error') is not None]
+    if not expired_proxy_error(errors):
+        return values, refresh_used, None
+    if refresh_used:
+        raise SerpAuthBlocked('PROXY_REFRESH_BUDGET_EXHAUSTED')
+    recovery = refresh_expired_proxy_session(timeout=180)
+    state = str(recovery.get('state') or 'UNVERIFIED')[:80]
+    if recovery.get('ok') is not True or state not in ('SHARD_REFRESHED', 'RECOVERED'):
+        raise SerpAuthBlocked('PROXY_REFRESH_FAILED:' + state)
+    try:
+        retried = rpc_many(calls)
+    except RuntimeError as exc:
+        if expired_proxy_error(exc):
+            raise SerpAuthBlocked('PROXY_STILL_EXPIRED_AFTER_REFRESH') from None
+        raise
+    retry_errors = [v.get('error') for v in retried if isinstance(v, dict) and v.get('error') is not None]
+    if expired_proxy_error(retry_errors):
+        raise SerpAuthBlocked('PROXY_STILL_EXPIRED_AFTER_REFRESH')
+    return retried, True, {'status': 'PASS', 'state': state}
+
 def norm_domain(d):
     d=(d or '').lower().strip(); return d[4:] if d.startswith('www.') else d
 def qtokens(q): return [x for x in re.findall(r'[a-z0-9]+',(q or '').lower()) if len(x)>=3 and x not in STOP]
@@ -132,13 +176,26 @@ def main():
         else:
             state['runtime_preflight']={'status':'SKIPPED_NO_PENDING'}
             persist_state(statep,state)
+        shard_refresh_used=False
         with rawp.open('a',encoding='utf-8') as f:
             for i in range(0,len(pending),1):
                 if i > 0:
                     time.sleep(8.0)
                 batch=pending[i:i+1]
                 calls=[{'tag':cid+'\t'+kw,'method':'serp.GetURLs','args':{'phrase':kw,'device':0,'currency':'USD','database':'us','location':0,'date':''}} for cid,kw in batch]
-                vals=rpc_many(calls); by={v.get('tag'):v for v in vals}
+                try:
+                    vals,shard_refresh_used,refresh_evidence=rpc_many_with_one_shard_refresh(
+                        calls,refresh_used=shard_refresh_used)
+                except SerpAuthBlocked as exc:
+                    state.update(stage='BLOCKED_LIVE_AUTH',blocker='SEMRUSH_PROXY_SESSION_EXPIRED',
+                                 auth_detail=str(exc)[:120],updated_at=ts())
+                    persist_state(statep,state)
+                    print(json.dumps({'status':'BLOCKED','reason':'SEMRUSH_PROXY_SESSION_EXPIRED','state':state},ensure_ascii=False))
+                    return 3
+                if refresh_evidence:
+                    state['shard_refresh']=refresh_evidence
+                    persist_state(statep,state)
+                by={v.get('tag'):v for v in vals if isinstance(v,dict)}
                 batch_errors=[v.get('error') for v in vals if isinstance(v,dict) and v.get('error') is not None]
                 if any(is_quota_limit(err) for err in batch_errors):
                     state.update(stage='BLOCKED_QUOTA_LIMIT',blocker='SEMRUSH_REPORT_LIMIT',updated_at=ts()); persist_state(statep,state)
@@ -146,6 +203,14 @@ def main():
                 if any(is_rate_limit(err) for err in batch_errors):
                     state.update(stage='BLOCKED_RATE_LIMIT',blocker='SEMRUSH_RATE_LIMIT',updated_at=ts()); persist_state(statep,state)
                     print(json.dumps({'status':'BLOCKED','reason':'SEMRUSH_RATE_LIMIT','state':state},ensure_ascii=False)); return 5
+                # A provider error is not a completed SERP. Never seal errors
+                # into raw-serps.jsonl, where later retries would treat them
+                # as already checked and could produce a false terminal PASS.
+                if batch_errors or any(cid+'\t'+kw not in by for cid,kw in batch):
+                    state.update(stage='BLOCKED_PROVIDER_RPC',blocker='SERP_RPC_UNVERIFIED',updated_at=ts())
+                    persist_state(statep,state)
+                    print(json.dumps({'status':'BLOCKED','reason':'SERP_RPC_UNVERIFIED','state':state},ensure_ascii=False))
+                    return 8
                 for cid,kw in batch:
                     v=by.get(cid+'\t'+kw,{})
                     rec={'cluster_id':cid,'keyword':kw,'status':v.get('status'),'rows':v.get('result') or [],'error':v.get('error')}
