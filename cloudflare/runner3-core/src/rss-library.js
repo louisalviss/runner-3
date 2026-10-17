@@ -1,3 +1,4 @@
+import { traceR2PutCompleted } from "./r2-put-provenance.js";
 const MAX_LIST = 100;
 const MAX_TRANSLATION_SECTIONS = 600;
 const MAX_TRANSLATION_CHARS = 180000;
@@ -136,6 +137,7 @@ export async function persistFetchedArticle(env, article, fetched) {
       kind: "rss-original",
     },
   });
+  traceR2PutCompleted(env, "rss-original");
 
   const versionStmt = env.DB.prepare(`
     INSERT INTO rss_article_versions (
@@ -435,6 +437,7 @@ async function publishTranslation(request, env, articleId) {
       kind: "rss-vi",
     },
   });
+  traceR2PutCompleted(env, "rss-translation");
 
   const translationId = `${article.current_version_id}:vi`;
   await env.DB.batch([

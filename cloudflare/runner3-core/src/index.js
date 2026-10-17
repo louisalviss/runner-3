@@ -1,3 +1,4 @@
+import { traceR2PutCompleted } from "./r2-put-provenance.js";
 // Control-plane deploy health is independent from workload success/failure state.
 const EVENT_RETENTION_DAYS = 90;
 const MAX_JSON_CHARS = 200000;
@@ -175,6 +176,7 @@ async function handleArtifact(request, env, segments) {
         source,
       },
     });
+    traceR2PutCompleted(env, "artifact-api");
     return Response.json({
       ok: true,
       artifact: {

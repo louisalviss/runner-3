@@ -1,3 +1,4 @@
+import { traceR2PutCompleted } from "./r2-put-provenance.js";
 import { handleRssLibrary, persistFetchedArticle } from "./rss-library.js";
 import { markProfileDirty } from "./content-personalization.js";
 import { contentEnv } from "./domain-db.js";
@@ -98,6 +99,7 @@ async function attachImportedMedia(env, article, row, media) {
         httpMetadata: { contentType: item.content_type, cacheControl: "public, max-age=31536000, immutable" },
         customMetadata: { articleId: article.article_id.slice(0, 160), sourceKey: article.source_key.slice(0, 80), sourceHash: hash, kind: "facebook-import" },
       });
+      traceR2PutCompleted(env, "rss-import-media");
     }
     const verify = await env.ARTIFACTS.head(targetKey);
     if (!verify || Number(verify.size || 0) !== bytes.byteLength) throw new Error(`media_target_readback_failed:${targetKey}`);
@@ -123,6 +125,7 @@ async function attachImportedMedia(env, article, row, media) {
       imageCount: String(images.length), cachedImageCount: String(images.length),
     },
   });
+  traceR2PutCompleted(env, "rss-import-original-rewrite");
   const readback = await env.ARTIFACTS.get(row.original_object_key);
   if (!readback) throw new Error("article_artifact_media_readback_missing");
   const checked = JSON.parse(await readback.text());
