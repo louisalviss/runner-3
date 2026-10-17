@@ -9,7 +9,7 @@ RECOVERY_BIN = pathlib.Path(os.environ.get(
     "SEMRUSH_RECOVERY_BIN",
     "/usr/local/bin/semrush-noxtools-login",
 ))
-RECOVERABLE_CODES = {"SEMRUSH_LIVE_AUTH_UNAVAILABLE"}
+RECOVERABLE_CODES = {"SEMRUSH_LIVE_AUTH_UNAVAILABLE", "NOX_LOGIN_REQUIRED"}
 
 
 def response_code(response):
@@ -22,10 +22,13 @@ def response_code(response):
     )
 
 
-def _run_recovery(timeout=180):
+def _run_recovery(timeout=180, refresh_shard=False):
     try:
+        command = [str(RECOVERY_BIN)]
+        if refresh_shard:
+            command.append('--refresh-shard')
         proc = subprocess.run(
-            [str(RECOVERY_BIN)],
+            command,
             text=True,
             capture_output=True,
             timeout=timeout,
@@ -70,6 +73,11 @@ def _run_recovery(timeout=180):
             else ""
         ),
     }
+
+
+def refresh_expired_proxy_session(timeout=180):
+    """Renew through the real NoxTools dashboard once; never solve a challenge."""
+    return _run_recovery(timeout=timeout, refresh_shard=True)
 
 
 def ensure_with_one_shot_recovery(broker_call, timeout=180):
