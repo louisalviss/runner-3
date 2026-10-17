@@ -33,13 +33,19 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import hashlib,os,re
+          import hashlib,json,os
           src='apps/audio-chatgpt-bridge/wrangler.jsonc'
-          raw=open(src,encoding='utf-8').read()
+          with open(src,encoding='utf-8') as f:
+              config=json.load(f)
+          # Do not invalidate unrelated consumers of the existing queue verifier.
+          if not config.get('vars',{}).get('CHATGPT_QUEUE_SHA256'):
+              raise RuntimeError('legacy ChatGPT queue verifier missing')
           token=hashlib.sha256(b'runner3-chatgpt-queue-v2\0'+os.environ['CLOUDFLARE_API_TOKEN'].encode()).hexdigest()
           verifier=hashlib.sha256(token.encode()).hexdigest()
-          raw=re.sub(r'"CHATGPT_QUEUE_SHA256"\s*:\s*"[0-9a-f]+"',f'"CHATGPT_QUEUE_SHA256": "{verifier}"',raw)
-          open('apps/audio-chatgpt-bridge/wrangler.deploy.jsonc','w',encoding='utf-8').write(raw)
+          config['vars']['REDDIT_QUEUE_SHA256']=verifier
+          with open('apps/audio-chatgpt-bridge/wrangler.deploy.jsonc','w',encoding='utf-8') as f:
+              json.dump(config,f,indent=2)
+              f.write('\n')
           PY
       - name: Deploy bridge
         id: deploy

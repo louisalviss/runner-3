@@ -24,8 +24,10 @@ async function sha256Hex(value) {
 async function authorized(request, env) {
   const url = new URL(request.url);
   const token = url.searchParams.get('token') || request.headers.get('x-runner-token') || '';
-  if (!token || !env.CHATGPT_QUEUE_SHA256) return false;
-  return (await sha256Hex(token)) === env.CHATGPT_QUEUE_SHA256;
+  // Preserve existing clients while accepting the independently rotated Reddit BWS credential.
+  const verifiers = [env.CHATGPT_QUEUE_SHA256, env.REDDIT_QUEUE_SHA256].filter(Boolean);
+  if (!token || verifiers.length === 0) return false;
+  return verifiers.includes(await sha256Hex(token));
 }
 
 function parseAllowedRedditJsonUrl(value) {
