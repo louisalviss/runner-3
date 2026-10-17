@@ -357,7 +357,7 @@ def main(argv=None):
                summarize_backlog(value['cumulative_flippa'],max_rows=300))
     # Fingerprint the decision output as well as inputs, so a fixed classifier cannot
     # be hidden behind a stale same-date checkpoint with identical source files.
-    source_hash = hashlib.sha256(json.dumps({"seo":value["seo"],"flippa":value["flippa"],"research_queue":value["research_queue"],"qualification":value["qualification"],"limits":value["limits"],"flippa_semrush":value.get("flippa_semrush"),"flippa_detail":value.get("flippa_detail"),"report_sha256":hashlib.sha256(txt.encode("utf-8")).hexdigest()},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+    source_hash = hashlib.sha256(json.dumps({"seo":value["seo"],"flippa":value["flippa"],"research_queue":value["research_queue"],"qualification":value["qualification"],"cumulative_flippa":value['cumulative_flippa'],"limits":value["limits"],"flippa_semrush":value.get("flippa_semrush"),"flippa_detail":value.get("flippa_detail"),"report_sha256":hashlib.sha256(txt.encode("utf-8")).hexdigest()},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     target = OUT/(args.date+"-manifest.json")
     prior = load(target,{})
     if prior.get("source_sha256") == source_hash:
