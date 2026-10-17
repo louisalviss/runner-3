@@ -1,0 +1,68 @@
+name: Cloudflare D1 nine-store schema audit (manual, read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      account_scope:
+        description: Source or destination only; no copy and no cutover
+        required: true
+        type: choice
+        default: source
+        options:
+          - source
+          - target
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-d1-nine-schema-audit
+  cancel-in-progress: false
+
+jobs:
+  source-schema:
+    if: ${{ inputs.account_scope == 'source' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify read-only schema collector offline
+        run: |
+          python3 -m py_compile scripts/cloudflare_d1_nine_schema_readonly.py
+          python3 scripts/cloudflare_d1_nine_schema_readonly.py --self-test
+      - name: Census source D1 schema and declared PKs (no table data)
+        run: python3 scripts/cloudflare_d1_nine_schema_readonly.py --role source
+      - name: Preserve metadata-only source receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-source-d1-schema-readonly
+          path: migration-out/d1-schema-source-readonly.json
+          if-no-files-found: warn
+          retention-days: 1
+
+  target-schema:
+    if: ${{ inputs.account_scope == 'target' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_TARGET_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_TARGET_AUDIT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify read-only schema collector offline
+        run: |
+          python3 -m py_compile scripts/cloudflare_d1_nine_schema_readonly.py
+          python3 scripts/cloudflare_d1_nine_schema_readonly.py --self-test
+      - name: Census destination D1 schema and declared PKs (no table data)
+        run: python3 scripts/cloudflare_d1_nine_schema_readonly.py --role target
+      - name: Preserve metadata-only target receipt or blocked proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-target-d1-schema-readonly
+          path: migration-out/d1-schema-target-readonly.json
+          if-no-files-found: warn
+          retention-days: 1
