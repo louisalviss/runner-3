@@ -67,3 +67,14 @@ Executed an isolated Python `sqlite3(:memory:)` fixture through the connected `r
 - Canonical Dropbox `/Task/active/CLOUDFLARE-R2-COST-001.md` has advanced to rev18, remains `VERIFYING` and `COST_HOLD`; R2 operations must not resume from this D1 task.
 
 **Next precise executable gate:** Use a sanctioned target-account read-only session for a fresh **complete** D1 database list. Extend source/target audit capture to all retained physical D1 databases, collecting schema and key-level digests with D1 read-budget preflight and no sensitive row exports. Compare same-window receipts, preserve target-only data, then stage bounded import and final writer-quiesced full keyed reconciliation including deletions. Keep Core auth/mailbox invariant, R2 hold and Worker cutover independent. A read-only list of database names alone does **not** release the migration gate.
+
+## 2026-10-17 — Staged 9-D1 metadata + declared-PK read-only tool (NOT executed against Cloudflare)
+
+The previous 2-D1 source audit limitation is addressed **at source-code level**, not in live data:
+- Staged new `scripts/cloudflare_d1_nine_schema_readonly.py` and manual-only `.github/workflows/cloudflare-d1-nine-schema-readonly.yml` in this *draft* branch; no automatic schedule, deploy or production merge.
+- Separate source and target GH Actions jobs and independent respective tokens. No fallback to source/target R2 credentials. `source` requires all nine named D1 stores; `target` records missing source names and audits the retained target-only historical `louis-context-index` if present.
+- Bounded read-only D1 listing plus `SELECT ... FROM sqlite_master` and `PRAGMA table_xinfo` per known table, collecting DDL SHA-256, declared PK column order, schema names and missing names only. **No SELECT row payload, COUNT(*), D1 export, import, copy, R2 operation, Worker deployment or source deletion.**
+- VPS SentinelX offline test: `OFFLINE_D1_NINE_SCHEMA_CONTRACT: PASS (8 checks, 0 external requests)`. Explicit no-token target test exits 3 with `D1_SCHEMA_AUDIT_BLOCKED TOKEN_UNAVAILABLE`, without outbound Cloudflare requests. GitHub fetch/readback of script and workflow succeeded.
+- D1 Free account maximum 10 databases (Cloudflare documentation as checked 17 Oct 2026). Historical target already has nine physical D1 names; do not assume nine parallel in-account staging D1 slots. Use an isolated local staging representation when authorized, then plan lossless reconciliation with existing destination D1 tables.
+- **Scope remains SCHEMA/PK PREPARATION ONLY.** Neither static name/schema equality nor table row counts alone prove PK/payload parity. Both the actual live target audit permission/receipt and a complete bounded key+content comparison still block import and cutover.
+- Canonical R2 cost task Dropbox rev18 remains `VERIFYING / COST_HOLD`; D1 staging cannot release it. No use of banned direct Wrangler execution or browser credential extraction.
