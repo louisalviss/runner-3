@@ -2,6 +2,7 @@
 """Daily SEO + acquisition join. Source scanners remain independent owners."""
 import argparse, datetime as dt, hashlib, json, os, pathlib, re, subprocess, sys, tempfile
 from build_buy_decision import qualify
+from acquisition_backlog import build_backlog, summarize as summarize_backlog
 from flippa_semrush_bridge import inspect as inspect_flippa_semrush
 from seo_upside import attach as attach_seo_upside
 from daily_publish import publish as publish_daily
@@ -213,7 +214,8 @@ def build(day, flippa_current, previous=None, deep=None):
         if identity in seen:continue
         seen.add(identity);deduped.append(x)
     decision = qualify(day, seo, flippa, root=SEO, max_buy_usd=MAX_BUY)
-    payload = {"schema":"opportunity-daily-v2","date_vn":day,"generated_at":dt.datetime.now(TZ).isoformat(),"scope":"SEO_TRENDS_PLUS_FLIPPA","overall":"PARTIAL_BLOCKED" if decision["status"]!="PASS" else "RESEARCH_PENDING","seo":seo,"flippa":flippa,"research_queue":deduped,"qualification":decision,"limits":{"buy_cap_usd":MAX_BUY,"no_bids":True,"no_new_projects":True,"no_solo_semrush_research":True},"owner":"daily-synthesis-only"}
+    cumulative = build_backlog(day, root=ROOT, report_root=OUT)
+    payload = {"schema":"opportunity-daily-v2","date_vn":day,"generated_at":dt.datetime.now(TZ).isoformat(),"scope":"SEO_TRENDS_PLUS_FLIPPA","overall":"PARTIAL_BLOCKED" if decision["status"]!="PASS" else "RESEARCH_PENDING","seo":seo,"flippa":flippa,"research_queue":deduped,"qualification":decision,"cumulative_flippa":cumulative,"limits":{"buy_cap_usd":MAX_BUY,"no_bids":True,"no_new_projects":True,"no_solo_semrush_research":True},"owner":"daily-synthesis-only"}
     return payload
 
 def format_report(v):
@@ -255,7 +257,7 @@ def format_report(v):
                   "- Checked Flippa listings: "+str(upside.get('evaluated_flippa',0))+
                   "; statuses: "+str(upside.get('status_counts') or {})+
                   ". Ranking headroom is not proof of authority, link gaps, GSC, ROI or purchase suitability."]
-    lines += ["", "## Enforcement", "- Source results cannot be promoted by traffic/revenue headline alone; Semrush auth failure is BLOCKED, never zero demand.","- First Access/recent-window absence is NOT delisted/sold.", "- All social verification is candidate-targeted through existing source-owned adapters.", "- This is a machine-readable handoff. Human/semantic DD and source-local durability remain separately owned."]
+    lines += ["", summarize_backlog(v.get('cumulative_flippa') or {}, max_rows=70), "", "## Enforcement", "- Source results cannot be promoted by traffic/revenue headline alone; Semrush auth failure is BLOCKED, never zero demand.","- First Access/recent-window absence is NOT delisted/sold.", "- All social verification is candidate-targeted through existing source-owned adapters.", "- This is a machine-readable handoff. Human/semantic DD and source-local durability remain separately owned."]
     return "\n".join(lines)+"\n"
 
 def main(argv=None):
@@ -345,6 +347,14 @@ def main(argv=None):
         print("RESULT", json.dumps({"overall":value["overall"],"research_count":len(value["research_queue"]),"flippa":value["flippa"]["stats"],"seo":len(value["seo"]["items"])}))
         return 0
     OUT.mkdir(parents=True,exist_ok=True)
+    # Keep a separate machine-readable cumulative backlog. Old daily replays
+    # must never roll the current backlog backward to an earlier date.
+    backlog_path=OUT/'flippa-backlog-current.json'
+    old_backlog=load(backlog_path,{})
+    if str(old_backlog.get('as_of') or '')<=args.date:
+        atomic(backlog_path,json.dumps(value['cumulative_flippa'],ensure_ascii=False,indent=2)+'\n')
+        atomic(OUT/'flippa-backlog-current.md',
+               summarize_backlog(value['cumulative_flippa'],max_rows=300))
     # Fingerprint the decision output as well as inputs, so a fixed classifier cannot
     # be hidden behind a stale same-date checkpoint with identical source files.
     source_hash = hashlib.sha256(json.dumps({"seo":value["seo"],"flippa":value["flippa"],"research_queue":value["research_queue"],"qualification":value["qualification"],"limits":value["limits"],"flippa_semrush":value.get("flippa_semrush"),"flippa_detail":value.get("flippa_detail"),"report_sha256":hashlib.sha256(txt.encode("utf-8")).hexdigest()},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
