@@ -10,27 +10,48 @@
     "f33_after_midnight_grace_hours": 3,
     "forum_min_local_hour": 20
   },
-  "status": "BLOCKED",
-  "render_allowed": false,
-  "full_quality": false,
-  "close_quality": false,
-  "blocking_reasons": [
-    "trends_history_missing",
-    "f33_history_missing",
-    "forum_history_missing"
-  ],
+  "status": "READY",
+  "render_allowed": true,
+  "full_quality": true,
+  "close_quality": true,
+  "blocking_reasons": [],
   "inputs": {
     "trends": {
       "path": "trends_vn_history/2026-10-18.json",
-      "present": false
+      "present": true,
+      "sha256": "f083f391cb47e2d705937dc1dba53ebfc10d27acd732a986019c2ba4e579a447",
+      "status": "HEALTHY",
+      "vietnam_date": "2026-10-18",
+      "captured_at": "2026-10-18T16:57:10.833093+00:00",
+      "top10_count": 10
     },
     "f33": {
       "path": "voz_f33_history/2026-10-18.json",
-      "present": false
+      "present": true,
+      "sha256": "8d4e82b463f0db6fbe5653de67fb546aab11c0e7aa8624d6924e3acebddd7da2",
+      "status": "HEALTHY",
+      "vietnam_date": "2026-10-18",
+      "generated_at": "2026-10-18T18:18:31.588Z",
+      "run_id": 39153389441,
+      "artifact_id": 12146256427,
+      "threads_discovered": 20,
+      "expected_pages_total": 67,
+      "fetched_pages_total": 67,
+      "missing_pages_total": 0,
+      "posts_total": 1035,
+      "target_date_source": "workflow_dispatch_input_after_midnight_grace"
     },
     "forum_signal": {
       "path": "forum_signal_history/2026-10-18.json",
-      "present": false
+      "present": true,
+      "sha256": "aa261bec4a08504c8ecf4fc0fad7680792d659b3097489d6039e1625ce5b9c24",
+      "status": "DEGRADED",
+      "vietnam_date": "2026-10-18",
+      "generated_at": "2026-10-18T16:52:03.236Z",
+      "run_id": 39146450980,
+      "artifact_id": 12143787641,
+      "posts_total": 865,
+      "crawl_outcome": "success"
     }
   }
 }
