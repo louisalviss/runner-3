@@ -46,7 +46,9 @@ def request_json(token, method, route, payload=None):
         raise AuditBlocked("UNAUTHORIZED_ROUTE")
     if method == "POST":
         # D1 query endpoint uses HTTP POST for read-only SQL. No generic SQL executor.
-        if not route.endswith("/query") or not isinstance(payload, dict):
+        if (re.fullmatch(r"/accounts/" + SOURCE_ACCOUNT + r"/d1/database/" +
+                         r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/query",
+                         route) is None or not isinstance(payload, dict)):
             raise AuditBlocked("UNAUTHORIZED_SQL_ROUTE")
         sql = payload.get("sql", "")
         if sql != SCHEMA_SQL and not re.fullmatch(r'PRAGMA table_xinfo\("(?:[^"]|"")+"\)', sql):
@@ -103,6 +105,10 @@ def parse_db_inventory(value):
         names[name] = uid
     if not EXPECTED_DATABASES.issubset(names):
         raise AuditBlocked("SOURCE_REQUIRED_DATABASE_MISSING")
+    if set(names) != EXPECTED_DATABASES:
+        raise AuditBlocked("SOURCE_UNEXPECTED_DATABASE")
+    if len(set(names.values())) != len(names):
+        raise AuditBlocked("SOURCE_DUPLICATE_UUID")
     return names
 
 
@@ -111,8 +117,17 @@ def results(value):
     if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], dict):
         raise AuditBlocked("D1_SQL_RESULT_SHAPE")
     body = raw[0]
-    if body.get("success") is False or not isinstance(body.get("results"), list):
+    if body.get("success") is not True or not isinstance(body.get("results"), list):
         raise AuditBlocked("D1_SQL_RESULT_FAILED")
+    meta = body.get("meta")
+    if meta is not None:
+        if not isinstance(meta, dict):
+            raise AuditBlocked("D1_SQL_META_INVALID")
+        if ("rows_written" in meta and
+            (type(meta["rows_written"]) is not int or meta["rows_written"] != 0)):
+            raise AuditBlocked("D1_SQL_UNEXPECTED_MUTATION")
+        if ("changed_db" in meta and meta["changed_db"] is not False):
+            raise AuditBlocked("D1_SQL_UNEXPECTED_MUTATION")
     return body["results"]
 
 
