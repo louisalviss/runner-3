@@ -3,7 +3,7 @@
 from __future__ import annotations
 import argparse,json,pathlib,re,random,time,sys,os
 ROOT=pathlib.Path('/var/lib/acquisition-radar-scan')
-PROFILE="1de482cb-96ac-4b1b-a3f8-2beddc91b2e0"
+PROFILE="c97a7500-3b11-403f-ac43-2566cdcd3fa2"
 ID=re.compile(r'^[0-9]{6,12}$')
 MAX=3
 
@@ -24,6 +24,9 @@ def extract(id,title,body,status,challenge):
 
 def candidates_for_daily(flippa,limit=MAX):
     rows=[x for x in flippa.get('new') or [] if str(x.get('id') or '') and ID.fullmatch(str(x['id'])) and str(x.get('verdict') or '') not in ('DROP','DROP_TRAFFIC_WEAK','DROP_BUY_CAP')]
+    # Focus the limited authenticated detail budget on plausible deals first.
+    # Unverified build-reference cards must not displace higher-scoring watch candidates.
+    rows.sort(key=lambda x:(0 if str(x.get('verdict') or '').startswith(('WATCH','BUY','SEO_BUY')) else 1, -float(x.get('score') or 0)))
     return list(dict.fromkeys(str(x['id']) for x in rows))[:min(MAX,limit)]
 
 def existing_complete(path,ids):
@@ -43,11 +46,18 @@ def capture(ids,day,out=ROOT):
         return {'status':'PASS_EMPTY','items':0,'source':'NO_ELIGIBLE_CARDS'}
     if existing_complete(file,ids):
         return {'status':'PASS','items':len(ids),'source':'VALID_CACHED_DEEP'}
+    import_repair=False
     if state.is_file():
         try:prior=json.loads(state.read_text(encoding='utf8'))
         except ValueError:prior={}
         if prior.get('status') in ('BLOCKED','PARTIAL') and prior.get('date')==day:
-            return {'status':prior['status'],'items':prior.get('items',0),'reason':'ONE_ATTEMPT_PER_DAY'}
+            # One explicit recovery is allowed for a local missing dependency only;
+            # never retry an auth/challenge/rate-limit failure in the same day.
+            import_repair=(os.environ.get('ACQ_FLIPPA_ENV_FIX_ONCE')=='1' and prior.get('reason')=='ModuleNotFoundError' and not prior.get('repair_attempted'))
+            if not import_repair:
+                return {'status':prior['status'],'items':prior.get('items',0),'reason':'ONE_ATTEMPT_PER_DAY'}
+            stamped={**prior,'repair_attempted':True}
+            tmp=state.with_suffix('.tmp');tmp.write_text(json.dumps(stamped,ensure_ascii=False,indent=2)+'\n');os.replace(tmp,state)
     try:
         existing=json.loads(file.read_text(encoding='utf8')) if file.is_file() else []
         if not isinstance(existing,list):existing=[]
@@ -80,7 +90,7 @@ def capture(ids,day,out=ROOT):
     # Always preserve earlier verified rows on challenge: no truncation.
     if rows:
         tmp=file.with_suffix('.json.tmp');tmp.write_text(json.dumps(rows,ensure_ascii=False,indent=2)+'\n',encoding='utf8');os.replace(tmp,file)
-    result={'date':day,'status':status,'requested':len(ids),'items':len(rows),'reason':reason,'source':'SHARED_FLIPPA_CDP'}
+    result={'date':day,'status':status,'requested':len(ids),'items':len(rows),'reason':reason,'source':'SHARED_FLIPPA_CDP','repair_attempted':import_repair}
     tmp=state.with_suffix('.tmp');tmp.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n');os.replace(tmp,state)
     return result
 
