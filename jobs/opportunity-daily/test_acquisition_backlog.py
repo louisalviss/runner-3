@@ -59,6 +59,41 @@ class BacklogRegression(unittest.TestCase):
         self.assertTrue(all(not x['approved_buy'] and not x['approved_build'] for x in d['active']))
     def test_deterministic(self):
         self.assertEqual(self.load(),self.load())
+    def test_full_report_and_dropbox_current_carry_backlog(self):
+        import opportunity_daily as daily
+        from daily_publish import render_current
+        backlog=self.load()
+        value={
+            'date_vn':'2026-10-17','generated_at':'2026-10-17T12:00:00+07:00',
+            'overall':'RESEARCH_PENDING','cumulative_flippa':backlog,
+            'seo':{'scanned':0,'added':0,'items':[], 'provider_status':'PASS','terminal_status':'PASS'},
+            'flippa':{'status':'PASS','stats':{}}, 'research_queue':[],
+            'qualification':{'status':'PASS','evaluated':0,'counts':{},'actionable_dd':[],
+                             'study_queue':[],'candidates':[]}
+        }
+        report=daily.format_report(value)
+        current=render_current(value,report)
+        expected_count = (str(backlog['active_count']) + '; historical confirmed closed: ' +
+                          str(backlog['closed_historical_count']))
+        for marker in ('Cumulative Flippa', 'N8Nitro', 'Inbox Verifyer', expected_count):
+            self.assertIn(marker,report)
+            self.assertIn(marker,current)
+        self.assertIn('Missing from Recent-500 is **not** SOLD/ENDED',current)
+
+    def test_historical_card_persists_when_outside_latest_recent(self):
+        b16=json.loads((self.root/'flippa-20261016-daily-state.json').read_text())
+        b16['recent_rows']['90009999']={'p':1900,'pr':99,'href':'https://flippa.com/90009999'}
+        b16['recent_ids'][1]='90009999'
+        (self.root/'flippa-20261016-daily-state.json').write_text(json.dumps(b16))
+        with patch.object(b,'SEEDS',b.SEEDS+[('90009999','Historical watch','WATCH',60,
+                                               'Verify historical economics','2026-10-16')]):
+            data=self.load()
+        row=next(x for x in data['active'] if x['id']=='90009999')
+        self.assertEqual(row['last_card_observation_on'],'2026-10-16')
+        self.assertEqual(row['recent_500_presence'],'NOT_SEEN')
+        self.assertEqual(row['card']['card_price_usd'],1900)
+        self.assertEqual(row['current_listing_status'],'CURRENT_AVAILABILITY_UNVERIFIED')
+
     def test_no_future_candidates_in_historical_day(self):
         d=self.load('2026-10-16')
         self.assertFalse(any(x['id']=='14494999' for x in d['active']))
