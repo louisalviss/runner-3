@@ -28,6 +28,10 @@ NAMES = ("clm-copilot-calibration", "clm-copilot-v1", "louis-task-context",
          "runner3-opportunity-radar", "runner3-rss", "volamidle-rogue-data")
 EXTRA_TARGET_REVIEW = "louis-context-index"
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+SCHEMA_SQL = ("SELECT name,type,sql FROM sqlite_master "
+              "WHERE type IN ('table','view','index','trigger') "
+              "AND name NOT LIKE 'sqlite_%' ORDER BY type,name")
+PRAGMA_SQL = re.compile(r'PRAGMA table_xinfo\("(?:[^"]|"")+"\)\Z')
 MAX_DATABASES = 10
 MAX_SCHEMA_OBJECTS = 256
 MAX_TABLES_PER_DB = 80
@@ -40,10 +44,18 @@ def ensure(ok, reason):
         raise Blocked(reason)
 
 def api(account, token, method, path, sql=None):
-    ensure(method == "GET" or (method == "POST" and
-           path.endswith("/query") and isinstance(sql, str) and
-           (sql.startswith("SELECT name,type,sql FROM sqlite_master ") or
-            sql.startswith('PRAGMA table_xinfo("'))), "NON_READ_ONLY_REQUEST")
+    ensure(account == TARGET, "TARGET_ACCOUNT_ONLY")
+    ensure((method == "GET" and sql is None and
+            path == "/d1/database?page=1&per_page=100") or
+           (method == "POST" and isinstance(sql, str) and
+            (sql == SCHEMA_SQL or PRAGMA_SQL.fullmatch(sql) is not None) and
+            re.fullmatch(r"/d1/database/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/query", path) is not None),
+           "NON_READ_ONLY_REQUEST")
+    if method == "GET":
+        ensure(path == "/d1/database?page=1&per_page=100", "GET_SCOPE_RESTRICTED")
+    else:
+        ensure(re.fullmatch(r'/d1/database/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/query', path) is not None,
+               "POST_SCOPE_RESTRICTED")
     url = "https://api.cloudflare.com/client/v4/accounts/" + account + path
     req = urllib.request.Request(
         url, headers={"Authorization": "Bearer " + token,
@@ -70,10 +82,13 @@ def get_rows(response):
            isinstance(result[0], dict) and
            result[0].get("success") is True and
            isinstance(result[0].get("results"), list), "BAD_QUERY_RESULT")
-    meta = result[0].get("meta") or {}
-    ensure(not meta.get("changed_db") and
-           int(meta.get("rows_written") or 0) == 0,
-           "UNEXPECTED_DATABASE_MUTATION")
+    meta = result[0].get("meta")
+    ensure(meta is None or isinstance(meta, dict), "INVALID_QUERY_META")
+    if meta is not None:
+        ensure(("rows_written" not in meta or
+                (type(meta["rows_written"]) is int and meta["rows_written"] == 0)) and
+               ("changed_db" not in meta or meta["changed_db"] is False),
+               "UNEXPECTED_DATABASE_MUTATION")
     return result[0]["results"]
 
 def inventory(role, token, transport=api):
@@ -88,8 +103,14 @@ def inventory(role, token, transport=api):
            "DATABASE_LIMIT_OR_FORMAT")
     ensure(isinstance(info, dict) and
            type(info.get("total_count")) is int and
+           type(info.get("count")) is int and
+           type(info.get("page")) is int and
            info["total_count"] == len(databases) and
-           info.get("page") == 1, "INCOMPLETE_D1_LIST")
+           info["count"] == len(databases) and
+           info["page"] == 1 and
+           (info.get("total_pages") is None or
+            (type(info["total_pages"]) is int and
+             info["total_pages"] == 1)), "INCOMPLETE_D1_LIST")
     mapping = {}
     uuids = set()
     for item in databases:
@@ -97,11 +118,14 @@ def inventory(role, token, transport=api):
         name, uuid = item.get("name"), item.get("uuid")
         ensure(isinstance(name, str) and isinstance(uuid, str) and
                name not in mapping and uuid not in uuids and
-               re.fullmatch(r"[0-9a-f-]{36}", uuid), "DUPLICATE_OR_BAD_D1_ID")
+               re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", uuid), "DUPLICATE_OR_BAD_D1_ID")
         mapping[name] = uuid
         uuids.add(uuid)
     if role == "source":
         ensure(set(NAMES) <= set(mapping), "MISSING_SOURCE_D1")
+    else:
+        ensure(set(mapping) <= (set(NAMES) | {EXTRA_TARGET_REVIEW}),
+               "UNREVIEWED_TARGET_DATABASE")
     report = {
         "evidence_class": "READ_ONLY_SCHEMA_ONLY_NOT_ROW_PARITY",
         "role": role, "account_id": account,
@@ -114,9 +138,7 @@ def inventory(role, token, transport=api):
         "cutover_ready": False, "source_delete_allowed": False,
         "r2_requests": 0,
     }
-    sql = ("SELECT name,type,sql FROM sqlite_master "
-           "WHERE type IN ('table','view','index','trigger') "
-           "AND name NOT LIKE 'sqlite_%' ORDER BY type,name")
+    sql = SCHEMA_SQL
     for db_name in NAMES + ((EXTRA_TARGET_REVIEW,) if role == "target" else ()):
         if db_name not in mapping:
             continue
@@ -130,35 +152,39 @@ def inventory(role, token, transport=api):
             object_name, typ, definition = (entry.get("name"),
                                              entry.get("type"),
                                              entry.get("sql"))
-            ensure(isinstance(object_name, str) and NAME.fullmatch(object_name)
-                   and object_name not in seen and
+            ensure(isinstance(object_name, str) and object_name and
+                   len(object_name) <= 180 and "\x00" not in object_name and
+                   object_name not in seen and
                    typ in ("table", "view", "index", "trigger"),
                    "UNSUPPORTED_SCHEMA_OBJECT")
             seen.add(object_name)
+            ensure(definition is None or isinstance(definition, str), "BAD_DDL")
             schema.append({"name": object_name, "kind": typ,
                            "ddl_sha256": hashlib.sha256(
-                               (definition or "").encode("utf-8")).hexdigest()})
-        tables = [x for x in schema if x["kind"] == "table"]
+                               (definition or "").strip().encode("utf-8")).hexdigest()})
+        tables = [x for x in schema if x["kind"] == "table" and x["name"] != "_cf_KV"]
         ensure(len(tables) <= MAX_TABLES_PER_DB, "TOO_MANY_TABLES")
         for table in tables:
             name = table["name"]
             cols = get_rows(transport(account, token, "POST", path,
-                            'PRAGMA table_xinfo("' + name + '")'))
-            ensure(len(cols) <= 100 and all(isinstance(x, dict) for x in cols),
+                            'PRAGMA table_xinfo("' + name.replace('"', '""') + '")'))
+            ensure(0 < len(cols) <= 120 and all(isinstance(x, dict) for x in cols),
                    "BAD_COLUMN_METADATA")
             pk_items = []
             for col in cols:
                 ensure(isinstance(col.get("name"), str) and
-                       isinstance(col.get("pk"), int), "BAD_PK_FIELD")
+                       type(col.get("pk")) is int and
+                       0 <= col["pk"] <= 8, "BAD_PK_FIELD")
                 if col["pk"] > 0:
-                    ensure(NAME.fullmatch(col["name"]) is not None,
-                           "BAD_PRIMARY_KEY_METADATA")
+                    ensure(bool(col["name"]) and len(col["name"]) <= 180 and
+                           "\x00" not in col["name"], "BAD_PRIMARY_KEY_METADATA")
                     pk_items.append((col["pk"], col["name"]))
             pk_items.sort()
             ensure(len({rank for rank, _ in pk_items}) == len(pk_items),
                    "DUPLICATE_PK_ORDINAL")
             table["pk_columns"] = [v for _,v in pk_items]
             table["declared_pk_present"] = bool(pk_items)
+            table["column_count"] = len(cols)
         report["database_schemas"][db_name] = {
             "schema_objects": schema, "schema_object_count": len(schema),
             "table_count": len(tables),
@@ -171,6 +197,7 @@ def self_test():
     def fake(account, token, method, path, sql=None):
         if method == "GET":
             return {"success": True, "result_info": {"page": 1,
+                    "count": len(NAMES), "total_pages": 1,
                     "total_count": len(NAMES)},
                     "result": [{"name": n,
                     "uuid": "00000000-0000-0000-0000-" + format(i+1, "012x")}
@@ -212,6 +239,7 @@ def self_test():
         if method == "GET":
             d["result"].pop()
             d["result_info"]["total_count"] -= 1
+            d["result_info"]["count"] -= 1
         return d
     try:
         inventory("source", "dummy_token_for_offline", missing_source)
@@ -225,9 +253,42 @@ def self_test():
             d["result"].append({"name": EXTRA_TARGET_REVIEW,
                 "uuid": "00000000-0000-0000-0000-000000000010"})
             d["result_info"]["total_count"] += 1
+            d["result_info"]["count"] += 1
         return d
     extra = inventory("target", "dummy_token_for_offline", extra_target)
     assert EXTRA_TARGET_REVIEW in extra["database_schemas"]
+    assert all(x['schema_objects'][0]['column_count'] == 1
+               for x in extra['database_schemas'].values())
+    assert PRAGMA_SQL.fullmatch('PRAGMA table_xinfo("Odd""Name")')
+    assert not PRAGMA_SQL.fullmatch('PRAGMA table_xinfo("x"); DROP TABLE x')
+    assert not PRAGMA_SQL.fullmatch('PRAGMA table_xinfo("x") ; SELECT 1')
+    assert hashlib.sha256(b'CREATE TABLE x(id INT)').hexdigest() == hashlib.sha256(
+        '  CREATE TABLE x(id INT)  '.strip().encode()).hexdigest()
+    def internal_schema(account, token, method, path, sql=None):
+        d = fake(account, token, method, path, sql)
+        if sql and sql.startswith('SELECT'):
+            d['result'][0]['results'].append({'name':'_cf_KV', 'type':'table',
+                'sql':'CREATE TABLE _cf_KV(k TEXT)'})
+        return d
+    internal = inventory('target','dummy_token_for_offline',internal_schema)
+    assert all(x['table_count']==1 for x in internal['database_schemas'].values())
+    def unusual(account, token, method, path, sql=None):
+        d = fake(account, token, method, path, sql)
+        if sql and sql.startswith('SELECT'):
+            d['result'][0]['results'][0]['name'] = 'Odd"Name'
+        return d
+    unusual_report = inventory('target','dummy_token_for_offline',unusual)
+    assert all('Odd"Name' in [v['name'] for v in x['schema_objects']]
+               for x in unusual_report['database_schemas'].values())
+    def bad_count(account, token, method, path, sql=None):
+        d = fake(account, token, method, path, sql)
+        if method == 'GET': d['result_info']['count'] -= 1
+        return d
+    try:
+        inventory('target','dummy_token_for_offline',bad_count)
+        raise AssertionError('pagination count gap accepted')
+    except Blocked as e:
+        assert str(e) == 'INCOMPLETE_D1_LIST'
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     pub = key.public_key().public_bytes(
         encoding=serialization.Encoding.PEM,
@@ -240,7 +301,7 @@ def self_test():
         base64.b64decode(envelope["ciphertext"]),
         base64.b64decode(envelope["aad"]))
     assert json.loads(body)["role"] == "target"
-    print("OFFLINE_D1_NINE_SCHEMA_CONTRACT: PASS (9 checks, 0 external requests)")
+    print("OFFLINE_D1_NINE_SCHEMA_CONTRACT: PASS (12 checks, 0 external requests)")
 
 def encrypt_manifest(report, public_key_pem):
     public = serialization.load_pem_public_key(public_key_pem)
