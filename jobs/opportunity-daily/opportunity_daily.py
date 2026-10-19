@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Daily SEO + acquisition join. Source scanners remain independent owners."""
-import argparse, datetime as dt, hashlib, json, os, pathlib, re, subprocess, sys, tempfile
+import argparse, datetime as dt, hashlib, json, os, pathlib, re, socket, subprocess, sys, tempfile, urllib.request
+from urllib.parse import urlsplit
 from build_buy_decision import qualify
 from acquisition_backlog import build_backlog, summarize as summarize_backlog
 from flippa_semrush_bridge import inspect as inspect_flippa_semrush
@@ -56,12 +57,38 @@ def existing_flippa_states(exclude):
         eligible.append((match.group(1), path))
     return [p for _, p in sorted(eligible, key=lambda r:(r[0],r[1].stat().st_mtime),reverse=True)]
 
+def flippa_profile_preflight():
+    """Validate the named Flippa owner and configured transport before CDP."""
+    profile_id='c97a7500-3b11-403f-ac43-2566cdcd3fa2'
+    try:
+        with urllib.request.urlopen('http://127.0.0.1:8080/api/profiles/'+profile_id,timeout=5) as response:
+            record=json.load(response)
+        record=record.get('profile',record)
+    except (OSError,ValueError,TypeError) as exc:
+        raise RuntimeError('FLIPPA_PROFILE_MANAGER_UNAVAILABLE') from exc
+    if record.get('id')!=profile_id or record.get('name')!='flippa-main':
+        raise RuntimeError('FLIPPA_PROFILE_IDENTITY_MISMATCH')
+    proxy=str(record.get('proxy') or '').strip()
+    if not proxy:
+        raise RuntimeError('FLIPPA_PROXY_CONFIG_MISSING')
+    parsed=urlsplit(proxy)
+    if parsed.scheme not in ('http','https','socks5') or not parsed.hostname or not parsed.port:
+        raise RuntimeError('FLIPPA_PROXY_CONFIG_INVALID')
+    try:
+        with socket.create_connection((parsed.hostname,parsed.port),timeout=4):
+            pass
+    except OSError as exc:
+        raise RuntimeError('FLIPPA_PROXY_UNAVAILABLE') from exc
+    return {'profile':'flippa-main','proxy_reachable':True}
+
+
 def run_flippa(day):
     """Invoke existing authenticated RawCDP source-owner, incremental recent/First Access only."""
     stamp = day.replace("-", "") + "-daily"
     state = ROOT / ("flippa-" + stamp + "-state.json")
     if load(state, {}).get("recent_done") and load(state, {}).get("first_done"):
         return state
+    flippa_profile_preflight()
     if not TEMPLATE.exists():
         raise RuntimeError("FLIPPA_TEMPLATE_MISSING")
     script = ROOT / ("flippa-daily-stage-" + stamp + ".py")
