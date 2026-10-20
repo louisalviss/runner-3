@@ -3,7 +3,7 @@
 from __future__ import annotations
 import argparse,json,pathlib,re,random,time,sys,os
 ROOT=pathlib.Path('/var/lib/acquisition-radar-scan')
-PROFILE="c97a7500-3b11-403f-ac43-2566cdcd3fa2"
+PROFILE="1de482cb-96ac-4b1b-a3f8-2beddc91b2e0"
 ID=re.compile(r'^[0-9]{6,12}$')
 MAX=3
 
