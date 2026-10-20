@@ -885,6 +885,37 @@
       "status": "reported",
       "evidence_note": "Q3 orders $12.055B vs $8.606B year earlier, +40%; data-center orders more than doubled, not necessarily revenue. Q3 revenue $9.701B +14%, operational EBITA $2.026B +24%. Guidance raised to low-teens comparable sales growth. JV $495M 51% stake is announced investment, not proof closed.",
       "notified_at_vn": "2026-10-20T13:33:00+07:00"
+    },
+    "GOOGLE_CLOUD|EUROPE_WEST2_LONDON|OCT20_2026_MULTISERVICE_OUTAGE_REVOLUT": {
+      "label": "Google Cloud europe-west2 London multi-product outage disrupts Revolut card/ATM and other services",
+      "primary_entity": "Google Cloud",
+      "underlying_actual_event": "On 2026-10-20 Google Cloud europe-west2 London experienced an active multi-service outage beginning 2026-10-19 23:08 PDT (2026-10-20 13:08 VN); Revolut independently reported card payments and ATM withdrawal disruption, with Reuters source confirming relatedness; ING Germany link not verified",
+      "named_product": "Google Cloud europe-west2 London regional outage / Revolut banking services",
+      "material_update_key": "GOOGLE_CLOUD_EUROPE_WEST2_OCT20_2026_1308_VN_ACTIVE_MULTIPRODUCT_INCIDENT|REVOLUT_CARD_ATM_LOGIN_OUTAGE_CONFIRMED|ROOT_CAUSE_UNDETERMINED",
+      "last_verified_source_url": "https://status.cloud.google.com/incidents/Xs2XTHzAVC9YnafnPyzj",
+      "independent_reporting_url": "https://www.reuters.com/world/europe/google-cloud-services-experience-outage-europe-2026-10-20/",
+      "source_event_date": "2026-10-20",
+      "source_event_time_vn": "2026-10-20T13:08:00+07:00",
+      "source_event_time_note": "Official Google Cloud incident start 2026-10-19 23:08 PDT converted to Asia/Ho_Chi_Minh +14h. Reuters first report 2026-10-20 09:11 UTC = 16:11 VN.",
+      "provenance": "Google_Cloud_official_live_incident_plus_Revolut_public_statement_and_Reuters_independent_reporting",
+      "status": "notification_precommitted",
+      "evidence_note": "9.3/10; Google Cloud official active europe-west2 errors/network failures across many services; Revolut payments, ATM withdrawals, app access disrupted; funds/data safety is Revolut's assurance, not independently audited. Root cause not established, no proof ING Germany was caused by same outage. D1 unavailable, no regime transition.",
+      "notified_at_vn": "2026-10-20T17:08:37.298+07:00"
+    },
+    "NVIDIA|RTX_PRO_5500_CHINA_BIG_TECH|OCT20_2026_REUTERS_ORDER_DISCLOSURE": {
+      "label": "Reuters original investigation reports >3 million Nvidia RTX PRO 5500 cards ordered by ByteDance, Alibaba, Tencent, sticker value >$35B, fulfillment uncertain",
+      "primary_entity": "Nvidia, ByteDance, Alibaba, Tencent",
+      "underlying_actual_event": "October 20 2026 original Reuters disclosure, based on two people familiar, that three China technology groups placed orders for more than 3 million export-compliant RTX PRO 5500 workstation GPU cards; no independent corporate confirmation of aggregate quantity or contract closing",
+      "named_product": "Nvidia RTX PRO 5500 China AI inference chip orders",
+      "material_update_key": "REUTERS_OCT20_2026_0904_UTC_ORIGINAL_DISCLOSURE|BYTEDANCE_ALIBABA_TENCENT_GT3M_RTX_PRO_5500_CARDS|STICKER_VALUE_GT_USD35B|NVIDIA_SUPPLY_UNCERTAIN_NO_SHIPMENTS_VERIFIED",
+      "last_verified_source_url": "https://www.reuters.com/business/retail-consumer/bytedance-alibaba-tencent-place-over-35-billion-worth-nvidia-chip-orders-2026-10-20/",
+      "source_event_date": "2026-10-20",
+      "source_event_time_vn": "2026-10-20T16:04:00+07:00",
+      "source_event_time_note": "Time is original Reuters publication (09:04 UTC) not time of purchase orders, which was not independently established.",
+      "provenance": "Reuters_original_reporting_two_people_familiar_plus_Nvidia_spokesperson_export_control_context; company_order_totals_not_independently_confirmed",
+      "status": "notification_precommitted",
+      "evidence_note": "9.0/10; >3 million cards / >$35B sticker value is Reuters-sourced demand, not realized Nvidia revenue, confirmed shipments, or guaranteed purchase fulfillment. Nvidia reportedly cannot guarantee delivery; partner allocation possibly 5–10% of requested quantities. Nvidia spokesperson comments on export controls, not specific order verification. No macro regime transition.",
+      "notified_at_vn": "2026-10-20T17:08:37.298+07:00"
     }
   }
 }
