@@ -137,6 +137,13 @@ class BuildBuyDecisionGates(unittest.TestCase):
         self.assertEqual(seo_qualification(seo(), {**sem(), "local_search_intent": {"markets": [m]}}, True)
                          ["evidence"]["local_search_intent"]["status"], "EVIDENCE_INCOMPLETE")
 
+    def test_live_serp_blocker_preserved_on_provider_pass(self):
+        x = seo(verdict="BLOCKED_SERP")
+        y = seo_qualification(x, sem(), True)
+        self.assertEqual(y["category"], "BLOCKED")
+        z = sem(gate="BLOCKED")
+        self.assertEqual(seo_qualification(seo(), z, True)["category"], "BLOCKED")
+
     def test_local_intent_rejects_bad_source_serp(self):
         m = localized_market()
         m["serp_result_urls"] = ["https://same.example/page"] * 10 + ["http://bad.example"]
