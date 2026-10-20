@@ -11,6 +11,7 @@ import pathlib
 from collections import Counter
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from urllib.parse import urlsplit
 
 SEO_SCAN_ROOT = pathlib.Path("/var/lib/seotrends-public/scans")
 ACTIVE_BUY_LIMIT_USD = 10000
@@ -47,14 +48,79 @@ def positive_number(x):
         pass
     return None
 
+def _is_public_https(url: object) -> bool:
+    if not isinstance(url, str):
+        return False
+    try:
+        p = urlsplit(url)
+        return p.scheme == "https" and bool(p.hostname) and not p.username and not p.password
+    except ValueError:
+        return False
+
+
+def local_search_intent_review(semantic: dict, product_intent: bool) -> dict:
+    """Source-linked *review queue*, not proof of demand or permission to BUILD.
+
+    Native-language keyword comparisons are considered only for already
+    product-intent-matched candidates. This function never calls Semrush/SERP.
+    """
+    raw = semantic.get("local_search_intent")
+    if not isinstance(raw, dict) or not isinstance(raw.get("markets"), list):
+        return {"status": "NOT_REVIEWED", "review_priority": "UNCHANGED", "markets_review_ready": 0}
+    if not product_intent:
+        return {"status": "UPSTREAM_INTENT_UNVERIFIED", "review_priority": "UNCHANGED",
+                "markets_review_ready": 0}
+    ready = []
+    for m in raw["markets"][:8]:  # bounded, human-auditable review
+        if not isinstance(m, dict):
+            continue
+        country = str(m.get("country") or "").upper()
+        language = str(m.get("language") or "").strip().lower()
+        native = str(m.get("native_keyword") or "").strip()
+        literal = str(m.get("literal_translation_keyword") or "").strip()
+        if len(country) != 2 or not country.isalpha() or not (2 <= len(language) <= 12):
+            continue
+        if not native or not literal or native.casefold() == literal.casefold():
+            continue
+        native_volume = positive_number(m.get("native_volume"))
+        translated_volume = positive_number(m.get("literal_translation_volume"))
+        if native_volume is None or translated_volume is None or native_volume <= translated_volume:
+            continue
+        if m.get("matches_product_intent") is not True:
+            continue
+        if len(str(m.get("unmet_need") or "").strip()) < 20:
+            continue
+        if not str(m.get("keyword_source_ref") or "").strip() or not str(m.get("serp_source_ref") or "").strip():
+            continue
+        urls = m.get("serp_result_urls")
+        if not isinstance(urls, list):
+            continue
+        valid_urls = {u.strip() for u in urls if _is_public_https(u)}
+        if len(valid_urls) < 5:
+            continue
+        try:
+            observed = datetime.strptime(str(m.get("serp_checked_at") or ""), "%Y-%m-%d").date()
+            if observed > datetime.now(ZoneInfo("UTC")).date():
+                continue
+        except ValueError:
+            continue
+        ready.append({"country": country, "language": language, "native_keyword": native,
+                      "native_volume": native_volume, "literal_translation_volume": translated_volume,
+                      "serp_checked_at": observed.isoformat()})
+    return {"status": "REVIEW_READY" if ready else "EVIDENCE_INCOMPLETE",
+            "review_priority": "EVIDENCE_REVIEW_ONLY" if ready else "UNCHANGED",
+            "markets_review_ready": len(ready), "markets": ready,
+            "independently_validated": False}
+
+
 def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
     domain = str(row.get("domain") or "").lower()
     semantic_verdict = str(semantic.get("semantic_verdict") or "")
     terminal = str(semantic.get("terminal_verdict") or row.get("terminal_verdict") or "")
     raw = str(row.get("verdict") or "")
     product_intent = (semantic.get("product_intent_checked") is True if semantic else row.get("product_intent_checked") is True)
-    if raw == "BLOCKED_PROVIDER" or not provider_ok:
-        build, why = "BLOCKED", "Semrush/terminal data unavailable, never infer zero demand"
+    if raw in ("BLOCKED_PROVIDER", "BLOCKED_SERP") or terminal == "BLOCKED" or not provider_ok:
+        build, why = "BLOCKED", "Semrush or exact-SERP evidence incomplete; never infer zero demand"
     elif raw == "DROP" or terminal == "DROP" or semantic_verdict == "DROP_THIS_CYCLE":
         build, why = "DROP", str(semantic.get("business_reason") or row.get("reason") or "Terminal rejection")[:300]
     elif semantic_verdict == "WATCH_NARROW_GAP" and product_intent and terminal == "WATCH":
@@ -65,6 +131,7 @@ def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
         build, why = "DD_PENDING", "Exact SERP was checked but semantic business review, unmet need and monetization remain unverified"
     else:
         build, why = "DD_PENDING", "Validate unmet user need, exact SERP, differentiation, monetization and conversion before BUILD"
+    local_intent = local_search_intent_review(semantic, product_intent)
     metric = row.get("metrics") or {}
     traffic = positive_number(semantic.get("us_organic_estimate")) if semantic else positive_number(metric.get("traffic"))
     return {
@@ -81,9 +148,12 @@ def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
             "semantic_gate": semantic_verdict or "NOT_AVAILABLE", "semantic_review_completed": bool(semantic_verdict),
             "revenue_verified": False,
             "differentiated_solution_verified": False,
+            "local_search_intent": local_intent,
         },
         "missing": ([] if build in ("DROP", "BLOCKED") else
-                    ["demonstrated unmet need", "replicable search gap", "credible monetization/conversion"]),
+                    ["demonstrated unmet need", "replicable search gap", "credible monetization/conversion"]
+                    + ([] if local_intent["status"] == "REVIEW_READY" else
+                       ["native-language keyword and country-specific SERP evidence"])),
     }
 
 def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
