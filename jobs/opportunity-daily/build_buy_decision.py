@@ -119,8 +119,8 @@ def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
     terminal = str(semantic.get("terminal_verdict") or row.get("terminal_verdict") or "")
     raw = str(row.get("verdict") or "")
     product_intent = (semantic.get("product_intent_checked") is True if semantic else row.get("product_intent_checked") is True)
-    if raw == "BLOCKED_PROVIDER" or not provider_ok:
-        build, why = "BLOCKED", "Semrush/terminal data unavailable, never infer zero demand"
+    if raw in ("BLOCKED_PROVIDER", "BLOCKED_SERP") or terminal == "BLOCKED" or not provider_ok:
+        build, why = "BLOCKED", "Semrush or exact-SERP evidence incomplete; never infer zero demand"
     elif raw == "DROP" or terminal == "DROP" or semantic_verdict == "DROP_THIS_CYCLE":
         build, why = "DROP", str(semantic.get("business_reason") or row.get("reason") or "Terminal rejection")[:300]
     elif semantic_verdict == "WATCH_NARROW_GAP" and product_intent and terminal == "WATCH":
