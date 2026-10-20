@@ -1,0 +1,49 @@
+name: Cloudflare D1 Offline Audit CI
+
+on:
+  push:
+    branches:
+      - audit/cloudflare-d1-nine-schema-source-20261017
+      - audit/cloudflare-d1-delta-integrity-20261017-01
+  pull_request:
+    paths:
+      - .github/workflows/cloudflare-d1-audit-offline-ci.yml
+      - scripts/cloudflare_d1_nine_schema_encrypted.py
+      - scripts/tests/test_cloudflare_d1_nine_schema_encrypted.py
+      - scripts/cloudflare_d1_nine_schema_readonly.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-d1-offline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install crypto library for synthetic tests
+        run: python3 -m pip install --quiet "cryptography>=42,<47"
+      - name: Validate collectors using synthetic data only
+        shell: bash
+        run: |
+          set -euo pipefail
+          tested=0
+          if [[ -f scripts/cloudflare_d1_nine_schema_encrypted.py ]]; then
+            test -f scripts/tests/test_cloudflare_d1_nine_schema_encrypted.py
+            python3 -m py_compile scripts/cloudflare_d1_nine_schema_encrypted.py
+            python3 scripts/tests/test_cloudflare_d1_nine_schema_encrypted.py
+            tested=$((tested + 1))
+          fi
+          if [[ -f scripts/cloudflare_d1_nine_schema_readonly.py ]]; then
+            python3 -m py_compile scripts/cloudflare_d1_nine_schema_readonly.py
+            python3 scripts/cloudflare_d1_nine_schema_readonly.py --self-test
+            tested=$((tested + 1))
+          fi
+          test "$tested" -gt 0
