@@ -821,6 +821,39 @@
       "status": "notification_precommitted",
       "notified_at_vn": "2026-10-19T22:10:22+07:00",
       "evidence_note": "Score 8.7/10; HMI 29 vs 31 forecast, 43% cut prices, buyer traffic 18, mortgage rates above 7%; housing demand/cost shock. It is a survey, not realized home sales or recession proof. D1 current WATCH/AMBER version4; no validated new global macro state change, no D1/Sheet write."
+    },
+    "AMAZON_AWS|TORCHNEURON|OCT19_2026_ANNOUNCEMENT": {
+      "label": "Amazon announces TorchNeuron native PyTorch backend for Trainium2/3, with public beta and Apache-2.0 open-source release scheduled for October 20",
+      "primary_entity": "Amazon Web Services / Annapurna Labs",
+      "underlying_actual_event": "October 19 2026 announcement of native PyTorch backend TorchNeuron for AWS Trainium; initial public beta release scheduled October 20, not proven fully generally available on announcement",
+      "named_product": "TorchNeuron / AWS Neuron 2.33 / Trainium2 and Trainium3",
+      "material_update_key": "OCT19_2026_OFFICIAL_TORCHNEURON_ANNOUNCEMENT|NATIVE_PYTORCH_PRIVATEUSE1_BACKEND|TRAINIUM2_TRAINIUM3|OCT20_PUBLIC_BETA_APACHE2_PLANNED|NO_PROVEN_PRODUCTION_MIGRATION",
+      "last_verified_source_url": "https://www.aboutamazon.com/news/innovation-at-amazon/torchneuron-pytorch-aws-trainium-chips-ai",
+      "supporting_primary_source_url": "https://awsdocs-neuron.readthedocs-hosted.com/en/latest/release-notes/components/torchneuron.html",
+      "independent_reporting_url": "https://www.reuters.com/business/retail-consumer/amazon-says-its-ai-chips-will-work-with-popular-coding-language-challenging-2026-10-19/",
+      "source_event_date": "2026-10-19",
+      "source_event_time_vn": null,
+      "source_event_time_note": "Official announcement is dated Oct 19 US time; exact company release clock time not published. Reuters report published Oct 19 13:01:45 UTC (20:01:45 VN), not assumed to be company event time.",
+      "provenance": "verified_Amazon_primary_product_announcement_AWS_Neuron_release_notes_and_independent_Reuters",
+      "status": "notification_precommitted",
+      "evidence_note": "8.8/10 Tech/Internet. PyTorch native backend reduces code migration friction, potential CUDA lock-in challenge. More than 30 early adopters reported by Amazon, not independently audited; code/release is public beta and open-source scheduled Oct 20, not a completed mass migration.",
+      "notified_at_vn": "2026-10-20T09:50:07+07:00"
+    },
+    "MINIMAX|M3_1_FLASH|OCT19_2026_PRODUCTION_API_RELEASE": {
+      "label": "MiniMax releases M3.1 Flash agent model on API/M Plan/MiniMax Code with $0.15/$0.60 per million input/output tokens",
+      "primary_entity": "MiniMax",
+      "underlying_actual_event": "October 19 2026 production API and app release of MiniMax M3.1 Flash, confirming earlier Space Bunny model identity",
+      "named_product": "MiniMax M3.1 Flash / Space Bunny",
+      "material_update_key": "OCT19_2026_M3_1_FLASH_API_MPLAN_CODE_LIVE|USD0_15_INPUT_USD0_60_OUTPUT_PER_MILLION|SPACEBUNNY_EARLIER_BUILD_CONFIRMED|OPEN_WEIGHTS_NOT_YET_RELEASED",
+      "last_verified_source_url": "https://www.minimax.io/blog/minimax-m31f",
+      "independent_reporting_url": "https://www.reuters.com/world/asia-pacific/chinas-minimax-launches-updated-ai-model-m31-flash-claims-major-improvements-2026-10-19/",
+      "source_event_date": "2026-10-19",
+      "source_event_time_vn": null,
+      "source_event_time_note": "MiniMax official launch blog dated Oct 19 China time, exact posting clock time not established from verified blog; no inferred time.",
+      "provenance": "verified_MiniMax_primary_launch_and_independent_Reuters",
+      "status": "notification_precommitted",
+      "evidence_note": "8.6/10 AI. Production availability and public API pricing verified. Vendor claims ~3x inference speed, ~70% lower agent-task costs and benchmark scores are not independent comparisons; weights promised later, not released at announcement.",
+      "notified_at_vn": "2026-10-20T09:50:07+07:00"
     }
   }
 }
