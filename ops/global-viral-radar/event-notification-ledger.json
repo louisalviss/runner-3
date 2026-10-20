@@ -933,6 +933,57 @@
       "status": "notification_precommitted",
       "prior_related_event_key": "GOOGLE_CLOUD|EUROPE_WEST2_LONDON|OCT20_2026_MULTISERVICE_OUTAGE_REVOLUT",
       "evidence_note": "8.2/10 distinct material operational phase: Google says full service restored after power event, following multi-product London outage that affected banking. This does NOT independently prove Revolut payments/ATM and every downstream service fully restored; Revolut regional status may lag. No new broad outage, no claim of full postmortem/root-cause analysis. D1 authoritative GET inaccessible; no regime transition."
+    },
+    "NATO|BLACK_SEA|OCT20_2026_ADDITIONAL_SURVEILLANCE_DEPLOYMENT": {
+      "label": "NATO announces additional Black Sea maritime patrol aircraft, radar, drones and forensic support following attacks on merchant ships",
+      "primary_entity": "NATO North Atlantic Council",
+      "underlying_actual_event": "October 20 2026 NATO ambassadors discussed Black Sea security and NATO publicly announced additional surveillance and forensic assets in response to deadly attacks on commercial shipping; announcement is not proof all equipment has deployed",
+      "named_policy": "NATO Black Sea maritime security reinforcement October 2026",
+      "material_update_key": "OCT20_2026_NATO_BLACK_SEA_NEW_ASSETS_ANNOUNCED|MARITIME_PATROL_AIRCRAFT_RADAR_DRONES_FORENSICS|AFTER_CIVILIAN_SHIP_ATTACKS|DEPLOYMENT_COMPLETION_NOT_VERIFIED",
+      "last_verified_source_url": "https://www.reuters.com/business/aerospace-defense/nato-send-planes-drones-black-sea-after-attacks-shipping-2026-10-20/",
+      "independent_reporting_url": "https://www.theguardian.com/world/2026/oct/20/nato-black-sea-deployment-escalating-russian-attacks-ships",
+      "source_event_date": "2026-10-20",
+      "source_event_time_vn": null,
+      "source_publication_time_vn": "2026-10-20T23:36:42+07:00",
+      "source_event_time_note": "NATO council meeting/announcement occurred Oct20; exact announcement clock time not independently established. Reuters report timestamp 16:36:42 UTC = 23:36:42 VN is publication, not deployment time.",
+      "provenance": "Reuters_direct_NATO_spokesperson_plus_Guardian_independent_reporting",
+      "status": "notification_precommitted",
+      "notified_at_vn": "2026-10-21T02:46:19+07:00",
+      "evidence_note": "9.1/10 exceptional geopolitics: new NATO defensive surveillance commitment distinct from prior Romanian F-16 drone shootdowns. Reuters reports at least five other vessels attacked and 23 dead/missing; NATO has not assigned responsibility, actual deployment/impact on shipping losses unconfirmed."
+    },
+    "SALESFORCE|BRAZE|OCT20_2026_DEFINITIVE_ACQUISITION_AGREEMENT": {
+      "label": "Salesforce signs definitive agreement to acquire Braze for $5.66B enterprise value, $47.50 cash per Class A share",
+      "primary_entity": "Salesforce Inc and Braze Inc",
+      "underlying_actual_event": "October 20 2026 signed definitive cash acquisition agreement, not completed acquisition, to integrate real-time engagement platform Braze into Salesforce marketing/AI stack",
+      "named_deal": "Salesforce acquisition of Braze",
+      "material_update_key": "OCT20_2026_SIGNED_DEFINITIVE_AGREEMENT|ENTERPRISE_VALUE_USD5_66B|USD47_50_CASH_PER_BRAZE_CLASS_A_SHARE|EXPECTED_FY2028_CLOSE_PENDING_APPROVAL",
+      "last_verified_source_url": "https://investor.salesforce.com/news/news-details/2026/Salesforce-Signs-Definitive-Agreement-to-Acquire-Braze/default.aspx",
+      "supporting_primary_source_url": "https://www.sec.gov/Archives/edgar/data/1108524/000119312526425881/d516983d8k.htm",
+      "independent_reporting_url": "https://www.reuters.com/business/salesforce-acquire-braze-566-billion-deal-2026-10-20/",
+      "source_event_date": "2026-10-20",
+      "source_event_time_vn": null,
+      "source_event_time_note": "Official Salesforce release and SEC 8-K dated Oct20; signing/disclosure clock time not established from primary release. Do not treat first wire time as signing time.",
+      "provenance": "Salesforce_company_IR_primary_plus_SEC_8K_plus_Reuters",
+      "status": "notification_precommitted",
+      "notified_at_vn": "2026-10-21T02:46:19+07:00",
+      "evidence_note": "9.2/10 tech/business M&A, strategic acquisition for real-time customer data/AI marketing. 2,770 Braze customers, 58.1% premium to prior close reported by Reuters. Signed, not closed; shareholder/regulatory approvals pending, expected Salesforce FY2028. Market move BRZE >50% is reaction to verified catalyst, not routine ticker."
+    },
+    "NAR|SEPTEMBER_2026_PENDING_HOME_SALES|OCT20_2026_RECORD_LOW": {
+      "label": "NAR September 2026 pending home sales fall 7.3% m/m to 66.0, lowest since 2001 series inception",
+      "primary_entity": "National Association of Realtors",
+      "underlying_actual_event": "October 20 2026 original September pending home sales report reveals record-low pending contract index with broad regional declines",
+      "named_product": "September 2026 Pending Home Sales Index",
+      "material_update_key": "OCT20_2026_NAR_OFFICIAL_RELEASE|PENDING_HOME_SALES_INDEX_66_RECORD_LOW_SINCE_2001|MOM_MINUS7_3PCT_VS_CONSENSUS_MINUS0_5PCT|YOY_MINUS11_3PCT",
+      "last_verified_source_url": "https://www.nar.realtor/newsroom/pending-home-sales-decreased-7-3-percent-in-september",
+      "supporting_primary_source_url": "https://www.census.gov/construction/nrc/current/",
+      "independent_reporting_url": "https://www.reuters.com/business/us-pending-home-sales-tumble-record-low-september-2026-10-20/",
+      "source_event_date": "2026-10-20",
+      "source_event_time_vn": "2026-10-20T21:00:00+07:00",
+      "source_event_time_note": "NAR scheduled and published Oct20 at 10:00 ET (EDT UTC-4), exactly 21:00 Asia/Ho_Chi_Minh.",
+      "provenance": "NAR_primary_official_and_GlobeNewswire_original_distribution_plus_Census_September_starts_and_Reuters",
+      "status": "notification_precommitted",
+      "notified_at_vn": "2026-10-21T02:46:19+07:00",
+      "evidence_note": "8.9/10 standalone macro growth/housing shock: NAR -7.3% m/m vs Reuters economist -0.5%, -11.3% y/y, record low index 66.0, four regions down. Census September housing starts 1.221M -5.2% but margin of error ±11.8% means decline alone not statistically conclusive. Official production D1 readback prior state WATCH/AMBER v4 (as-of Oct4), updated Fed October hike odds ~18% and December 25bp hike still likely, no independently proven macro decision-state transition; no D1 or Sheet write."
     }
   }
 }
