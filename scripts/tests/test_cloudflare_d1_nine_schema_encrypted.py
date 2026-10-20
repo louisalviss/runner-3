@@ -26,10 +26,10 @@ class NineSourceSchemaTests(unittest.TestCase):
             return {"success":True, "result":[{"name":n,"uuid":uid} for n,uid in self.ids.items()],
                     "result_info":{"page":1,"count":9,"total_count":9,"total_pages":1}}
         if payload["sql"] == module.SCHEMA_SQL:
-            return {"success":True,"result":[{"results":[{"type":"table","name":"items",
+            return {"success":True,"result":[{"success":True,"results":[{"type":"table","name":"items",
                     "tbl_name":"items","sql":"CREATE TABLE items (id INTEGER PRIMARY KEY, title TEXT)"}]}]}
         if payload["sql"] == 'PRAGMA table_xinfo("items")':
-            return {"success":True,"result":[{"results":[
+            return {"success":True,"result":[{"success":True,"results":[
                 {"cid":0,"name":"id","pk":1},{"cid":1,"name":"title","pk":0}]}]}
         self.fail("Unexpected SQL was called: " + str(payload))
 
@@ -91,7 +91,7 @@ class NineSourceSchemaTests(unittest.TestCase):
         original=self.fake_api
         def bad(token, method, route, payload=None):
             if payload and payload['sql'].startswith('PRAGMA'):
-                return {'success':True,'result':[{'results':[]}]}
+                return {'success':True,'result':[{'success':True,'results':[]}]}
             return original(token,method,route,payload)
         with mock.patch.object(module,'request_json',bad), self.assertRaisesRegex(module.AuditBlocked,'TABLE_COLUMNS_MISSING'):
             module.read_source_schema('fake-token-for-unit-tests')
