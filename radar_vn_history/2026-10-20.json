@@ -10,42 +10,48 @@
     "f33_after_midnight_grace_hours": 3,
     "forum_min_local_hour": 20
   },
-  "status": "BLOCKED",
-  "render_allowed": false,
-  "full_quality": false,
-  "close_quality": false,
-  "blocking_reasons": [
-    "forum_history_missing"
-  ],
+  "status": "READY",
+  "render_allowed": true,
+  "full_quality": true,
+  "close_quality": true,
+  "blocking_reasons": [],
   "inputs": {
     "trends": {
       "path": "trends_vn_history/2026-10-20.json",
       "present": true,
-      "sha256": "daaa0fc814a95e5e32b3c78b70cd5b99eabbdff8d50ea109854fa6a9fd28472a",
+      "sha256": "824cf08093cef98c10250b802b4c7168ec18b19e7dd0a8831f71f6fe4e884b4d",
       "status": "HEALTHY",
       "vietnam_date": "2026-10-20",
-      "captured_at": "2026-10-19T19:23:48.948027+00:00",
+      "captured_at": "2026-10-20T13:01:48.855920+00:00",
       "top10_count": 10
     },
     "f33": {
       "path": "voz_f33_history/2026-10-20.json",
       "present": true,
-      "sha256": "11c749a600191f0f1e28eae1aceda3a5bd68556e0153ec461419b9622b8baf7b",
+      "sha256": "17b2f91c44dd5514add9eaf2a3dea297179a0f81044524e182ca234ca2d6dfb4",
       "status": "HEALTHY",
       "vietnam_date": "2026-10-20",
-      "generated_at": "2026-10-19T20:45:20.394Z",
-      "run_id": 39321534496,
-      "artifact_id": 12219793972,
+      "generated_at": "2026-10-20T19:37:22.196Z",
+      "run_id": 39484528207,
+      "artifact_id": 12293086976,
       "threads_discovered": 20,
-      "expected_pages_total": 109,
-      "fetched_pages_total": 109,
+      "expected_pages_total": 122,
+      "fetched_pages_total": 122,
       "missing_pages_total": 0,
-      "posts_total": 1775,
-      "target_date_source": "workflow_dispatch_input"
+      "posts_total": 2092,
+      "target_date_source": "workflow_dispatch_input_after_midnight_grace"
     },
     "forum_signal": {
       "path": "forum_signal_history/2026-10-20.json",
-      "present": false
+      "present": true,
+      "sha256": "3861325fb1fef0e46c33884612ebc7474ab5239a706f73c8c847f234ff690973",
+      "status": "DEGRADED",
+      "vietnam_date": "2026-10-20",
+      "generated_at": "2026-10-20T13:00:44.172Z",
+      "run_id": 39425769685,
+      "artifact_id": 12266471820,
+      "posts_total": 878,
+      "crawl_outcome": "success"
     }
   }
 }
