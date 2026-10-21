@@ -165,6 +165,9 @@ jobs:
           D1_PLANNED_ROWS: '1000'
         run: python3 scripts/d1_account_quota_preflight.py
 
+      - name: Verify private delivery Range and HEAD compatibility before Core deploy
+        run: node cloudflare/runner3-core/tests/delivery-range.test.mjs
+
       - name: Apply Core D1 migrations
         shell: bash
         working-directory: cloudflare/runner3-core

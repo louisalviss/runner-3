@@ -131,6 +131,69 @@ function objectHeaders(object, artifact) {
   return headers;
 }
 
+// RFC 7233 single-range support for video playback on Safari/iOS.
+// Reject unsupported multi-range requests rather than loading a whole private object.
+function byteRange(value, total) {
+  if (!value) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(String(value).trim());
+  if (!match || (!match[1] && !match[2]) || !Number.isSafeInteger(total) || total < 1) return false;
+  const leading = match[1];
+  const trailing = match[2];
+  let first;
+  let last;
+  if (!leading) {
+    const suffix = Number(trailing);
+    if (!Number.isSafeInteger(suffix) || suffix <= 0) return false;
+    first = Math.max(0, total - suffix);
+    last = total - 1;
+  } else {
+    first = Number(leading);
+    if (!Number.isSafeInteger(first) || first < 0 || first >= total) return false;
+    last = trailing ? Number(trailing) : total - 1;
+    if (!Number.isSafeInteger(last) || last < first) return false;
+    last = Math.min(total - 1, last);
+  }
+  return { first, last, length: last - first + 1 };
+}
+
+async function serveArtifact(request, env, artifact) {
+  // Preserve the original one-R2-read path for ordinary downloads.
+  // Only range/HEAD needs a separate cheap metadata lookup.
+  const rawRange = request.method === "GET" ? request.headers.get("range") : null;
+  if (request.method === "GET" && !rawRange) {
+    const object = await env.ARTIFACTS.get(artifact.key);
+    if (!object) return json({ ok: false, error: "ARTIFACT_NOT_FOUND" }, 404);
+    const responseHeaders = objectHeaders(object, artifact);
+    responseHeaders.set("accept-ranges", "bytes");
+    return new Response(object.body, { status: 200, headers: responseHeaders });
+  }
+  const head = await env.ARTIFACTS.head(artifact.key);
+  if (!head) return json({ ok: false, error: "ARTIFACT_NOT_FOUND" }, 404);
+  const headers = objectHeaders(head, artifact);
+  headers.set("accept-ranges", "bytes");
+  // HEAD uses the existing GET signature after the same authentication checks.
+  if (request.method === "HEAD") return new Response(null, { status: 200, headers });
+
+  const range = byteRange(rawRange, Number(head.size));
+  if (range === false) {
+    headers.set("content-range", "bytes */" + head.size);
+    headers.set("content-length", "0");
+    return new Response(null, { status: 416, headers });
+  }
+  const object = await env.ARTIFACTS.get(
+    artifact.key,
+    range ? { range: { offset: range.first, length: range.length } } : undefined,
+  );
+  if (!object) return json({ ok: false, error: "ARTIFACT_NOT_FOUND" }, 404);
+  const responseHeaders = objectHeaders(object, artifact);
+  responseHeaders.set("accept-ranges", "bytes");
+  if (range) {
+    responseHeaders.set("content-range", "bytes " + range.first + "-" + range.last + "/" + head.size);
+    responseHeaders.set("content-length", String(range.length));
+  }
+  return new Response(object.body, { status: range ? 206 : 200, headers: responseHeaders });
+}
+
 export async function handleDelivery(request, env, url) {
   if (request.method === "POST" && url.pathname === "/delivery-permalinks") {
     if (!env.ARTIFACTS) return json({ ok: false, error: "R2_NOT_BOUND" }, 503);
@@ -191,7 +254,7 @@ export async function handleDelivery(request, env, url) {
     return json({ ok: true, revoked: Number(result?.meta?.changes || 0) > 0 });
   }
 
-  if (request.method === "GET" && url.pathname.startsWith("/delivery-permanent/")) {
+  if ((request.method === "GET" || request.method === "HEAD") && url.pathname.startsWith("/delivery-permanent/")) {
     if (!env.ARTIFACTS) return json({ ok: false, error: "R2_NOT_BOUND" }, 503);
     if (!env.DB) return json({ ok: false, error: "D1_NOT_BOUND" }, 503);
     const token = url.pathname.slice("/delivery-permanent/".length);
@@ -205,9 +268,7 @@ export async function handleDelivery(request, env, url) {
     if (!artifact || artifact.key !== String(row.object_key || "")) {
       return json({ ok: false, error: "PERMALINK_ARTIFACT_INVALID" }, 500);
     }
-    const object = await env.ARTIFACTS.get(artifact.key);
-    if (!object) return json({ ok: false, error: "ARTIFACT_NOT_FOUND" }, 404);
-    return new Response(object.body, { status: 200, headers: objectHeaders(object, artifact) });
+    return serveArtifact(request, env, artifact);
   }
 
   if (request.method === "POST" && url.pathname === "/delivery-links") {
@@ -251,7 +312,7 @@ export async function handleDelivery(request, env, url) {
     });
   }
 
-  if (request.method === "GET" && url.pathname.startsWith("/delivery/")) {
+  if ((request.method === "GET" || request.method === "HEAD") && url.pathname.startsWith("/delivery/")) {
     if (!env.ARTIFACTS) return json({ ok: false, error: "R2_NOT_BOUND" }, 503);
     let segments;
     try {
@@ -270,9 +331,7 @@ export async function handleDelivery(request, env, url) {
     if (expires > now + MAX_TTL_SECONDS + 60) return json({ ok: false, error: "DELIVERY_EXPIRY_INVALID" }, 401);
     const valid = await verifySignature(url.pathname, expires, signature, env);
     if (!valid) return json({ ok: false, error: "DELIVERY_SIGNATURE_INVALID" }, 401);
-    const object = await env.ARTIFACTS.get(artifact.key);
-    if (!object) return json({ ok: false, error: "ARTIFACT_NOT_FOUND" }, 404);
-    return new Response(object.body, { status: 200, headers: objectHeaders(object, artifact) });
+    return serveArtifact(request, env, artifact);
   }
 
   return null;
