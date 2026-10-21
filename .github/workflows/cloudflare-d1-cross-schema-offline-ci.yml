@@ -1,0 +1,31 @@
+name: Cloudflare D1 Cross-Schema Offline CI
+
+on:
+  push:
+    branches: [audit/cloudflare-d1-cross-schema-fingerprint-20261021]
+    paths:
+      - 'scripts/cloudflare_d1_cross_schema_fingerprint.py'
+      - 'scripts/tests/test_cloudflare_d1_cross_schema_fingerprint.py'
+      - '.github/workflows/cloudflare-d1-cross-schema-*.yml'
+  pull_request:
+    paths:
+      - 'scripts/cloudflare_d1_cross_schema_fingerprint.py'
+      - 'scripts/tests/test_cloudflare_d1_cross_schema_fingerprint.py'
+      - '.github/workflows/cloudflare-d1-cross-schema-*.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run synthetic contracts only
+        run: |
+          python3 -m py_compile scripts/cloudflare_d1_cross_schema_fingerprint.py
+          python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_cross_schema_fingerprint.py' -v
