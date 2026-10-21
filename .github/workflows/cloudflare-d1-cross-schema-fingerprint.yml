@@ -1,0 +1,102 @@
+name: Cloudflare D1 Cross-Account Schema Fingerprints
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-d1-cross-account-schema
+  cancel-in-progress: false
+
+jobs:
+  offline-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Synthetic contracts without credentials
+        run: |
+          python3 -m py_compile scripts/cloudflare_d1_cross_schema_fingerprint.py
+          python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_cross_schema_fingerprint.py' -v
+
+  source-readonly:
+    needs: offline-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install audited D1 reader dependencies
+        run: python3 -m pip install --quiet 'cryptography>=42,<47'
+      - name: Read SOURCE D1 metadata and emit only fingerprints
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/cloudflare_d1_cross_schema_fingerprint.py --role source --out courier-out/source-digest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: d1-cross-source-digest
+          path: courier-out/source-digest.json
+          if-no-files-found: error
+          retention-days: 1
+
+  target-readonly:
+    needs: offline-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install audited D1 reader dependencies
+        run: python3 -m pip install --quiet 'cryptography>=42,<47'
+      - name: Read TARGET D1 metadata and emit only fingerprints
+        env:
+          CLOUDFLARE_TARGET_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_TARGET_AUDIT_TOKEN }}
+        run: python3 scripts/cloudflare_d1_cross_schema_fingerprint.py --role target --out courier-out/target-digest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: d1-cross-target-digest
+          path: courier-out/target-digest.json
+          if-no-files-found: error
+          retention-days: 1
+
+  compare-without-secrets:
+    needs: [source-readonly, target-readonly]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: d1-cross-source-digest
+          path: courier-in/source
+      - uses: actions/download-artifact@v4
+        with:
+          name: d1-cross-target-digest
+          path: courier-in/target
+      - name: Compare schema digest receipts without credentials
+        run: |
+          python3 scripts/cloudflare_d1_cross_schema_fingerprint.py --role compare \
+            --source courier-in/source/source-digest.json \
+            --target courier-in/target/target-digest.json \
+            --out courier-out/cross-schema-result.json
+      - name: Save sanitized comparison including expected gaps
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-cross-schema-sanitized-result
+          path: courier-out/cross-schema-result.json
+          if-no-files-found: warn
+          retention-days: 1
