@@ -14,19 +14,22 @@ a = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(a)
 
 HASH = hashlib.sha256(b"CREATE TABLE items(id INT)").hexdigest()
+COLS = hashlib.sha256(b"synthetic-column-schema").hexdigest()
 
 
 def source_db():
     return {"rows_scanned": 0, "table_count": 1,
             "objects": [{"type": "table", "name": "items", "ddl_sha256": HASH}],
             "tables": {"items": {"pk_columns": ["id"], "column_count": 1,
-                      "row_count": None, "payload_parity_verified": False}}}
+                      "row_count": None, "payload_parity_verified": False,
+                      "columns_sha256": COLS}}}
 
 
 def target_db():
     return {"table_count": 1, "schema_object_count": 1,
             "schema_objects": [{"kind": "table", "name": "items",
-               "ddl_sha256": HASH, "pk_columns": ["id"], "column_count": 1}]}
+               "ddl_sha256": HASH, "pk_columns": ["id"], "column_count": 1,
+               "columns_sha256": COLS}]}
 
 
 def source():
@@ -168,6 +171,80 @@ class Contracts(unittest.TestCase):
             with self.assertRaisesRegex(a.Blocked, "COMPARE_SECRETS_PRESENT"):
                 a.main(["--role", "compare", "--source", "/none", "--target", "/none",
                         "--out", "/none"])
+
+
+    def test_targeted_scope_exact_two(self):
+        x = a.source_receipt(source())
+        y = a.target_receipt(target())
+        self.assertEqual(set(x["targeted_objects"]), a.TARGETED)
+        self.assertEqual(set(y["targeted_objects"]), a.TARGETED)
+
+    def test_targeted_schema_identical_no_object_diff(self):
+        report = a.compare(a.source_receipt(source()), a.target_receipt(target()))
+        for db in a.TARGETED:
+            details = report["targeted_object_diff"][db]
+            self.assertFalse(details["source_only_object_ids"])
+            self.assertFalse(details["target_only_object_ids"])
+            self.assertFalse(details["changed_object_ids"])
+            self.assertEqual(details["matching_object_count"], 1)
+
+    def test_source_column_digest_missing_blocked(self):
+        s = source()
+        del s["databases"]["runner3-core"]["tables"]["items"]["columns_sha256"]
+        with self.assertRaisesRegex(a.Blocked, "COLUMN_DIGEST_BAD"):
+            a.source_receipt(s)
+
+    def test_target_column_digest_malformed_blocked(self):
+        t = target()
+        t["database_schemas"]["runner3-core"]["schema_objects"][0]["columns_sha256"] = "abc"
+        with self.assertRaisesRegex(a.Blocked, "COLUMN_DIGEST_BAD"):
+            a.target_receipt(t)
+
+    def test_one_column_change_fails_schema_and_objects(self):
+        t = target()
+        t["database_schemas"]["runner3-core"]["schema_objects"][0]["columns_sha256"] = "0"*64
+        report = a.compare(a.source_receipt(source()), a.target_receipt(t))
+        self.assertIn("runner3-core", report["schema_mismatch"])
+        self.assertEqual(len(report["targeted_object_diff"]["runner3-core"]["changed_object_ids"]), 1)
+        self.assertFalse(report["row_parity"])
+
+    def test_source_only_view_per_object(self):
+        s = source()
+        s["databases"]["runner3-core"]["objects"].append(
+            {"type": "view", "name": "missing_in_target", "ddl_sha256": HASH})
+        report = a.compare(a.source_receipt(s), a.target_receipt(target()))
+        self.assertEqual(len(report["targeted_object_diff"]["runner3-core"]["source_only_object_ids"]), 1)
+
+    def test_target_only_index_per_object(self):
+        t = target()
+        db = t["database_schemas"]["runner3-content-intelligence"]
+        db["schema_objects"].append(
+            {"kind": "index", "name": "new_target_index", "ddl_sha256": HASH})
+        db["schema_object_count"] += 1
+        report = a.compare(a.source_receipt(source()), a.target_receipt(t))
+        self.assertEqual(len(report["targeted_object_diff"]["runner3-content-intelligence"]["target_only_object_ids"]), 1)
+
+    def test_missing_targeted_db_stays_explicit(self):
+        report = a.compare(a.source_receipt(source()),
+                           a.target_receipt(target(missing=["runner3-core"])))
+        self.assertIn("runner3-core", report["missing_on_target"])
+        self.assertNotIn("runner3-core", report["targeted_object_diff"])
+
+    def test_forged_or_missing_targeted_receipt_rejected(self):
+        x, y = a.source_receipt(source()), a.target_receipt(target())
+        del y["targeted_objects"]["runner3-core"]
+        with self.assertRaisesRegex(a.Blocked, "TARGETED_SCOPE_BAD"):
+            a.compare(x, y)
+
+    def test_detailed_receipts_do_not_expose_object_names(self):
+        x, y = a.source_receipt(source()), a.target_receipt(target())
+        report = a.compare(x, y)
+        serialized = json.dumps([x, y, report])
+        self.assertNotIn('"items"', serialized)
+        self.assertNotIn('"pk_columns"', serialized)
+        self.assertNotIn("CREATE TABLE", serialized)
+        self.assertNotIn(COLS, serialized)
+        self.assertFalse(report["deletion_parity"])
 
 
 if __name__ == "__main__":

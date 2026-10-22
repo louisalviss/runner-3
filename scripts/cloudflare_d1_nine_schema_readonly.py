@@ -39,6 +39,32 @@ MAX_TABLES_PER_DB = 80
 class Blocked(Exception):
     pass
 
+COLUMN_METADATA_FIELDS = ("cid", "name", "type", "notnull", "dflt_value", "pk", "hidden")
+
+def column_schema_hash(columns):
+    """Digest column metadata only; no table payload access."""
+    if not isinstance(columns, list) or not 0 < len(columns) <= 120:
+        raise Blocked("BAD_COLUMN_SET")
+    rows, seen_names, seen_cids = [], set(), set()
+    for index, column in enumerate(columns):
+        if not isinstance(column, dict):
+            raise Blocked("BAD_COLUMN_RECORD")
+        row = {k: column.get(k) for k in COLUMN_METADATA_FIELDS}
+        if row["cid"] is None:
+            row["cid"] = index
+        name, cid = row["name"], row["cid"]
+        if (not isinstance(name, str) or not name or len(name) > 180 or
+                "\x00" in name or name in seen_names or
+                type(cid) is not int or cid < 0 or cid in seen_cids):
+            raise Blocked("BAD_COLUMN_IDENTITY")
+        seen_names.add(name)
+        seen_cids.add(cid)
+        rows.append(row)
+    rows.sort(key=lambda row: row["cid"])
+    return hashlib.sha256(json.dumps(rows, sort_keys=True,
+        separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 def ensure(ok, reason):
     if not ok:
         raise Blocked(reason)
@@ -185,6 +211,7 @@ def inventory(role, token, transport=api):
             table["pk_columns"] = [v for _,v in pk_items]
             table["declared_pk_present"] = bool(pk_items)
             table["column_count"] = len(cols)
+            table["columns_sha256"] = column_schema_hash(cols)
         report["database_schemas"][db_name] = {
             "schema_objects": schema, "schema_object_count": len(schema),
             "table_count": len(tables),

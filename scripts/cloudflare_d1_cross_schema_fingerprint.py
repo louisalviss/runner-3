@@ -13,6 +13,7 @@ REQUIRED = frozenset(("clm-copilot-calibration", "clm-copilot-v1",
     "runner3-core", "runner3-opportunity-radar", "runner3-rss",
     "volamidle-rogue-data"))
 LEGACY = "louis-context-index"
+TARGETED = frozenset(("runner3-core", "runner3-content-intelligence"))
 SOURCE_ACCOUNT = "7415a87f6bce7884e73ad7cfed5782df"
 TARGET_ACCOUNT = "748a80810f77f447ee476543ef0e5014"
 SHA = re.compile(r"[0-9a-f]{64}\Z")
@@ -60,11 +61,60 @@ def schema_digest(objects, tables):
                    all(isinstance(x, str) and x for x in pk) and
                    len(set(pk)) == len(pk) and
                    type(count) is int and 0 < count <= 120, "PK_OR_COLUMNS_BAD")
-            item.update(pk_columns=pk, column_count=count)
+            column_hash = meta.get("columns_sha256")
+            ensure(isinstance(column_hash, str) and SHA.fullmatch(column_hash),
+                   "COLUMN_DIGEST_BAD")
+            item.update(pk_columns=pk, column_count=count,
+                        columns_sha256=column_hash)
             seen_tables.add(name)
         records.append(item)
     ensure(set(tables) == seen_tables, "TABLE_SET_MISMATCH")
     return digest(sorted(records, key=lambda r: (r["type"], r["name"])))
+
+
+def object_digest_map(objects, tables):
+    """Opaque per-object digests, never row data, names or raw schema."""
+    result = {}
+    for obj in objects:
+        kind = obj.get("type", obj.get("kind"))
+        name = obj["name"]
+        identifier = digest([kind, name])
+        metadata = {"ddl_sha256": obj["ddl_sha256"]}
+        if kind == "table" and name != "_cf_KV":
+            meta = tables[name]
+            metadata.update(pk_columns=meta["pk_columns"],
+                column_count=meta["column_count"],
+                columns_sha256=meta["columns_sha256"])
+        ensure(identifier not in result, "DUPLICATE_OBJECT_ID")
+        result[identifier] = digest(metadata)
+    return result
+
+
+def validate_targeted(receipt, names):
+    detail = receipt.get("targeted_objects")
+    ensure(isinstance(detail, dict) and
+           set(detail) == (TARGETED & set(names)), "TARGETED_SCOPE_BAD")
+    for obj in detail.values():
+        ensure(isinstance(obj, dict) and len(obj) <= 256 and
+               all(isinstance(k, str) and SHA.fullmatch(k) and
+                   isinstance(v, str) and SHA.fullmatch(v)
+                   for k, v in obj.items()), "TARGETED_DIGEST_BAD")
+    return detail
+
+
+def targeted_diff(source, target):
+    src = validate_targeted(source, source["databases"])
+    dst = validate_targeted(target, target["databases"])
+    diff = {}
+    for db in sorted(TARGETED & set(target["databases"])):
+        s, t = src[db], dst[db]
+        diff[db] = {
+            "source_only_object_ids": sorted(set(s) - set(t)),
+            "target_only_object_ids": sorted(set(t) - set(s)),
+            "changed_object_ids": sorted(k for k in s.keys() & t.keys() if s[k] != t[k]),
+            "matching_object_count": sum(s[k] == t[k] for k in s.keys() & t.keys()),
+        }
+    return diff
 
 
 def source_receipt(manifest):
@@ -79,6 +129,7 @@ def source_receipt(manifest):
     ensure(isinstance(dbs, dict) and set(dbs) == REQUIRED,
            "SOURCE_DATABASE_CENSUS_BAD")
     result = {}
+    targeted = {}
     for name, data in dbs.items():
         ensure(isinstance(data, dict) and data.get("rows_scanned") == 0 and
                isinstance(data.get("tables"), dict) and
@@ -88,7 +139,10 @@ def source_receipt(manifest):
                    t.get("payload_parity_verified") is False
                    for t in tables.values()), "SOURCE_PAYLOAD_READ")
         result[name] = schema_digest(data.get("objects"), tables)
+        if name in TARGETED:
+            targeted[name] = object_digest_map(data["objects"], tables)
     return {"format": "cross-d1-schema-v1", "role": "source",
+            "targeted_objects": targeted,
             "databases": result, "count": len(result), "missing_required": [],
             "legacy_present": False, "row_parity": False, "cutover_ready": False}
 
@@ -112,6 +166,7 @@ def target_receipt(manifest):
            manifest.get("historical_target_only_name_present") is (LEGACY in dbs),
            "TARGET_CENSUS_FLAGS_BAD")
     result = {}
+    targeted = {}
     for name, data in dbs.items():
         ensure(isinstance(data, dict) and
                isinstance(data.get("schema_objects"), list), "TARGET_TABLES_BAD")
@@ -121,7 +176,10 @@ def target_receipt(manifest):
         ensure(data.get("table_count") == len(tables) and
                data.get("schema_object_count") == len(objects), "TARGET_COUNTS_BAD")
         result[name] = schema_digest(objects, tables)
+        if name in TARGETED:
+            targeted[name] = object_digest_map(objects, tables)
     return {"format": "cross-d1-schema-v1", "role": "target",
+            "targeted_objects": targeted,
             "databases": result, "count": len(result), "missing_required": missing,
             "legacy_present": LEGACY in result, "row_parity": False,
             "cutover_ready": False}
@@ -150,11 +208,14 @@ def compare(source, target):
     matching = sorted(n for n in REQUIRED & set(t) if s[n] == t[n])
     differing = sorted(n for n in REQUIRED & set(t) if s[n] != t[n])
     legacy = LEGACY in t
+    per_object = targeted_diff(source, target)
     parity = not missing and not differing and legacy
     return {"status": "SCHEMA_SNAPSHOT_MATCH_NOT_ROW_PARITY" if parity else
             "SCHEMA_GAPS_FOUND", "source_count": len(s), "target_count": len(t),
             "missing_on_target": missing, "schema_mismatch": differing,
             "schema_matching": matching, "legacy_preserved": legacy,
+            "targeted_object_diff": per_object,
+            "targeted_detail_only_not_row_parity": True,
             "row_parity": False, "deletion_parity": False,
             "cutover_ready": False, "r2_requests": 0}
 

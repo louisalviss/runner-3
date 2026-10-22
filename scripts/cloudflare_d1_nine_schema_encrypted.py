@@ -40,6 +40,32 @@ UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 class AuditBlocked(Exception):
     pass
 
+COLUMN_METADATA_FIELDS = ("cid", "name", "type", "notnull", "dflt_value", "pk", "hidden")
+
+def column_schema_hash(columns):
+    """Digest column metadata only; no table payload access."""
+    if not isinstance(columns, list) or not 0 < len(columns) <= 120:
+        raise AuditBlocked("BAD_COLUMN_SET")
+    rows, seen_names, seen_cids = [], set(), set()
+    for index, column in enumerate(columns):
+        if not isinstance(column, dict):
+            raise AuditBlocked("BAD_COLUMN_RECORD")
+        row = {k: column.get(k) for k in COLUMN_METADATA_FIELDS}
+        if row["cid"] is None:
+            row["cid"] = index
+        name, cid = row["name"], row["cid"]
+        if (not isinstance(name, str) or not name or len(name) > 180 or
+                "\x00" in name or name in seen_names or
+                type(cid) is not int or cid < 0 or cid in seen_cids):
+            raise AuditBlocked("BAD_COLUMN_IDENTITY")
+        seen_names.add(name)
+        seen_cids.add(cid)
+        rows.append(row)
+    rows.sort(key=lambda row: row["cid"])
+    return hashlib.sha256(json.dumps(rows, sort_keys=True,
+        separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 
 def request_json(token, method, route, payload=None):
     if method not in ("GET", "POST") or not route.startswith("/accounts/" + SOURCE_ACCOUNT + "/"):
@@ -182,7 +208,8 @@ def read_source_schema(token):
                 tables[name] = {
                     "ddl_sha256": hashlib.sha256((ddl or "").strip().encode()).hexdigest(),
                     "pk_columns": [name for _, name in sorted(pks)],
-                    "column_count": len(cols), "row_count": None,
+                    "column_count": len(cols), "columns_sha256": column_schema_hash(cols),
+                    "row_count": None,
                     "payload_parity_verified": False,
                 }
             objects.append({"type": kind, "name": name,
