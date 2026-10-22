@@ -1126,6 +1126,55 @@
       "provenance": "verified_QIAGEN_issuer_ad_hoc_EU_MAR_and_bidder_WpUG_disclosures_plus_Reuters",
       "status": "reported",
       "evidence_note": "EUR10.8B is enterprise value including debt, NOT equity purchase price; all-cash EUR46.50/share. Signed BCA and announced tender intention are not closing; minimum 50% plus one share, regulatory and shareholder-related conditions, expected mid-2027. QIAGEN suspended FY2026 outlook."
+    },
+    "CLOUDFLARE|PHP2SHELL_CVE_2026_109618_109619|OCT22_2026_MILLIONS_EXPLOIT_ATTEMPTS": {
+      "label": "Cloudflare observes millions of PHP2Shell exploit attempts after October 21 PHP emergency disclosure",
+      "primary_entity": "Cloudflare",
+      "underlying_actual_event": "Cloudflare CEO disclosed measured escalation to millions of exploit attempts following PHP2Shell disclosure, a new attack-activity phase distinct from the Oct21 patch release",
+      "named_product": "PHP2Shell CVE-2026-109618/CVE-2026-109619 exploitation activity",
+      "prior_event_key": "PHP|CVE_2026_109618_109619|OCT21_2026_SECURITY_PATCH_RELEASE",
+      "material_update_key": "OCT22_2026_CLOUDFLARE_CEO_REPORTED_MILLIONS_ATTEMPTS|PRE_DISCLOSURE_THOUSANDS|POST_45MIN_TENS_THOUSANDS|POST_2H_HUNDREDS_THOUSANDS|SUCCESSFUL_COMPROMISES_NOT_VERIFIED",
+      "last_verified_source_url": "https://www.reuters.com/world/asia-pacific/cloudflare-sees-millions-exploit-attempts-after-php-disclosure-2026-10-22/",
+      "supporting_primary_source_url": "https://blog.cloudflare.com/php-vulnerabilities-waf-protection",
+      "source_event_date": "2026-10-22",
+      "source_event_time_vn": null,
+      "source_event_time_note": "Cloudflare CEO statement late Wednesday Oct21 US time (early Oct22 VN); exact post timestamp not independently established. Reuters published Oct22 04:08 UTC = 11:08 VN, not event clock time.",
+      "notified_at_vn": "2026-10-22T13:40:54.495+07:00",
+      "provenance": "Reuters_direct_reporting_of_Cloudflare_CEO_telemetry_plus_Cloudflare_primary_blog_confirms_attack_traffic_and_WAF_response",
+      "status": "notification_precommitted",
+      "evidence_note": "Millions are attempted exploitation requests on Cloudflare network, not confirmed successful intrusions or unique affected sites. New measurable attack wave following previously reported patch release; no claim PHP patch failed."
+    },
+    "GOOGLE_CLOUD_NVIDIA|A5X_VERA_RUBIN|OCT21_2026_SCALE_AND_NOV_GA_ANNOUNCEMENT": {
+      "label": "Google Cloud and NVIDIA announce A5X Vera Rubin instances, up to 80k GPUs per site and 960k multi-site scale, GA planned November",
+      "primary_entity": "Google Cloud and NVIDIA",
+      "underlying_actual_event": "October 21 2026 bilateral GTC Berlin announcement of A5X Vera Rubin NVL72 infrastructure architecture, multi-site networking scale targets and November general availability schedule",
+      "named_product": "Google Cloud A5X instances / NVIDIA Vera Rubin NVL72 / Virgo Network",
+      "material_update_key": "OCT21_2026_GOOGLE_NVIDIA_A5X_VERA_RUBIN_OFFICIAL_ANNOUNCEMENT|NOV2026_GA_PLANNED_NOT_YET_LIVE|UP_TO_80000_GPU_PER_SITE|UP_TO_960000_MULTI_SITE_CAPACITY_TARGET|FIRST_CUSTOMER_INEFFABLE_ACCESS",
+      "last_verified_source_url": "https://cloud.google.com/blog/topics/ai-infrastructure/google-cloud-infrastructure-at-nvidia-gtc-berlin-2026",
+      "supporting_primary_source_url": "https://blogs.nvidia.com/blog/google-cloud-vera-rubin-infrastructure/",
+      "source_event_date": "2026-10-21",
+      "source_event_time_vn": "2026-10-21T17:45:00+07:00",
+      "source_event_time_note": "NVIDIA official GTC Berlin rolling live entry timestamp 10:45 UTC = 17:45 VN; this is source update time, not a proven exact contract-signing or capacity-deployment time.",
+      "notified_at_vn": "2026-10-22T13:40:54.495+07:00",
+      "provenance": "Google_Cloud_and_NVIDIA_official_joint_product_announcements",
+      "status": "notification_precommitted",
+      "evidence_note": "80k per site and 960k multi-site are scaling architecture/plans, not GPUs already installed. General availability scheduled for November; early Ineffable Intelligence access does not establish public GA."
+    },
+    "LSEG|OCTUS|OCT22_2026_ACQUISITION_AGREED": {
+      "label": "LSEG agrees to acquire Octus for about USD3.54B and lifts 2026 organic revenue-growth outlook",
+      "primary_entity": "London Stock Exchange Group",
+      "underlying_actual_event": "LSEG confirms October 22 2026 acquisition agreement for Octus, a new signed/announced deal phase following October 13 talks",
+      "named_deal": "LSEG acquisition of Octus from Permira",
+      "material_update_key": "OCT22_2026_LSEG_SAID_AGREED_TO_ACQUIRE_OCTUS|CONSIDERATION_APPROX_USD3_54B|FY2026_ORGANIC_INCOME_GROWTH_AT_LEAST_8PCT|CLOSING_NOT_VERIFIED",
+      "last_verified_source_url": "https://www.reuters.com/business/finance/lseg-buy-octus-35-billion-data-analytics-push-2026-10-22/",
+      "supporting_prior_primary_source_url": "https://www.lseg.com/en/media-centre/press-releases/2026/lseg-response-to-press-speculation-octus-acquisition",
+      "source_event_date": "2026-10-22",
+      "source_event_time_vn": null,
+      "source_event_time_note": "LSEG announced Thursday Oct22 UK time; exact company announcement time unverified. Reuters published Oct22 06:05 UTC = 13:05 VN, not proven signature time.",
+      "notified_at_vn": "2026-10-22T13:40:54.495+07:00",
+      "provenance": "Reuters_direct_LSEG_company_announcement_and_CEO_statement_plus_Oct13_official_talks_reference",
+      "status": "notification_precommitted",
+      "evidence_note": "Oct13 company confirmed only talks, not signed; Oct22 company says agreed to acquire, distinct material phase. Acquisition not closed; no realized synergies or completed regulatory approvals."
     }
   }
 }
