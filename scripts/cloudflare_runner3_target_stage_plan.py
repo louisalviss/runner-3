@@ -16,6 +16,7 @@ SOURCE = pathlib.Path("cloudflare/runner3-core/wrangler.jsonc")
 DRAFT = pathlib.Path("ops/cloudflare-account-rehome/runner3-core-target-d1-binding-draft-2026-10-16.json")
 OUT = pathlib.Path("ops/cloudflare-account-rehome/staging/runner3-core-target-stage-plan.json")
 LIVE = pathlib.Path("ops/cloudflare-account-rehome/staging/target-d1-live-id-evidence-20261023.json")
+HISTORY_MATRIX = pathlib.Path("ops/cloudflare-account-rehome/d1-nine-store-source-target-matrix-2026-10-16.json")
 BINDINGS = frozenset((
     "DB", "OPPORTUNITY_DB", "LIBRARY_DB", "BUSINESS_OPPORTUNITY_DB",
     "TASK_CONTEXT_DB", "CONTEXT_INDEX_DB", "CONTENT_DB", "RSS_DB",
@@ -54,7 +55,11 @@ def make_plan(source, history, live=None):
             live.get("r2_requests") == 0,
             "LIVE_TARGET_EVIDENCE_INVALID")
     matched = live.get("historical_target_uuid_matches_live")
-    historical_expected = {x.get("name") for x in history.get("stores", [])
+    historic_matrix = json.loads(HISTORY_MATRIX.read_text(encoding="utf-8"))
+    require(historic_matrix.get("target_account_id") == TARGET_ACCOUNT and
+            isinstance(historic_matrix.get("stores"), list),
+            "LIVE_TARGET_HISTORY_MATRIX_INVALID")
+    historical_expected = {x.get("name") for x in historic_matrix["stores"]
                            if isinstance(x, dict) and x.get("target_historical_uuid")}
     require(type(matched) is dict and set(matched) == historical_expected and
             len(matched) == 9 and all(v is True for v in matched.values()),
