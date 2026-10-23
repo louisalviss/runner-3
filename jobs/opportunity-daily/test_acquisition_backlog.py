@@ -94,6 +94,14 @@ class BacklogRegression(unittest.TestCase):
         self.assertEqual(row['card']['card_price_usd'],1900)
         self.assertEqual(row['current_listing_status'],'CURRENT_AVAILABILITY_UNVERIFIED')
 
+    def test_current_day_candidates_are_not_lost_before_first_report_write(self):
+        candidate={'source':'FLIPPA','category':'DUAL_DD','identity':'flippa:99999992',
+                   'title':'Today new DD','missing':['processor','GSC']}
+        d=b.build_backlog('2026-10-17',root=self.root,report_root=self.root,current_candidates=[candidate])
+        row=next(x for x in d['active'] if x['id']=='99999992')
+        self.assertEqual(row['research_lane'],'DUAL_DD')
+        self.assertEqual(row['source_decision_as_of'],'2026-10-17')
+        self.assertFalse(row['approved_buy'])
     def test_no_future_candidates_in_historical_day(self):
         d=self.load('2026-10-16')
         self.assertFalse(any(x['id']=='14494999' for x in d['active']))
