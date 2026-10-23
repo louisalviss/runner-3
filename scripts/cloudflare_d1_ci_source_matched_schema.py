@@ -34,7 +34,7 @@ SOURCE = {
     ("index", "idx_user_content_events_at"): "32168ea31cc3f302669b45ba48d50f898b963bcdeb130db975386a87da31bf4f",
     ("index", "idx_user_content_events_render"): "d117708de63a503165a35bc17e749daf24225c7377f10d1073a3bf17fdfc7c67",
     ("index", "idx_content_scores_type_score"): "1d2fe281351f9003735bd53f030f9de97b550889e807d4c9b6ea8a455ff3b2a9",
-    ("index", "idx_checkpoints_source"): "ff434e988db833ef4579696383f51c5f4eda1e313223c0b37d0fdc08be33f9",
+    ("index", "idx_checkpoints_source"): "ff434e988db833ef4579696383f51c5f4f5eda1e313223c0b37d0fdc08be33f9",
     ("index", "idx_personal_score_stage_model_base"): "b22a04c2794b3760d79138466388b6868225d822e61369ee8c599e0736089d4f",
     ("index", "idx_user_content_events_identity"): "292952310b702615647bedbd3d41092312fd2e484d7eb74214732a0d53ffcd26",
     ("trigger", "trg_user_content_events_render_dedupe"): "77ca47e8631ae76f68394bd2cc87592147b3017357675fb69a931d93043bfbce",
