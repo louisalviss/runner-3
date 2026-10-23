@@ -1,0 +1,11 @@
+[Unit]
+Description=Recover one dated Semrush short-list after verified NoxTools handoff only
+Wants=network-online.target
+After=network-online.target semrush-rpc-broker.service
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/var/lib/acquisition-radar-scan
+ExecStart=/usr/bin/python3 /var/lib/acquisition-radar-scan/semrush_gap_repair.py
+TimeoutStartSec=30min
+Nice=10
