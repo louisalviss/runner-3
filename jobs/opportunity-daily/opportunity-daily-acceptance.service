@@ -6,5 +6,6 @@ After=network-online.target opportunity-daily.service
 Type=oneshot
 User=root
 WorkingDirectory=/var/lib/acquisition-radar-scan
+ExecStartPre=/usr/bin/python3 /var/lib/acquisition-radar-scan/audit_gap_ledger.py
 ExecStart=/usr/bin/python3 /var/lib/acquisition-radar-scan/daily_acceptance.py
 TimeoutStartSec=90s
