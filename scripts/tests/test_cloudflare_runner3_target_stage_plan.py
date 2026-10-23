@@ -18,11 +18,48 @@ def fixtures():
 
 
 class StagePlanContract(unittest.TestCase):
+    def test_verified_9_of_9_d1_ids_not_schema_or_row_parity(self):
+        out = stage.make_plan(*fixtures())
+        self.assertEqual(sum(bool(b["target_id_verified_live"]) for b in out["d1_bindings"]), 8)
+        self.assertFalse(out["live_row_parity_verified"])
+        self.assertFalse(out["target_worker_exists_verified"])
+        self.assertFalse(out["cutover_ready"])
+
+    def test_forged_live_missing_uuid_blocks(self):
+        src, hist = fixtures()
+        live = json.loads(stage.LIVE.read_text())
+        live["historical_target_uuid_matches_live"]["runner3-core"] = False
+        with self.assertRaisesRegex(stage.Blocked, "LIVE_TARGET_UUID_NOT_PROVEN"):
+            stage.make_plan(src, hist, live)
+
+    def test_forged_live_wrong_account_blocks(self):
+        src, hist = fixtures()
+        live = json.loads(stage.LIVE.read_text())
+        live["target_account_id"] = stage.SOURCE_ACCOUNT
+        with self.assertRaisesRegex(stage.Blocked, "LIVE_TARGET_EVIDENCE_INVALID"):
+            stage.make_plan(src, hist, live)
+
+    def test_forged_live_worker_parity_blocks(self):
+        src, hist = fixtures()
+        live = json.loads(stage.LIVE.read_text())
+        live["worker_census_consistent"] = True
+        with self.assertRaisesRegex(stage.Blocked, "LIVE_TARGET_EVIDENCE_INVALID"):
+            stage.make_plan(src, hist, live)
+
+    def test_forged_live_artifact_signature_blocks(self):
+        src, hist = fixtures()
+        live = json.loads(stage.LIVE.read_text())
+        live["artifact_zip_sha256"] = "0" * 64
+        with self.assertRaisesRegex(stage.Blocked, "LIVE_TARGET_EVIDENCE_INVALID"):
+            stage.make_plan(src, hist, live)
+
     def test_normal_plan_is_non_deployable(self):
         result = stage.make_plan(*fixtures())
         self.assertEqual(result["status"], "OFFLINE_REVIEW_ONLY_NOT_DEPLOYABLE")
         self.assertFalse(result["cutover_ready"])
-        self.assertFalse(result["target_binding_ids_freshly_verified"])
+        self.assertTrue(result["target_binding_ids_freshly_verified"])
+        self.assertEqual(result["target_d1_id_evidence_run"], 39893435140)
+        self.assertFalse(result["cutover_ready"])
         self.assertFalse(result["live_row_parity_verified"])
         self.assertFalse(result["target_worker_exists_verified"])
         self.assertTrue(result["no_routes_no_public_deployment"])
