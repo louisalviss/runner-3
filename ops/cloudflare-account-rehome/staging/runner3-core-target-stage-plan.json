@@ -7,62 +7,62 @@
       "database_name": "runner3-opportunity-radar",
       "schema_and_row_parity_verified": false,
       "target_id_candidate_historical": "9a593680-ca8d-4842-84e0-2bfe10e798f6",
-      "target_id_verified_live": false
+      "target_id_verified_live": true
     },
     {
       "binding": "CONTENT_DB",
       "database_name": "runner3-content-intelligence",
       "schema_and_row_parity_verified": false,
       "target_id_candidate_historical": "82613659-8d08-455f-b6e7-f8f6e4312e22",
-      "target_id_verified_live": false
+      "target_id_verified_live": true
     },
     {
       "binding": "CONTEXT_INDEX_DB",
       "database_name": "louis-task-context",
       "schema_and_row_parity_verified": false,
       "target_id_candidate_historical": "a45b4bc9-82bf-41ee-9116-89dc3c2af5a6",
-      "target_id_verified_live": false
+      "target_id_verified_live": true
     },
     {
       "binding": "DB",
       "database_name": "runner3-core",
       "schema_and_row_parity_verified": false,
       "target_id_candidate_historical": "477fc6b8-4dec-4e15-afa7-eefa3846fba1",
-      "target_id_verified_live": false
+      "target_id_verified_live": true
     },
     {
       "binding": "LIBRARY_DB",
       "database_name": "personal-library",
       "schema_and_row_parity_verified": false,
       "target_id_candidate_historical": "22590669-9a89-4d07-831f-190b6f6b90ca",
-      "target_id_verified_live": false
+      "target_id_verified_live": true
     },
     {
       "binding": "OPPORTUNITY_DB",
       "database_name": "runner3-opportunity-radar",
       "schema_and_row_parity_verified": false,
       "target_id_candidate_historical": "9a593680-ca8d-4842-84e0-2bfe10e798f6",
-      "target_id_verified_live": false
+      "target_id_verified_live": true
     },
     {
       "binding": "RSS_DB",
       "database_name": "runner3-rss",
       "schema_and_row_parity_verified": false,
       "target_id_candidate_historical": "5b733890-ccfa-4472-95c4-8c2d97d0aa02",
-      "target_id_verified_live": false
+      "target_id_verified_live": true
     },
     {
       "binding": "TASK_CONTEXT_DB",
       "database_name": "louis-task-context",
       "schema_and_row_parity_verified": false,
       "target_id_candidate_historical": "a45b4bc9-82bf-41ee-9116-89dc3c2af5a6",
-      "target_id_verified_live": false
+      "target_id_verified_live": true
     }
   ],
   "d1_unique_target_candidates": 6,
   "format": "runner3-core-target-stage-plan-v1",
   "gate": [
-    "reconfirm target D1 UUIDs with authorized live account inventory",
+    "target D1 UUIDs 9/9 verified by read-only workflow #39893435140",
     "verify source/target applied DDL, primary keys and all schema objects",
     "stage missing schemas using reviewed non-destructive DDL only",
     "reconcile keys/content and deletions under final source writer quiescence",
@@ -93,9 +93,12 @@
   "source_origin_reference_blocked": true,
   "status": "OFFLINE_REVIEW_ONLY_NOT_DEPLOYABLE",
   "target_account_id": "748a80810f77f447ee476543ef0e5014",
-  "target_binding_ids_freshly_verified": false,
+  "target_binding_ids_freshly_verified": true,
+  "target_d1_id_evidence_artifact": 12475319253,
+  "target_d1_id_evidence_run": 39893435140,
   "target_d1_writes": 0,
   "target_worker_exists_verified": false,
+  "target_workers_census": "UNVERIFIED_TOKEN_OR_ENDPOINT_SCOPE",
   "worker_deploys": 0,
   "worker_name_candidate": "runner3-core-migration-preview"
 }
