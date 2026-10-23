@@ -13,7 +13,8 @@ import re
 import sqlite3
 
 CORE_DIR = pathlib.Path("cloudflare/runner3-core/migrations")
-OUTPUT = pathlib.Path("ops/cloudflare-account-rehome/staging/runner3-core-additive-proven-16.sql")
+OUTPUT = pathlib.Path("ops/cloudflare-account-rehome/staging/runner3-core-additive-proven-18.sql")
+TRACE_SOURCE = pathlib.Path("cloudflare/runner3-core/artifact-library-reader-v82-stable-shell-entry.js")
 INPUTS = (
     "0001_init.sql",
     "0002_state_checkpoints.sql",
@@ -43,6 +44,8 @@ EXPECTED = {
     "delivery_permalinks": ("table", "a476e19380930a0f11e1063f26df5b37794f3a95b1dca8c48c6b8613962d7bba", "e9be6c78a86091bfb9dfcdec7b003cc84e7c144e88152e37d60e6af1ed60c1a2"),
     "idx_delivery_permalinks_object_key": ("index", "d52e86f2354542cd5cf52be53ecdbbae0d9fd25adc7f991f7030833e6f1e0237", "114bc6fb63c3c91319583e41ae50a7efa929a9b6859ababa740acbbec13ee17a"),
     "idx_delivery_permalinks_active": ("index", "d1ed7ec2b9940f1ff7fedbf60f07ccb420582b9e39f4026343866b5b49e9ace3", "407205e06389714d3220bee062ad628418a3706123c72e6e9c2a102de29bc4d0"),
+    "ebook_reader_trace_v113": ("table", "2807449bfe1e168fe4dc28fec3ec934695282d847bbc4197d23caf19a7aee01b", "8fa13a89c9c10acc8a1988e243b162f8021439b9e33fd46c6f4e2697af4eb2e0"),
+    "idx_ebook_reader_trace_v113_created": ("index", "821c1c3368baa9763e70aff203b5cddb0013c5412f13204dd9bb2527e971817b", "f677f93c5316028a5acc32d74808b38c0761ab0e98982bc59f1453ccb09cf589"),
 }
 
 class Hold(Exception):
@@ -76,11 +79,30 @@ def metadata(connection, kind, name, ddl):
                      ("cid", "name", "type", "notnull", "dflt_value", "pk", "hidden")} for r in rows]))
     return obj
 
+def trace_statements(root):
+    """Exact runtime DDL; never borrow the visually similar Personal Library SQL."""
+    src = (root / TRACE_SOURCE).read_text(encoding="utf-8")
+    begin = "UPDATE_THIS_MARKER"
+    begin = begin.replace("UPDATE_THIS_MARKER", chr(96) + "CREATE TABLE IF NOT EXISTS ebook_reader_trace_v113(")
+    if src.count(begin) != 1:
+        raise Hold("TRACE_RUNTIME_DDL_NOT_UNIQUE")
+    rest = src.split(begin, 1)[1]
+    if rest.count(chr(96)) < 1:
+        raise Hold("TRACE_RUNTIME_DDL_INCOMPLETE")
+    table = "CREATE TABLE IF NOT EXISTS ebook_reader_trace_v113(" + rest.split(chr(96), 1)[0]
+    index = "CREATE INDEX IF NOT EXISTS idx_ebook_reader_trace_v113_created ON ebook_reader_trace_v113(created_at DESC)"
+    if src.count("'" + index + "'") != 1:
+        raise Hold("TRACE_RUNTIME_INDEX_NOT_UNIQUE")
+    if "$" + "{" in table or ";" in table or ";" in index:
+        raise Hold("TRACE_RUNTIME_INTERPOLATION_OR_MULTISTATEMENT")
+    return statements(table + ";" + index + ";")
+
 def build(root):
     sql = []
     for path in INPUTS:
         source = root / CORE_DIR / path
         sql.extend(statements(source.read_text(encoding="utf-8")))
+    sql.extend(trace_statements(root))
     if len(sql) != len(EXPECTED):
         raise Hold("STATEMENT_COUNT_DRIFT")
     with sqlite3.connect(":memory:") as db:
@@ -107,11 +129,10 @@ def build(root):
     header = (
         "-- REVIEW CANDIDATE ONLY: DO NOT EXECUTE on Cloudflare without "
         "fresh target sqlite_master preflight, safety review, and authorization.\n"
-        "-- Authenticated source DDL+PK/column fingerprint matches: 16/16 "
+        "-- Authenticated source DDL+PK/column fingerprint matches: 18/18 "
         "(run 39826582807). SOURCE is production authority.\n"
-        "-- Covers 8 Core tables + 8 indexes. Does NOT cover "
-        "typed_kv, r2_receipts, d1_migrations, ebook_reader_trace_v113 "
-        "or the remaining source-only index.\n"
+        "-- Covers 9 Core tables + 9 indexes. Does NOT cover "
+        "typed_kv, r2_receipts or d1_migrations.\n"
         "-- No rows, auth material, Worker, cron, R2 or deployment in this file.\n\n"
     )
     return header + ";\n\n".join(sql) + ";\n"
@@ -133,7 +154,7 @@ def main(argv=None):
     except (Hold,OSError,sqlite3.Error,ValueError) as e:
         print("CORE_SCHEMA_REVIEW_HOLD",str(e) if isinstance(e,Hold) else "OFFLINE_INPUT_ERROR")
         return 3
-    print("CORE_SCHEMA_SOURCE_FINGERPRINT_PASS 16/16; offline only; target D1 writes=0")
+    print("CORE_SCHEMA_SOURCE_FINGERPRINT_PASS 18/18; offline only; target D1 writes=0")
     return 0
 
 if __name__ == "__main__":

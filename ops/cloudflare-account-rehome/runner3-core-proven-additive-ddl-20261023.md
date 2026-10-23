@@ -6,12 +6,12 @@
 
 - Actual source account read-only cross-schema run: [#39826582807](https://github.com/louisalviss/runner-3/actions/runs/39826582807), SOURCE and TARGET metadata jobs PASS, final comparison `SCHEMA_GAPS_FOUND`. Source opaque digest artifact ID `12447225966`, archived SHA-256 `df5a8e29f3c99ffcd72679c5aaa0db43baa7173982c642b45c5ecc0f0975b7f8`.
 - Source Core has **21 source-only schema objects** (12 tables + 9 indexes) absent from the target schema snapshot.
-- A second independent offline in-memory SQLite compilation of six exact Core migration files reproduced **16 out of those 21** `(type,name)` object IDs **AND** exact source metadata SHA-256, including `ddl_sha256`, `PRAGMA table_xinfo` column fingerprint and primary-key metadata for every table. These 16 object IDs are absent from the authenticated target fingerprint map.
-- This is the first byte-exact corroboration of **8 Core table CREATE statements + 8 associated CREATE INDEX statements** to actual source metadata. It does not require the blocked courier private key or use live D1 row data.
+- A second independent offline in-memory SQLite compilation of six exact Core migration files reproduced **18 out of those 21** `(type,name)` object IDs **AND** exact source metadata SHA-256, including `ddl_sha256`, `PRAGMA table_xinfo` column fingerprint and primary-key metadata for every table. These 18 object IDs are absent from the authenticated target fingerprint map.
+- This is the first byte-exact corroboration of **9 Core table CREATE statements + 9 associated CREATE INDEX statements** to actual source metadata. It does not require the blocked courier private key or use live D1 row data.
 
 ## Candidate for later staging (not an executable deployment workflow)
 
-`staging/runner3-core-additive-proven-16.sql` contains **only the 16 vetted CREATE IF NOT EXISTS statements** in table-before-index dependency order. It is not connected to `wrangler` and is never automatically executed. Exact original SQL extracted from:
+`staging/runner3-core-additive-proven-18.sql` contains **only the 18 vetted CREATE IF NOT EXISTS statements** in table-before-index dependency order. It is not connected to `wrangler` and is never automatically executed. The previous `runner3-core-additive-proven-16.sql` remains a historical verified checkpoint, superseded by the 18-object candidate. Exact original SQL extracted from:
 
 - `0001_init.sql`: `events` and its two indexes
 - `0002_state_checkpoints.sql`: `workflow_state`, `checkpoints`, checkpoint index
@@ -19,6 +19,7 @@
 - `0010_vps_mailbox_jobs.sql`: mailbox jobs table and claim index
 - `0011_artifact_library_pin_auth.sql`: PIN auth table, attempts table and blocked-until index
 - `0012_delivery_permalinks.sql`: permalink table and indexes
+- `artifact-library-reader-v82-stable-shell-entry.js`: exact live Worker inline DDL for `ebook_reader_trace_v113` and `idx_ebook_reader_trace_v113_created`. The Personal Library migration's visually similar CREATE statements do **not** match the source DDL hash and are excluded
 
 Generator `scripts/cloudflare_d1_core_additive_schema.py` must verify all 16 source object fingerprint pairs and scratch SQLite schema before accepting any changed SQL. PR-only offline CI compiles and checks the committed candidate and exercises tamper/fail-closed tests.
 
@@ -26,7 +27,7 @@ Generator `scripts/cloudflare_d1_core_additive_schema.py` must verify all 16 sou
 
 ## Still missing in source-verified Core bundle
 
-Four Core tables still lack source-verified **applied** CREATE DDL in the historical migration tree: `typed_kv`, `r2_receipts`, `d1_migrations`, `ebook_reader_trace_v113`, plus one other source-only index. These **5 objects remain out of scope**; do not fabricate their definitions or mark full Core parity.
+Three Core tables still lack source-verified **applied** CREATE DDL: `typed_kv`, `r2_receipts`, `d1_migrations`. These **3 objects remain out of scope**; do not fabricate their definitions or mark full Core parity.
 
 **Content Intelligence:** authenticated source has 18 source-only objects. Separate offline replay of `content-intelligence-schema.sql` plus selectively indexed/trigger-only migrations corroborated **11 exact source-only** object fingerprints (7 more same-name source/target objects matched). Do **not** replay the entire CI SQL file: it contains `idx_content_items_last_seen_at`, an index that was **not present in the live source fingerprint set**.
 
