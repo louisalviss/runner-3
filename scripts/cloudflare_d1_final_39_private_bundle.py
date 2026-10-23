@@ -190,7 +190,8 @@ def store_private(outdir, generated):
     outdir = pathlib.Path(outdir)
     if not outdir.exists():
         outdir.mkdir(parents=True, mode=0o700)
-    require(outdir.is_dir() and not outdir.is_symlink(),
+    require(outdir.is_dir() and not outdir.is_symlink() and
+            stat.S_IMODE(outdir.stat().st_mode) & 0o077 == 0,
             "OUTPUT_DIRECTORY_INVALID")
     # Files are created EXCLUSIVELY to avoid changing reviewed prior exports.
     paths = [outdir / name for name in OUTPUTS.values()]
