@@ -6,6 +6,9 @@ on:
       - 'scripts/cloudflare_runner3_target_stage_plan.py'
       - 'scripts/tests/test_cloudflare_runner3_target_stage_plan.py'
       - 'ops/cloudflare-account-rehome/staging/runner3-core-target-stage-plan.json'
+      - 'scripts/cloudflare_d1_core_additive_schema.py'
+      - 'scripts/tests/test_cloudflare_d1_core_additive_schema.py'
+      - 'ops/cloudflare-account-rehome/staging/runner3-core-additive-proven-16.sql'
       - '.github/workflows/cloudflare-runner3-target-stage-offline-ci.yml'
 
 permissions:
@@ -25,3 +28,6 @@ jobs:
           python3 -m py_compile scripts/cloudflare_runner3_target_stage_plan.py
           python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_runner3_target_stage_plan.py' -v
           python3 scripts/cloudflare_runner3_target_stage_plan.py --check
+          python3 -m py_compile scripts/cloudflare_d1_core_additive_schema.py
+          python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_core_additive_schema.py' -v
+          python3 scripts/cloudflare_d1_core_additive_schema.py --check
