@@ -12,11 +12,49 @@ app=importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(app)
 
 class SourceMatchedDDL(unittest.TestCase):
-    def test_canonical_16_objects_are_exact_source_fingerprints(self):
+    def test_canonical_18_objects_are_exact_source_fingerprints(self):
         candidate=app.build(pathlib.Path("."))
-        self.assertEqual(len(app.EXPECTED),16)
-        self.assertEqual(candidate.count("CREATE TABLE IF NOT EXISTS"),8)
-        self.assertEqual(candidate.count("CREATE INDEX IF NOT EXISTS"),8)
+        self.assertEqual(len(app.EXPECTED),18)
+        self.assertEqual(candidate.count("CREATE TABLE IF NOT EXISTS"),9)
+        self.assertEqual(candidate.count("CREATE INDEX IF NOT EXISTS"),9)
+
+
+    def test_trace_runtime_source_is_byte_exact(self):
+        content=app.build(pathlib.Path("."))
+        self.assertIn("CREATE TABLE IF NOT EXISTS ebook_reader_trace_v113(",content)
+        self.assertIn("CREATE INDEX IF NOT EXISTS idx_ebook_reader_trace_v113_created",content)
+        self.assertTrue(app.trace_statements(pathlib.Path("."))[0].startswith("CREATE TABLE"))
+
+    def test_reader_runtime_drift_fails_closed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            tmp=pathlib.Path(folder)
+            for name in app.INPUTS:
+                dst=tmp/app.CORE_DIR/name
+                dst.parent.mkdir(parents=True,exist_ok=True)
+                shutil.copyfile(app.CORE_DIR/name,dst)
+            target=tmp/app.TRACE_SOURCE
+            target.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(app.TRACE_SOURCE,target)
+            text=target.read_text()
+            needle="CREATE TABLE IF NOT EXISTS ebook_reader_trace_v113("
+            self.assertIn(needle,text)
+            target.write_text(text.replace(needle,
+                "CREATE TABLE IF NOT EXISTS ebook_reader_trace_v113(\n      unexpected_column INTEGER,",
+                1))
+            with self.assertRaisesRegex(app.Hold,"SOURCE_DDL_OR_COLUMN_FINGERPRINT_MISMATCH"):
+                app.build(tmp)
+
+    def test_trace_runtime_sql_prohibits_injected_extra_statements(self):
+        with tempfile.TemporaryDirectory() as folder:
+            tmp=pathlib.Path(folder)
+            path=tmp/app.TRACE_SOURCE
+            path.parent.mkdir(parents=True,exist_ok=True)
+            source=app.TRACE_SOURCE.read_text()
+            needle="CREATE TABLE IF NOT EXISTS ebook_reader_trace_v113("
+            self.assertIn(needle,source)
+            path.write_text(source.replace(needle,needle+" DELETE FROM events; ",1))
+            with self.assertRaisesRegex(app.Hold,"TRACE_RUNTIME_INTERPOLATION_OR_MULTISTATEMENT"):
+                app.trace_statements(tmp)
 
     def test_committed_bundle_matches_source(self):
         self.assertEqual(app.main(["--check"]),0)
@@ -31,13 +69,13 @@ class SourceMatchedDDL(unittest.TestCase):
     def test_candidate_has_no_destructive_or_data_statements(self):
         content=app.build(pathlib.Path("."))
         lines=[line for line in content.split(";") if "CREATE" in line]
-        self.assertEqual(len(lines),16)
+        self.assertEqual(len(lines),18)
         for statement in app.statements(content):
             self.assertTrue(statement.startswith(("CREATE TABLE", "CREATE INDEX")))
 
     def test_intentionally_uncovered_core_objects_not_fabricated(self):
         content=app.build(pathlib.Path("."))
-        for name in ("typed_kv", "r2_receipts", "d1_migrations", "ebook_reader_trace_v113"):
+        for name in ("typed_kv", "r2_receipts", "d1_migrations"):
             self.assertNotIn("CREATE TABLE IF NOT EXISTS "+name,content)
         self.assertNotIn("CREATE INDEX IF NOT EXISTS idx_typed_kv",content)
 
@@ -57,6 +95,9 @@ class SourceMatchedDDL(unittest.TestCase):
                 dst=tmp/app.CORE_DIR/name
                 dst.parent.mkdir(parents=True,exist_ok=True)
                 shutil.copyfile(app.CORE_DIR/name,dst)
+            trace_dst=tmp/app.TRACE_SOURCE
+            trace_dst.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(app.TRACE_SOURCE,trace_dst)
             path=tmp/app.CORE_DIR/app.INPUTS[0]
             path.write_text(path.read_text()+"\nCREATE TABLE IF NOT EXISTS unexpected(id INT);\n")
             with self.assertRaisesRegex(app.Hold,"STATEMENT_COUNT_DRIFT"):
@@ -69,6 +110,9 @@ class SourceMatchedDDL(unittest.TestCase):
                 dst=tmp/app.CORE_DIR/name
                 dst.parent.mkdir(parents=True,exist_ok=True)
                 shutil.copyfile(app.CORE_DIR/name,dst)
+            trace_dst=tmp/app.TRACE_SOURCE
+            trace_dst.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(app.TRACE_SOURCE,trace_dst)
             path=tmp/app.CORE_DIR/"0001_init.sql"
             src=path.read_text()
             self.assertIn("event_type TEXT NOT NULL",src)
@@ -82,7 +126,7 @@ class SourceMatchedDDL(unittest.TestCase):
             db.executescript(content)
             tables=db.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchone()[0]
             indexes=db.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'").fetchone()[0]
-            self.assertEqual((tables,indexes),(8,8))
+            self.assertEqual((tables,indexes),(9,9))
 
 if __name__=="__main__":
     unittest.main()
