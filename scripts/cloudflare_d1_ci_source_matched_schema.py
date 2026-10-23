@@ -116,6 +116,20 @@ def build(root):
     ddl = [safe_create_only((root / p).read_text(encoding="utf-8"))
            for p in (CI, CORE, STAGE, IDEMPOTENCY)]
     trigger = read_trigger((root / TRIGGER).read_text(encoding="utf-8"))
+    # Preserve original CREATE IF NOT EXISTS syntax for the review candidate.
+    # sqlite_master may normalize that clause away; use it only for digest proof.
+    original = {}
+    for group in ddl:
+        for stmt in group:
+            match = re.match(r"(?is)^CREATE\s+(?:UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+([a-zA-Z_][a-zA-Z0-9_]*)",stmt)
+            if not match:
+                raise Hold("UNRECOGNIZED_CREATE_STATEMENT")
+            key = (match.group(1).lower(), match.group(2))
+            if key in original:
+                raise Hold("DUPLICATE_ORIGINAL_CREATE")
+            original[key] = stmt
+    trigger_key = ("trigger", "trg_user_content_events_render_dedupe")
+    original[trigger_key] = trigger.rstrip(";")
     with sqlite3.connect(":memory:") as conn:
         conn.row_factory = sqlite3.Row
         for group in ddl:
@@ -153,7 +167,9 @@ def build(root):
         "DDL and existing data before any SQL.\n"
         "-- D1 rows transferred=0; worker deploys=0; R2 requests=0; cutover=false.\n\n"
     )
-    return script + "\n\n".join(found[k].rstrip(";") + ";" for k in ordered) + "\n"
+    if not set(SOURCE).issubset(original):
+        raise Hold("SOURCE_CREATE_STATEMENT_MISSING")
+    return script + "\n\n".join(original[k].rstrip(";") + ";" for k in ordered) + "\n"
 
 
 def main(argv=None):
