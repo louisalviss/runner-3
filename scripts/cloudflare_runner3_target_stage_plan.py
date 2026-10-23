@@ -41,6 +41,9 @@ def make_plan(source, history, live=None):
             live.get("target_account_id") == TARGET_ACCOUNT and
             live.get("target_database_count") == 9 and
             live.get("workflow_run_id") == 39893435140 and
+            live.get("artifact_id") == 12475319253 and
+            live.get("artifact_zip_sha256") ==
+            "8ad3426e515adac48875e43a00a5a717f3d5daa4c94e706132e1542b8d240010" and
             live.get("cutover_ready") is False and
             live.get("row_key_content_parity_verified") is False and
             live.get("deletion_parity_verified") is False and
@@ -51,8 +54,10 @@ def make_plan(source, history, live=None):
             live.get("r2_requests") == 0,
             "LIVE_TARGET_EVIDENCE_INVALID")
     matched = live.get("historical_target_uuid_matches_live")
-    require(type(matched) is dict and len(matched) == 9 and
-            all(v is True for v in matched.values()),
+    historical_expected = {x.get("name") for x in history.get("stores", [])
+                           if isinstance(x, dict) and x.get("target_historical_uuid")}
+    require(type(matched) is dict and set(matched) == historical_expected and
+            len(matched) == 9 and all(v is True for v in matched.values()),
             "LIVE_TARGET_UUID_NOT_PROVEN")
     require(source.get("name") == "runner3-core" and
             source.get("main") == "rss-reader-read-fast-entry.js",
