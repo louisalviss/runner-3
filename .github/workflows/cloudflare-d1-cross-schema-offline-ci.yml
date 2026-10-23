@@ -13,6 +13,9 @@ on:
       - 'scripts/tests/test_cloudflare_d1_cross_schema_fingerprint.py'
       - 'scripts/cloudflare_d1_keyed_parity_offline.py'
       - 'scripts/tests/test_cloudflare_d1_keyed_parity_offline.py'
+      - 'scripts/cloudflare_d1_first_live_table_parity.py'
+      - 'scripts/tests/test_cloudflare_d1_first_live_table_parity.py'
+      - '.github/workflows/cloudflare-d1-first-live-row-parity.yml'
       - '.github/workflows/cloudflare-d1-cross-schema-*.yml'
 
 permissions:
@@ -33,3 +36,5 @@ jobs:
           python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_cross_schema_fingerprint.py' -v
           python3 -m py_compile scripts/cloudflare_d1_keyed_parity_offline.py
           python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_keyed_parity_offline.py' -v
+          python3 -m py_compile scripts/cloudflare_d1_first_live_table_parity.py
+          python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_first_live_table_parity.py' -v
