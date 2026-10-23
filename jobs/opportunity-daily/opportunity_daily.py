@@ -245,7 +245,7 @@ def build(day, flippa_current, previous=None, deep=None):
         if identity in seen:continue
         seen.add(identity);deduped.append(x)
     decision = qualify(day, seo, flippa, root=SEO, max_buy_usd=MAX_BUY)
-    cumulative = build_backlog(day, root=ROOT, report_root=OUT)
+    cumulative = build_backlog(day, root=ROOT, report_root=OUT, current_candidates=decision.get('candidates') or [])
     payload = {"schema":"opportunity-daily-v2","date_vn":day,"generated_at":dt.datetime.now(TZ).isoformat(),"scope":"SEO_TRENDS_PLUS_FLIPPA","overall":"PARTIAL_BLOCKED" if decision["status"]!="PASS" else "RESEARCH_PENDING","seo":seo,"flippa":flippa,"research_queue":deduped,"qualification":decision,"cumulative_flippa":cumulative,"limits":{"buy_cap_usd":MAX_BUY,"no_bids":True,"no_new_projects":True,"no_solo_semrush_research":True},"owner":"daily-synthesis-only"}
     return payload
 
