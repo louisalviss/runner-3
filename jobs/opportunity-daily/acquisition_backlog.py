@@ -127,7 +127,7 @@ def historical_audits(day):
                     'observed_reserve_usd':item.get('reserve')}
     return all_rows
 
-def build_backlog(day, root=ROOT, report_root=OUT):
+def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
     """Pure, deterministic snapshot based on source observations no later than day."""
     root=pathlib.Path(root);report_root=pathlib.Path(report_root)
     if not valid_day(day):
@@ -164,10 +164,12 @@ def build_backlog(day, root=ROOT, report_root=OUT):
                      'approved_buy':False,'approved_build':False}
     # Preserve Flippa DD entries from every stored daily result as well.
     # Do not overwrite an existing stronger historical priority with a newer card.
-    for path in sorted(report_root.glob('????-??-??-research-queue.json')):
-        source_day=path.name[:10]
-        if source_day>day:continue
-        data=load(path,{})
+    history=[(p.name[:10],load(p,{})) for p in sorted(report_root.glob('????-??-??-research-queue.json')) if p.name[:10]<=day]
+    # Carry current DD candidates immediately on first daily scan (before the
+    # dated research-queue file is written). No delayed second-run dependency.
+    if current_candidates is not None:
+        history.append((day,{'qualification':{'candidates':current_candidates}}))
+    for source_day,data in history:
         candidates=(data.get('qualification') or {}).get('candidates') or []
         for item in candidates:
             if item.get('source')!='FLIPPA' or item.get('category') not in CATEGORIES:
