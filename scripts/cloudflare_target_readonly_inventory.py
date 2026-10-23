@@ -23,6 +23,7 @@ D1_CANONICAL = (
     "volamidle-rogue-data", "clm-copilot-v1",
 )
 D1_EXTRA_REVIEW = "clm-copilot-calibration"
+HISTORIC_MAP = pathlib.Path("ops/cloudflare-account-rehome/d1-nine-store-source-target-matrix-2026-10-16.json")
 WORKERS_PROTECT = (
     "balatro-clef-api", "clm-conversation-copilot-api", "ema-forward-monitor",
     "khotruyen-worker", "media-library", "rss-proxy",
@@ -115,8 +116,46 @@ def read_inventory(token):
     if total_pages is not None and (type(total_pages) is not int or total_pages != 1):
         raise AuditBlocked("D1_PAGINATION_INCOMPLETE")
     d1_names = [x["name"] for x in d1]
+    # Confirm configured historical destination UUIDs without publishing raw UUIDs.
+    try:
+        history = json.loads(HISTORIC_MAP.read_text(encoding="utf-8"))
+        if history.get("target_account_id") != TARGET or not isinstance(history.get("stores"), list):
+            raise AuditBlocked("TARGET_HISTORY_INVALID")
+        prior = {x["name"]: x.get("target_historical_uuid")
+                 for x in history["stores"] if isinstance(x, dict) and isinstance(x.get("name"), str)}
+        historical_uuid_matches = {
+            x["name"]: bool(isinstance(prior.get(x["name"]), str) and
+                            x.get("uuid") == prior[x["name"]])
+            for x in d1
+        }
+    except (OSError, ValueError, TypeError) as exc:
+        raise AuditBlocked("TARGET_HISTORY_UNAVAILABLE_OR_INVALID") from None
     scripts_data = get(token, "/workers/scripts")
     worker_list = limited_unique(scripts_data.get("result"), "id", MAX_WORKERS, "WORKER")
+    scripts_page = scripts_data.get("result_info")
+    scripts_page_complete = True
+    if scripts_page is not None:
+        scripts_page_complete = bool(isinstance(scripts_page, dict) and
+                                     scripts_page.get("page") == 1 and
+                                     scripts_page.get("count") == len(worker_list) and
+                                     scripts_page.get("total_count") == len(worker_list))
+    # Cloudflare documents this separate endpoint as "List all Workers".
+    # It may fail if token scope does not allow it; never invent a 0 result.
+    alt_worker_names, alt_status = None, "UNAVAILABLE"
+    try:
+        alt_data = get(token, "/workers/workers?per_page=100&page=1")
+        alt_items = limited_unique(alt_data.get("result"), "name", MAX_WORKERS, "WORKER_V2")
+        alt_page = alt_data.get("result_info")
+        if (not isinstance(alt_page, dict) or
+            alt_page.get("page") != 1 or
+            alt_page.get("count") != len(alt_items) or
+            alt_page.get("total_count") != len(alt_items)):
+            alt_status = "INCOMPLETE_PAGE"
+        else:
+            alt_worker_names = [x["name"] for x in alt_items]
+            alt_status = "COMPLETE"
+    except AuditBlocked:
+        alt_status = "UNAVAILABLE"
     workers = []
     for obj in worker_list:
         name = obj["id"]
@@ -142,21 +181,41 @@ def read_inventory(token):
             pass
         workers.append(entry)
     names = {w["name"] for w in workers}
+    census_agrees = bool(scripts_page_complete and alt_status == "COMPLETE" and
+                         names == set(alt_worker_names) and len(names) > 0)
+    if not scripts_page_complete:
+        census_state = "LEGACY_SCRIPTS_LIST_TRUNCATED"
+    elif alt_status != "COMPLETE":
+        census_state = "ALTERNATE_WORKERS_LIST_" + alt_status
+    elif names != set(alt_worker_names):
+        census_state = "WORKER_LISTS_DISAGREE"
+    elif not names:
+        census_state = "BOTH_LISTS_EMPTY_HISTORIC_DISCREPANCY"
+    else:
+        census_state = "BOTH_LISTS_MATCH"
     return {
         "status": "TARGET_INVENTORY_READ_ONLY_PARTIAL_PARITY",
         "account_scope": "Louisalviss3 target only",
         "account_id": TARGET,
         "checked_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "database_count": len(d1), "database_names": d1_names,
+        "historical_target_d1_uuid_matches_live": historical_uuid_matches,
+        "historical_target_d1_uuid_all_match": all(historical_uuid_matches.values()),
         "canonical_d1_present": {name: name in d1_names for name in D1_CANONICAL},
         "calibration_d1_present": D1_EXTRA_REVIEW in d1_names,
         "calibration_retention_unresolved": True,
         "worker_count": len(workers), "workers": workers,
+        "alternative_worker_count": len(alt_worker_names) if alt_worker_names is not None else None,
+        "alternative_worker_names": alt_worker_names,
+        "alternative_worker_list_status": alt_status,
+        "worker_census_state": census_state,
+        "worker_census_consistent": census_agrees,
+        "target_workers_zero_verified": False,
         "source_protected_worker_names_present": {
             name: name in names for name in WORKERS_PROTECT
         },
-        "all_worker_settings_verified": all(w["settings_verified"] for w in workers),
-        "all_worker_cron_verified": all(w["cron_verified"] for w in workers),
+        "all_worker_settings_verified": census_agrees and all(w["settings_verified"] for w in workers),
+        "all_worker_cron_verified": census_agrees and all(w["cron_verified"] for w in workers),
         "d1_schema_row_parity_verified": False,
         "worker_code_deployment_parity_verified": False,
         "worker_binding_secret_values_checked": False,
