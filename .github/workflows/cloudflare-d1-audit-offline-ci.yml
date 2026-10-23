@@ -11,6 +11,8 @@ on:
       - scripts/cloudflare_d1_nine_schema_encrypted.py
       - scripts/tests/test_cloudflare_d1_nine_schema_encrypted.py
       - scripts/cloudflare_d1_nine_schema_readonly.py
+      - scripts/cloudflare_target_readonly_inventory.py
+      - scripts/tests/test_cloudflare_target_readonly_inventory.py
 
 permissions:
   contents: read
@@ -46,4 +48,7 @@ jobs:
             python3 scripts/cloudflare_d1_nine_schema_readonly.py --self-test
             tested=$((tested + 1))
           fi
+          python3 -m py_compile scripts/cloudflare_target_readonly_inventory.py
+          PYTHONPATH=scripts python3 scripts/tests/test_cloudflare_target_readonly_inventory.py
+          tested=$((tested + 1))
           test "$tested" -gt 0

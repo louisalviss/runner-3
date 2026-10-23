@@ -8,11 +8,14 @@ def fake_get(token, path):
     calls.append(path)
     assert token == "fake-only-target-read-scope-token"
     if path.startswith("/d1/database?"):
-        return {"success":True,"result":[{"name":"runner3-core","uuid":"hidden1"},
+        return {"success":True,"result":[{"name":"runner3-core","uuid":"477fc6b8-4dec-4e15-afa7-eefa3846fba1"},
                                           {"name":"clm-copilot-calibration","uuid":"hidden2"}],
                 "result_info":{"page":1,"count":2,"per_page":100,"total_count":2}}
     if path == "/workers/scripts":
         return {"success":True,"result":[{"id":"runner3-core"},{"id":"runner3-rss-fastlane"}]}
+    if path == "/workers/workers?per_page=100&page=1":
+        return {"success":True,"result":[{"name":"runner3-core"},{"name":"runner3-rss-fastlane"}],
+                "result_info":{"page":1,"count":2,"total_count":2,"total_pages":1}}
     if path.endswith("/settings"):
         return {"success":True,"result":{"bindings":[
             {"type":"service","name":"FASTLANE","service":"runner3-rss-fastlane"},
@@ -40,6 +43,10 @@ assert x["d1_schema_row_parity_verified"] is False
 assert x["worker_code_deployment_parity_verified"] is False
 assert x["cutover_ready"] is False and x["r2_operations"] == 0
 assert x["all_worker_settings_verified"] and x["all_worker_cron_verified"]
+assert x["worker_census_consistent"] is True and x["worker_census_state"] == "BOTH_LISTS_MATCH"
+assert x["historical_target_d1_uuid_matches_live"]["runner3-core"] is True
+assert x["historical_target_d1_uuid_matches_live"]["clm-copilot-calibration"] is False
+assert x["target_workers_zero_verified"] is False
 flat=str(x)
 assert "NEVER_LOG_THIS_SECRET" not in flat
 assert "DO_NOT_SERIALIZE_DB_ID" not in flat
@@ -88,3 +95,60 @@ try:
 except m.AuditBlocked:
     pass
 print("PASS invalid binding fails closed")
+
+# Empty worker responses can contradict older authentic target snapshots.
+# The expression all([]) must not be positive settings and cron verification.
+def empty_workers(token, path):
+    if path == "/workers/scripts":
+        return {"success":True,"result":[]}
+    if path == "/workers/workers?per_page=100&page=1":
+        return {"success":True,"result":[],
+                "result_info":{"page":1,"count":0,"total_count":0}}
+    return fake_get(token,path)
+
+with patch.object(m,"get",side_effect=empty_workers):
+    empty = m.read_inventory("fake-only-target-read-scope-token")
+assert empty["worker_count"] == empty["alternative_worker_count"] == 0
+assert empty["worker_census_state"] == "BOTH_LISTS_EMPTY_HISTORIC_DISCREPANCY"
+assert not empty["all_worker_settings_verified"]
+assert not empty["all_worker_cron_verified"]
+assert not empty["worker_census_consistent"]
+assert not empty["target_workers_zero_verified"]
+print("PASS both Worker lists empty never counts as verified zero")
+
+def discrepant_workers(token, path):
+    if path == "/workers/workers?per_page=100&page=1":
+        return {"success":True,"result":[{"name":"runner3-core"}],
+                "result_info":{"page":1,"count":1,"total_count":1}}
+    return fake_get(token,path)
+
+with patch.object(m,"get",side_effect=discrepant_workers):
+    discrepancy = m.read_inventory("fake-only-target-read-scope-token")
+assert discrepancy["worker_census_state"] == "WORKER_LISTS_DISAGREE"
+assert discrepancy["alternative_worker_names"] == ["runner3-core"]
+assert not discrepancy["worker_census_consistent"]
+print("PASS API discrepancy blocks Worker census acceptance")
+
+def alt_denied(token,path):
+    if path == "/workers/workers?per_page=100&page=1":
+        raise m.AuditBlocked("HTTP_403")
+    return fake_get(token,path)
+
+with patch.object(m,"get",side_effect=alt_denied):
+    denied = m.read_inventory("fake-only-target-read-scope-token")
+assert denied["worker_census_state"] == "ALTERNATE_WORKERS_LIST_UNAVAILABLE"
+assert denied["alternative_worker_count"] is None
+assert not denied["all_worker_settings_verified"]
+print("PASS alternative endpoint denied never reports complete Worker census")
+
+def alt_truncated(token,path):
+    if path == "/workers/workers?per_page=100&page=1":
+        return {"success":True,"result":[{"name":"runner3-core"}],
+                "result_info":{"page":1,"count":1,"total_count":20}}
+    return fake_get(token,path)
+
+with patch.object(m,"get",side_effect=alt_truncated):
+    truncated = m.read_inventory("fake-only-target-read-scope-token")
+assert truncated["worker_census_state"] == "ALTERNATE_WORKERS_LIST_INCOMPLETE_PAGE"
+assert not truncated["worker_census_consistent"]
+print("PASS paginated Worker API truncation is rejected")
