@@ -15,6 +15,7 @@ UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\Z")
 SOURCE = pathlib.Path("cloudflare/runner3-core/wrangler.jsonc")
 DRAFT = pathlib.Path("ops/cloudflare-account-rehome/runner3-core-target-d1-binding-draft-2026-10-16.json")
 OUT = pathlib.Path("ops/cloudflare-account-rehome/staging/runner3-core-target-stage-plan.json")
+LIVE = pathlib.Path("ops/cloudflare-account-rehome/staging/target-d1-live-id-evidence-20261023.json")
 BINDINGS = frozenset((
     "DB", "OPPORTUNITY_DB", "LIBRARY_DB", "BUSINESS_OPPORTUNITY_DB",
     "TASK_CONTEXT_DB", "CONTEXT_INDEX_DB", "CONTENT_DB", "RSS_DB",
@@ -30,8 +31,29 @@ def require(condition, code):
         raise Blocked(code)
 
 
-def make_plan(source, history):
-    require(type(source) is dict and type(history) is dict, "INVALID_INPUT")
+def make_plan(source, history, live=None):
+    if live is None:
+        live = json.loads(LIVE.read_text(encoding="utf-8"))
+    require(type(source) is dict and type(history) is dict and type(live) is dict,
+            "INVALID_INPUT")
+    require(live.get("format") == "target-d1-identity-live-v1" and
+            live.get("source_account_id") == SOURCE_ACCOUNT and
+            live.get("target_account_id") == TARGET_ACCOUNT and
+            live.get("target_database_count") == 9 and
+            live.get("workflow_run_id") == 39893435140 and
+            live.get("cutover_ready") is False and
+            live.get("row_key_content_parity_verified") is False and
+            live.get("deletion_parity_verified") is False and
+            live.get("target_workers_zero_verified") is False and
+            live.get("worker_census_consistent") is False and
+            live.get("d1_writes") == 0 and
+            live.get("worker_deploys") == 0 and
+            live.get("r2_requests") == 0,
+            "LIVE_TARGET_EVIDENCE_INVALID")
+    matched = live.get("historical_target_uuid_matches_live")
+    require(type(matched) is dict and len(matched) == 9 and
+            all(v is True for v in matched.values()),
+            "LIVE_TARGET_UUID_NOT_PROVEN")
     require(source.get("name") == "runner3-core" and
             source.get("main") == "rss-reader-read-fast-entry.js",
             "WORKER_SCOPE_DRIFT")
@@ -69,8 +91,9 @@ def make_plan(source, history):
         target_ids.add(dst_id)
         mappings.append({"binding": name, "database_name": db,
                          "target_id_candidate_historical": dst_id,
-                         "target_id_verified_live": False,
+                         "target_id_verified_live": True,
                          "schema_and_row_parity_verified": False})
+    require(set(db_seen) <= set(matched), "LIVE_TARGET_DATABASE_MISSING")
     require(len(db_seen) == 6 and len(source_ids) == len(target_ids) == 6 and
             not source_ids.intersection(target_ids),
             "D1_DATABASE_SET_DRIFT")
@@ -100,7 +123,10 @@ def make_plan(source, history):
         "source_code_entrypoint": source["main"],
         "d1_bindings": mappings,
         "d1_unique_target_candidates": len(db_seen),
-        "target_binding_ids_freshly_verified": False,
+        "target_binding_ids_freshly_verified": True,
+        "target_d1_id_evidence_run": live["workflow_run_id"],
+        "target_d1_id_evidence_artifact": live["artifact_id"],
+        "target_workers_census": "UNVERIFIED_TOKEN_OR_ENDPOINT_SCOPE",
         "r2_bindings_inhibited": sorted(v["binding"] for v in r2),
         "r2_buckets_unmodified": True,
         "service_bindings_inhibited": ["RSS_FASTLANE"],
@@ -118,7 +144,7 @@ def make_plan(source, history):
         "rollback_tested": False,
         "cutover_ready": False,
         "gate": [
-            "reconfirm target D1 UUIDs with authorized live account inventory",
+            "target D1 UUIDs 9/9 verified by read-only workflow #39893435140",
             "verify source/target applied DDL, primary keys and all schema objects",
             "stage missing schemas using reviewed non-destructive DDL only",
             "reconcile keys/content and deletions under final source writer quiescence",
