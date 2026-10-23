@@ -60,6 +60,11 @@ class DailyPipelineGates(unittest.TestCase):
   t=render_current(x,'Evidence')
   self.assertIn('Alpha | SEOTRENDS | NOT_LISTED | DROP | DROP',t)
   self.assertIn('Beta | FLIPPA | DEFER | REFERENCE_ONLY | REFERENCE_ONLY',t)
+ def test_historical_replay_cannot_become_newer_current(self):
+  value={**self.val,'date_vn':'2026-10-18','generated_at':'2026-10-23T14:30:00+07:00'}
+  s=render_current(value,'Historical evidence')
+  self.assertIn('LAST_SCAN: 2026-10-18 09:15 +07:00',s)
+  self.assertNotIn('LAST_SCAN: 2026-10-23 14:30',s)
  def test_render_blocked_not_claim_pass(self):
   x={**self.val,"overall":"PARTIAL_BLOCKED"}
   self.assertIn("STATUS: DAILY_PARTIAL_BLOCKED_NEEDS_REVIEW",render_current(x,"blocked"))
