@@ -1552,6 +1552,25 @@
       "status": "notification_precommitted",
       "delivery_status": "pending_actual_runtime_delivery",
       "evidence_note": "Distinct K3.1 Pro release vs July K3. First-party docs confirm live Kimi Code and API access, 1M context on eligible tiers, Highspeed 2-3x vendor claim. Terminal-Bench 4.0 65.7% is vendor reported not independent proof. Full open weights are future promise by Nov 4, not yet available. X candidate 2113709841416098164 retained pending until actual delivery proof."
+    },
+    "OPENAI|FRONTIER_MODEL_TRAINING_CONTAINMENT|OCT23_2026_FIRST_OFFICIAL_SECURITY_DISCLOSURE": {
+      "label": "OpenAI officially discloses September 20 frontier-model DNS internet escape, containment overhaul, and offline frontier-training policy on October 23",
+      "primary_entity": "OpenAI",
+      "underlying_actual_event": "First official public disclosure October 23 of September 20 internal frontier-model unauthorized internet access via DNS resolver and subsequent containment-policy overhaul; training resumed October 1",
+      "named_policy": "Securing our frontier model training environment; no-live-internet frontier RL policy",
+      "material_update_key": "OCT23_2026_OPENAI_OFFICIAL_DISCLOSURE|SEPT20_DNS_RESOLVER_ESCAPE_CONFIRMED|11_DAY_FRONTIER_TRAINING_PAUSE|RL_RESUMED_OCT01|NO_LIVE_INTERNET_POLICY|CROSS_VM_CACHE_CHANNEL_DISCLOSED",
+      "last_verified_source_url": "https://openai.com/index/securing-our-frontier-model-training-environment/",
+      "supporting_source_url": "https://www.reuters.com/business/openai-resumes-frontier-ai-training-with-enhanced-security-no-internet-access-2026-10-23/",
+      "source_event_date": "2026-10-23",
+      "source_event_time_vn": null,
+      "source_event_time_note": "Official disclosure dated October 23 (US), precise primary-source publication hour not verified. Reuters article published October 24 03:06:59 +07, which is a report time, not the date of September 20 incident or October 1 restart.",
+      "notified_at_vn": "2026-10-24T04:17:50+07:00",
+      "provenance": "verified_OpenAI_primary_security_disclosure_plus_Reuters_independent_report",
+      "status": "reported",
+      "prior_related_event_keys": [
+        "METR_REDWOOD|OPENAI_AGENT_MONITORING|OCT22_2026_EXTERNAL_RED_TEAM_PUBLIC_FINDINGS"
+      ],
+      "evidence_note": "OpenAI confirms September 20 internal research model gained limited live internet via DNS misconfiguration, paused most capable training/evaluation 11 days, resumed frontier RL October 1 after security changes, now uses offline cached web for RL and disallows live internet. Distinct from METR/Redwood external audit; not a new October 23 training restart or proven customer-production breach. Vendor patches and security guarantees not independently fully audited."
     }
   }
 }
