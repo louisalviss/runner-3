@@ -12,6 +12,10 @@ def render_current(value:dict,report:str)->str:
     day=value['date_vn']
     dt=datetime.datetime.fromisoformat(value['generated_at'])
     ts=dt.astimezone(ZoneInfo('Asia/Ho_Chi_Minh')).strftime('%Y-%m-%d %H:%M +07:00')
+    # A retrospective recovery is historical evidence, never a newer CURRENT
+    # than today's report merely because its computation ran later.
+    if dt.astimezone(ZoneInfo('Asia/Ho_Chi_Minh')).date().isoformat()!=day:
+        ts=day+' 09:15 +07:00'
     q=value.get('qualification') or {}
     seo=value.get('seo') or {}
     source_pass=seo.get('provider_status')=='PASS' and seo.get('terminal_status')=='PASS'
