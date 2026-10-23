@@ -10,6 +10,8 @@ on:
       - 'scripts/tests/test_cloudflare_d1_core_additive_schema.py'
       - 'ops/cloudflare-account-rehome/staging/runner3-core-additive-proven-16.sql'
       - 'ops/cloudflare-account-rehome/staging/runner3-core-additive-proven-18.sql'
+      - 'scripts/cloudflare_d1_final_39_private_bundle.py'
+      - 'scripts/tests/test_cloudflare_d1_final_39_private_bundle.py'
       - 'scripts/cloudflare_d1_final_six_source_ddl.py'
       - 'scripts/tests/test_cloudflare_d1_final_six_source_ddl.py'
       - '.github/workflows/cloudflare-d1-final-six-source-ddl-readonly.yml'
@@ -49,3 +51,5 @@ jobs:
           python3 scripts/cloudflare_d1_ci_source_matched_schema.py --check
           python3 -m py_compile scripts/cloudflare_d1_final_six_source_ddl.py
           python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_final_six_source_ddl.py' -v
+          python3 -m py_compile scripts/cloudflare_d1_final_39_private_bundle.py
+          python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_final_39_private_bundle.py' -v
