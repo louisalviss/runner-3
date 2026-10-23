@@ -109,7 +109,7 @@ class ContentIntelligenceStaging(unittest.TestCase):
             counts = dict(db.execute("SELECT type,COUNT(*) FROM sqlite_master "
                                      "WHERE name NOT LIKE 'sqlite_%' GROUP BY type"))
             self.assertEqual(counts.get("trigger"),1)
-            self.assertEqual(counts.get("table"),9)
+            self.assertEqual(counts.get("table"),10)
             self.assertEqual(counts.get("index"),12)
 
     def test_missing_runtime_input_blocks(self):
