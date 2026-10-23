@@ -66,6 +66,8 @@ def read_archive(path, expected_sha=ARCHIVE_SHA256):
                     "ARTIFACT_EXPANSION_OVERSIZED")
             body = z.read(info, pwd=None)
         return json.loads(body)
+    except Hold:
+        raise
     except (zipfile.BadZipFile, UnicodeError, ValueError, RuntimeError):
         raise Hold("ARTIFACT_JSON_OR_ZIP_INVALID") from None
 
