@@ -10,6 +10,14 @@ on:
       - 'scripts/tests/test_cloudflare_d1_core_additive_schema.py'
       - 'ops/cloudflare-account-rehome/staging/runner3-core-additive-proven-16.sql'
       - 'ops/cloudflare-account-rehome/staging/runner3-core-additive-proven-18.sql'
+      - 'scripts/cloudflare_d1_ci_source_matched_schema.py'
+      - 'scripts/tests/test_cloudflare_d1_ci_source_matched_schema.py'
+      - 'ops/cloudflare-account-rehome/staging/content-intelligence-additive-proven-15.sql'
+      - 'cloudflare/runner3-core/content-intelligence-schema.sql'
+      - 'cloudflare/runner3-core/migrations/0002_state_checkpoints.sql'
+      - 'cloudflare/runner3-core/migrations/0009_content_event_dedupe.sql'
+      - 'cloudflare/runner3-core/migrations/0015_personal_score_stage.sql'
+      - 'cloudflare/runner3-core/migrations/0017_user_content_event_idempotency.sql'
       - 'cloudflare/runner3-core/artifact-library-reader-v82-stable-shell-entry.js'
       - '.github/workflows/cloudflare-runner3-target-stage-offline-ci.yml'
 
@@ -33,3 +41,6 @@ jobs:
           python3 -m py_compile scripts/cloudflare_d1_core_additive_schema.py
           python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_core_additive_schema.py' -v
           python3 scripts/cloudflare_d1_core_additive_schema.py --check
+          python3 -m py_compile scripts/cloudflare_d1_ci_source_matched_schema.py
+          python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_ci_source_matched_schema.py' -v
+          python3 scripts/cloudflare_d1_ci_source_matched_schema.py --check
