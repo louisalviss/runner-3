@@ -1,0 +1,9 @@
+[Unit]
+Description=Bounded historical Semrush recovery once authenticated by user
+[Timer]
+OnCalendar=*:00,20,40
+RandomizedDelaySec=60
+Persistent=false
+Unit=semrush-gap-repair.service
+[Install]
+WantedBy=timers.target
