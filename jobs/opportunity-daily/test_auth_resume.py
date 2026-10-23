@@ -4,7 +4,7 @@ import json, pathlib, tempfile, unittest, datetime, os
 from unittest.mock import patch
 import auth_resume as a
 from zoneinfo import ZoneInfo
-DAY='2026-10-14'
+DAY=datetime.datetime.now(ZoneInfo('Asia/Ho_Chi_Minh')).date().isoformat()
 
 class SafeAuthResumeGates(unittest.TestCase):
  def setUp(self):
@@ -15,15 +15,15 @@ class SafeAuthResumeGates(unittest.TestCase):
   self.r=self.root/(DAY+'-semrush-results.json')
   self.q.write_text(json.dumps({'date':DAY,'scan_terminal':True,'count':1,'added_total':217,'scanned':217,'items':[{'domain':'example.com'}]}))
   self.r.write_text(json.dumps({'status':'BLOCKED','global_blocker':'RuntimeError:BROKER_DPA:SEMRUSH_LIVE_AUTH_UNAVAILABLE'}))
-  accepted={'event':'HUMAN_HANDOFF_RESULT','ok':True,'status':'CAPTCHA_ACCEPTED','same_session':True}
+  accepted={'event':'HUMAN_HANDOFF_RESULT','ok':True,'status':'CAPTCHA_ACCEPTED','same_session':True,'service':'semrush','profile':'noxtools-main','auth_verified':True}
   self.log=accepted
   self.write_log(accepted)
  def write_log(self,event):
   self.LOG_path=a.LOG
   a.LOG.write_text(json.dumps(event)+'\n')
   # mtime only affects the temporal gate; no source data overwritten.
-  self.blocked_time=datetime.datetime(2026,10,14,8,5,tzinfo=ZoneInfo('Asia/Ho_Chi_Minh')).timestamp()
-  self.handoff_time=datetime.datetime(2026,10,14,9,15,tzinfo=ZoneInfo('Asia/Ho_Chi_Minh')).timestamp()
+  self.blocked_time=(datetime.datetime.now(ZoneInfo('Asia/Ho_Chi_Minh'))-datetime.timedelta(minutes=5)).timestamp()
+  self.handoff_time=datetime.datetime.now(ZoneInfo('Asia/Ho_Chi_Minh')).timestamp()
   os.utime(self.r,(self.blocked_time,self.blocked_time))
   os.utime(a.LOG,(self.handoff_time,self.handoff_time))
  def tearDown(self):
@@ -33,6 +33,7 @@ class SafeAuthResumeGates(unittest.TestCase):
   self.assertEqual(a.decision(DAY)['state'],'READY')
  def test_never_restart_after_pass(self):
   self.r.write_text(json.dumps({'status':'PASS'}))
+  (self.root/(DAY+'-terminal-verdicts.json')).write_text(json.dumps({'status':'PASS'}))
   self.assertEqual(a.decision(DAY)['state'],'ALREADY_PASS')
  def test_no_human_checkbox_event_not_ready(self):
   self.write_log({'event':'HUMAN_HANDOFF_RESULT','ok':False,'status':'TIMEOUT','same_session':True})
@@ -48,7 +49,7 @@ class SafeAuthResumeGates(unittest.TestCase):
   a.MARKER.write_text(json.dumps({'ticket':ticket,'state':'ATTEMPT_STARTED'}))
   self.assertEqual(a.decision(DAY)['state'],'ALREADY_ATTEMPTED_AFTER_HANDOFF')
  def test_stale_handoff_does_not_retry(self):
-  daybefore=datetime.datetime(2026,10,13,12,0,tzinfo=ZoneInfo('Asia/Ho_Chi_Minh')).timestamp()
+  daybefore=(datetime.datetime.now(ZoneInfo('Asia/Ho_Chi_Minh'))-datetime.timedelta(days=1)).timestamp()
   os.utime(a.LOG,(daybefore,daybefore))
   self.assertEqual(a.decision(DAY)['state'],'NO_NEW_HUMAN_HANDOFF')
  def test_dry_run_never_mutates(self):
