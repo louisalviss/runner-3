@@ -1,0 +1,44 @@
+name: Cloudflare D1 Final Six Applied DDL (Source Read Only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-d1-final-six-ddl-source-readonly
+  cancel-in-progress: false
+
+jobs:
+  source-schema-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact source scope and read-only offline contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${CLOUDFLARE_ACCOUNT_ID}" = "7415a87f6bce7884e73ad7cfed5782df"
+          python3 -m py_compile scripts/cloudflare_d1_final_six_source_ddl.py
+          python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_final_six_source_ddl.py' -v
+      - name: Read only six missing applied DDL objects from two source D1s
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/cloudflare_d1_final_six_source_ddl.py
+      - name: Store restricted applied-schema receipt for review
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-six-source-ddl-private-review
+          path: migration-out/d1-final-six-source-applied-ddl.json
+          if-no-files-found: error
+          retention-days: 1
