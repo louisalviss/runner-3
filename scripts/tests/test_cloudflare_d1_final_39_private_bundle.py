@@ -6,12 +6,14 @@ import os
 import pathlib
 import sqlite3
 import stat
+import sys
 import tempfile
 import unittest
 import zipfile
 from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
 SCRIPT = ROOT / "scripts/cloudflare_d1_final_39_private_bundle.py"
 spec = importlib.util.spec_from_file_location("d1review", SCRIPT)
 m = importlib.util.module_from_spec(spec)
