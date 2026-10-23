@@ -1,0 +1,27 @@
+name: Cloudflare Runner3 Target Stage Offline CI
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/cloudflare_runner3_target_stage_plan.py'
+      - 'scripts/tests/test_cloudflare_runner3_target_stage_plan.py'
+      - 'ops/cloudflare-account-rehome/staging/runner3-core-target-stage-plan.json'
+      - '.github/workflows/cloudflare-runner3-target-stage-offline-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  target-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Reject stale bindings and unsafe production dependencies
+        run: |
+          python3 -m py_compile scripts/cloudflare_runner3_target_stage_plan.py
+          python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_runner3_target_stage_plan.py' -v
+          python3 scripts/cloudflare_runner3_target_stage_plan.py --check
