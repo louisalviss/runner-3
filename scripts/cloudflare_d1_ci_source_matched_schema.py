@@ -72,8 +72,9 @@ def safe_create_only(script):
     # Repository-sourced CI migration inputs must remain CREATE-only. Never
     # silently evaluate a future DELETE/UPDATE/DROP/INSERT in our scratch DB.
     parts = []
-    for text in script.split(";"):
-        cleaned = re.sub(r"(?m)^[ \t]*--[^\n]*(?:\n|$)", "", text).strip()
+    comment_free = re.sub(r"(?m)^[ \t]*--[^\n]*(?:\n|$)", "", script)
+    for text in comment_free.split(";"):
+        cleaned = text.strip()
         if not cleaned:
             continue
         if not re.fullmatch(r"(?is)CREATE\s+(?:UNIQUE\s+)?(?:TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+.+", cleaned):
