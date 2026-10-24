@@ -64,11 +64,11 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/cloudflare_d1_recommendation_runs_guarded_insert.py --apply
-      - name: Upload SANITIZED result ONLY on complete verified success
-        if: success()
+      - name: Preserve sanitized result even if strict typed parity HOLDS
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: d1-recommendation-runs-additive-write-sanitized
           path: migration-out/d1-recommendation-runs-apply-sanitized.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 2
