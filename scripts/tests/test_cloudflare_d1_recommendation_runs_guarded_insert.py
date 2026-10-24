@@ -128,6 +128,115 @@ class GuardedInsert(unittest.TestCase):
         self.assertFalse(report["cutover_ready"])
         self.assertFalse(report["all_d1_tables_verified"])
 
+    def test_real_affinity_integral_source_insert_is_not_falsely_strict(self):
+        src=[row(i) for i in range(47)]
+        tgt=[copy.deepcopy(x) for x in src[:35]]
+        for r in src: r["exploration_ratio"]=0
+        for r in tgt: r["exploration_ratio"]=0
+        f=Fixtures(source=src,target=tgt)
+        result=f.run()
+        self.assertEqual(result["new_rows_inserted"],12)
+        self.assertEqual(f.mutations,12)
+        self.assertEqual(result["strict_payload_difference_count_after_copy"],12)
+        self.assertFalse(result["strict_row_parity_proven"])
+        self.assertFalse(result["all_observed_rows_equal"])
+        self.assertEqual(result["status"],
+            "ONE_TABLE_AFFINITY_EQUIVALENT_NOT_STRICT_PARITY_HOLD")
+
+    def test_inserted_real_value_accepts_either_original_or_real_storage(self):
+        original=row(1);original["exploration_ratio"]=0
+        real=copy.deepcopy(original);real["exploration_ratio"]=0.0
+        self.assertTrue(m.same_as_inserted_storage(real,original))
+        self.assertTrue(m.same_as_inserted_storage(original,original))
+
+    def test_inserted_non_real_type_changed_is_not_equivalent(self):
+        original=row(1);other=copy.deepcopy(original)
+        other["item_count"]="3"
+        self.assertFalse(m.same_as_inserted_storage(other,original))
+        other=copy.deepcopy(original);other["metadata_json"]="DIFFERENT"
+        self.assertFalse(m.same_as_inserted_storage(other,original))
+
+    def test_existing_real_affinity_type_drift_is_still_preflight_conflict(self):
+        src=[row(i) for i in range(47)]
+        tgt=copy.deepcopy(src[:35])
+        src[0]["exploration_ratio"]=0
+        tgt[0]["exploration_ratio"]=0.0
+        f=Fixtures(source=src,target=tgt)
+        with self.assertRaisesRegex(m.Blocked,"WRITE_PREFLIGHT_CONFLICT"):
+            f.run()
+        self.assertEqual(f.mutations,0)
+
+    def test_required_independent_github_reviewer_succeeds(self):
+        env=dict(name=m.PROTECTED_ENVIRONMENT,
+                 protection_rules=[dict(type="required_reviewers",
+                 prevent_self_review=True,
+                 reviewers=[dict(type="User",reviewer={"id":124})])])
+        self.assertTrue(m.require_protected_environment(
+            "fakeGithubEnvToken1234567",m.EXPECTED_GITHUB_REPO,
+            "workflow_dispatch","refs/heads/main",lookup=lambda _:env))
+
+    def test_unprotected_or_self_review_environment_fails_closed(self):
+        policies=[
+            dict(name=m.PROTECTED_ENVIRONMENT,protection_rules=[]),
+            dict(name=m.PROTECTED_ENVIRONMENT,
+                 protection_rules=[dict(type="wait_timer",wait_timer=5)]),
+            dict(name=m.PROTECTED_ENVIRONMENT,
+                 protection_rules=[dict(type="required_reviewers",
+                     prevent_self_review=False,
+                     reviewers=[dict(type="User",reviewer={"id":124})])]),
+            dict(name=m.PROTECTED_ENVIRONMENT,
+                 protection_rules=[dict(type="required_reviewers",
+                     prevent_self_review=True,reviewers=[])]),
+        ]
+        for policy in policies:
+            with self.subTest(policy=policy),self.assertRaises(m.Blocked):
+                m.require_protected_environment(
+                    "fakeGithubEnvToken1234567",m.EXPECTED_GITHUB_REPO,
+                    "workflow_dispatch","refs/heads/main",
+                    lookup=lambda _,policy=policy:policy)
+
+    def test_github_context_must_be_manual_main_branch(self):
+        policy=lambda _:self.fail("GitHub API must not be read for wrong context")
+        for repository,event,ref in (
+            ("other/repo","workflow_dispatch","refs/heads/main"),
+            (m.EXPECTED_GITHUB_REPO,"pull_request","refs/heads/main"),
+            (m.EXPECTED_GITHUB_REPO,"workflow_dispatch","refs/heads/test")):
+            with self.subTest(ref=ref),self.assertRaisesRegex(
+                m.Blocked,"WORKFLOW_CONTEXT_MISMATCH"):
+                m.require_protected_environment(
+                    "token-from-github-123456",repository,event,ref,
+                    lookup=policy)
+
+    def test_environment_read_uses_github_get_only(self):
+        class Response:
+            status=200
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def read(self,n):
+                return b'{"name":"cloudflare-target-d1-writes","protection_rules":[]}'
+        seen=[]
+        def opener(req,timeout):
+            seen.append((req.full_url,req.get_method(),req.data,timeout))
+            return Response()
+        result=m.read_environment_policy("fakeGithubEnvToken1234567",opener)
+        self.assertEqual(result["name"],m.PROTECTED_ENVIRONMENT)
+        self.assertEqual(seen,
+           [(m.ENV_POLICY_URL,"GET",None,15)])
+
+    def test_apply_main_never_reads_secrets_before_github_policy_passes(self):
+        with patch("sys.argv",["copier","--apply"]):
+            with patch.dict("os.environ",{
+                "GITHUB_REPOSITORY":m.EXPECTED_GITHUB_REPO,
+                "GITHUB_EVENT_NAME":"workflow_dispatch",
+                "GITHUB_REF":"refs/heads/main",
+                "GH_ENV_POLICY_READ_TOKEN":"fakeGithubEnvToken1234567",
+            },clear=True):
+                with patch.object(m,"require_protected_environment",
+                    side_effect=m.Blocked("GITHUB_REQUIRED_REVIEWERS_NOT_CONFIGURED")):
+                    with patch.object(m,"apply_gate",
+                        side_effect=AssertionError("No D1 call should happen")):
+                        self.assertEqual(m.main(),3)
+
     def test_existing_target_35_untouched(self):
         f=Fixtures()
         prior=copy.deepcopy(f.target)
