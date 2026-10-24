@@ -195,7 +195,7 @@ class BoundedReconciliation(unittest.TestCase):
 
     def test_sqlite_roundtrip_rejects_type_coercion(self):
         x=record(1);x["item_count"]="3"
-        with self.assertRaisesRegex(m.Blocked,"INSERT_READBACK_MISMATCH"):
+        with self.assertRaisesRegex(m.Blocked,"VALUE_AFFINITY_DRIFT"):
             m.execute(SOURCE_TOKEN,TARGET_TOKEN,fake_reader(source=[x],target=[]))
 
     def test_tokens_must_differ(self):
