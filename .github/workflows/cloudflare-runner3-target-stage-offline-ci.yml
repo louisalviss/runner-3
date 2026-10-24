@@ -10,6 +10,9 @@ on:
       - 'scripts/tests/test_cloudflare_d1_core_additive_schema.py'
       - 'ops/cloudflare-account-rehome/staging/runner3-core-additive-proven-16.sql'
       - 'ops/cloudflare-account-rehome/staging/runner3-core-additive-proven-18.sql'
+      - 'scripts/cloudflare_d1_target_time_travel_readonly.py'
+      - 'scripts/tests/test_cloudflare_d1_target_time_travel_readonly.py'
+      - '.github/workflows/cloudflare-d1-target-time-travel-readonly.yml'
       - 'scripts/cloudflare_d1_recommendation_runs_dryrun.py'
       - 'scripts/tests/test_cloudflare_d1_recommendation_runs_dryrun.py'
       - '.github/workflows/cloudflare-d1-recommendation-runs-additive-dryrun.yml'
@@ -58,3 +61,5 @@ jobs:
           python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_final_39_private_bundle.py' -v
           python3 -m py_compile scripts/cloudflare_d1_recommendation_runs_dryrun.py
           PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_recommendation_runs_dryrun.py' -v
+          python3 -m py_compile scripts/cloudflare_d1_target_time_travel_readonly.py
+          PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_target_time_travel_readonly.py' -v
