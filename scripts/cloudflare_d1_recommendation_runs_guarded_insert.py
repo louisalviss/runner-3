@@ -97,7 +97,8 @@ def write_one(token, sql, params, opener=urllib.request.urlopen):
         payload = json.loads(body)
     except (ValueError, UnicodeError):
         raise Blocked("TARGET_WRITE_RESPONSE_INVALID") from None
-    result = payload.get("result") if isinstance(payload, dict) else None
+    require(isinstance(payload, dict), "TARGET_INSERT_RESPONSE_NOT_OBJECT")
+    result = payload.get("result")
     require(payload.get("success") is True and
             isinstance(result, list) and len(result) == 1 and
             isinstance(result[0], dict) and result[0].get("success") is True,
