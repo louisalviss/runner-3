@@ -31,6 +31,16 @@ An interrupted POST may have committed, and any mid-batch failure may leave **so
 
 A Time Travel restore would replace the **entire target database**, potentially destroying unrelated updates. Cloudflare Time Travel support is not by itself a safe row-level rollback. The bookmarked state and its restore authority must be protected separately; a recovery rehearsal must ensure no other target writes are lost. Cloudflare docs: https://developers.cloudflare.com/d1/reference/time-travel/ and https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/.
 
+## Safety correction verified against the first live rehearsal artifact
+
+The original read-only dry-run ZIP (#40091169404) reports **47/47** source rows with an integral JSON value under SQLite `exploration_ratio REAL`. This is important: D1 REST JSON may serialize integral REAL values as integers, while SQLite REAL affinity may return floating-point values after an INSERT. The original guarded writer verified newly inserted rows with **byte-strict type-preserving JSON** and could therefore stop **after** successfully INSERTing the first row, despite a storage-affinity-equivalent result.
+
+The corrected writer keeps byte-strict typed equality for **all rows that existed on target before the run** and for all source–target comparisons before the first INSERT. **Only new, freshly inserted keys** can be compared against the original source value *or* the exact expected SQLite REAL affinity representation. All other columns remain strict, all new rows receive per-key readback, and the final report publishes a count of any strict typed differences rather than falsely claiming strict 1:1 parity. A nonzero difference forces `ONE_TABLE_AFFINITY_EQUIVALENT_NOT_STRICT_PARITY_HOLD` even if all twelve rows were inserted successfully. An actual target 1:1 match still requires a later read-only verification.
+
+The workflow originally referenced an environment by name only. GitHub automatically creates missing environments without protection rules: https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments . The corrected workflow verifies through the GitHub **GET environment REST API** using `GITHUB_TOKEN` (Actions read) that the exact environment has a `required_reviewers` rule, **at least one real reviewer**, and `prevent_self_review=true`. It requires `workflow_dispatch` on `refs/heads/main`. Any HTTP permission denial, missing environment or unprotected rule **fails closed before any D1 query or write**, even if someone types the approval phrase and ticks the two acknowledgments. Having only the workflow's environment field is not approval evidence.
+
+**Do not run** before a separately verified reviewer configuration, distinct D1 write credential, preserved pre-apply bookmark, quiescence, and row-safe rollback. A successful CI test proves guards function synthetically; it does not certify that the GitHub environment or Cloudflare write token actually exists.
+
 ## Still blocked
 
 - Separate D1 Write credentials not verified/provisioned. No independent evidence target writers are quiesced or protected GitHub environment configured.

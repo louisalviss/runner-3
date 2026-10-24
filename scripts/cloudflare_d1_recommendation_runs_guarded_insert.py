@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import urllib.error
 import urllib.request
 
@@ -38,6 +39,65 @@ WRITE_URL = ("https://api.cloudflare.com/client/v4/accounts/" + DST_ACCOUNT +
              "/d1/database/" + DST_UUID + "/query")
 # Exact column order and target table authority are pinned in imported modules.
 COLUMNS_SQL = ",".join('"' + c + '"' for c in COLUMNS)
+EXPECTED_GITHUB_REPO = "louisalviss/runner-3"
+PROTECTED_ENVIRONMENT = "cloudflare-target-d1-writes"
+ENV_POLICY_URL = ("https://api.github.com/repos/" + EXPECTED_GITHUB_REPO +
+                  "/environments/" + PROTECTED_ENVIRONMENT)
+GITHUB_TOKEN_MAX_RESPONSE = 64_000
+
+
+def read_environment_policy(github_token, opener=urllib.request.urlopen):
+    require(type(github_token) is str and len(github_token) >= 16,
+            "GITHUB_ENV_AUDIT_TOKEN_MISSING")
+    req = urllib.request.Request(
+        ENV_POLICY_URL, method="GET",
+        headers={"Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2022-11-28",
+                 "Authorization": "Bearer " + github_token})
+    require(req.get_method() == "GET" and req.data is None,
+            "GITHUB_ENV_POLICY_NON_READONLY")
+    try:
+        with opener(req, timeout=15) as response:
+            require(response.status == 200, "GITHUB_ENV_HTTP_NOT_200")
+            raw = response.read(GITHUB_TOKEN_MAX_RESPONSE + 1)
+    except urllib.error.HTTPError as err:
+        raise Blocked("GITHUB_ENV_HTTP_" + str(err.code)) from None
+    except (urllib.error.URLError, OSError, TimeoutError):
+        raise Blocked("GITHUB_ENV_UNAVAILABLE") from None
+    require(len(raw) <= GITHUB_TOKEN_MAX_RESPONSE,
+            "GITHUB_ENV_POLICY_RESPONSE_TOO_LARGE")
+    try:
+        value = json.loads(raw)
+    except (UnicodeError, ValueError):
+        raise Blocked("GITHUB_ENV_INVALID_JSON") from None
+    require(type(value) is dict, "GITHUB_ENV_NOT_OBJECT")
+    return value
+
+
+def require_protected_environment(github_token, repository, event, ref,
+                                  lookup=read_environment_policy):
+    require(repository == EXPECTED_GITHUB_REPO and
+            event == "workflow_dispatch" and ref == "refs/heads/main",
+            "GITHUB_WRITE_WORKFLOW_CONTEXT_MISMATCH")
+    env = lookup(github_token)
+    require(type(env) is dict and env.get("name") == PROTECTED_ENVIRONMENT,
+            "GITHUB_ENVIRONMENT_NOT_VERIFIED")
+    rules = env.get("protection_rules")
+    require(type(rules) is list and 1 <= len(rules) <= 20,
+            "GITHUB_REQUIRED_REVIEWERS_NOT_CONFIGURED")
+    reviewers = [r for r in rules if type(r) is dict and
+                 r.get("type") == "required_reviewers"]
+    require(len(reviewers) == 1 and
+            reviewers[0].get("prevent_self_review") is True and
+            type(reviewers[0].get("reviewers")) is list and
+            len(reviewers[0]["reviewers"]) >= 1 and
+            all(type(v) is dict and v.get("type") in ("User", "Team") and
+                type(v.get("reviewer")) is dict and
+                type(v["reviewer"].get("id")) is int and
+                v["reviewer"]["id"] > 0
+                for v in reviewers[0]["reviewers"]),
+            "GITHUB_INDEPENDENT_REQUIRED_REVIEWER_ABSENT")
+    return True
 
 
 def params_and_sql(row):
@@ -112,6 +172,18 @@ def write_one(token, sql, params, opener=urllib.request.urlopen):
     return True
 
 
+def same_as_inserted_storage(actual_row, original_source_row):
+    """Allow ONLY SQLite REAL-affinity representation differences.
+
+    A source JSON integer in exploration_ratio may round-trip as a SQLite
+    REAL/JSON float after the insert, depending on API serialization. Never
+    normalize existing source/target rows or TEXT/INTEGER values.
+    """
+    return (canon(actual_row) == canon(original_source_row) or
+            canon(actual_row) ==
+            canon_after_sqlite_real_affinity(original_source_row))
+
+
 def observe_pair(source_read, target_read):
     source_meta = source_read(META_SQL)
     target_meta = target_read(META_SQL)
@@ -171,15 +243,19 @@ def apply_gate(source_token, target_read_token, target_write_token,
         observed = safe_map(target_read(ROWS_SQL))
         expected = {**target, **applied}
         require(set(observed) == set(expected) and
-                all(canon(observed[k]) == canon(expected[k]) for k in expected),
+                all(canon(observed[k]) == canon(target[k]) for k in target) and
+                all(same_as_inserted_storage(observed[k], applied[k])
+                    for k in applied),
                 "TARGET_CHANGED_DURING_APPLY_HOLD")
         require(key not in observed, "TARGET_PK_RACE_BEFORE_INSERT")
         sql, params = params_and_sql(source[key])
         writer(target_write_token, sql, params)
         check = safe_map(target_read(ROWS_SQL))
-        require(set(check) == set(expected) | {key} and
-                all(canon(check[k]) == canon(expected[k]) for k in expected) and
-                canon(check[key]) == canon(source[key]),
+        require(set(check) == (set(expected) | {key}) and
+                all(canon(check[k]) == canon(target[k]) for k in target) and
+                all(same_as_inserted_storage(check[k], applied[k])
+                    for k in applied) and
+                same_as_inserted_storage(check[key], source[key]),
                 "TARGET_POST_INSERT_READBACK_HOLD")
         applied[key] = source[key]
     # Mandatory end-to-end catch-up check; if production adds or edits rows,
@@ -188,17 +264,26 @@ def apply_gate(source_token, target_read_token, target_write_token,
     end_target = safe_map(target_read(ROWS_SQL))
     require(set(end_source) == set(end_target) and
             set(end_target) == set(source) and
-            all(canon(end_source[k]) == canon(end_target[k]) ==
-                canon(source[k]) for k in source),
+            all(canon(end_source[k]) == canon(source[k]) for k in source) and
+            all(canon(end_target[k]) == canon(target[k]) for k in target) and
+            all(same_as_inserted_storage(end_target[k], source[k])
+                for k in missing),
             "FINAL_SOURCE_CATCHUP_DRIFT_HOLD")
+    strict_changed = sum(canon(end_source[k]) != canon(end_target[k])
+                         for k in source)
     return {
         "format": "d1-recommendation-runs-additive-target-insert-v1",
-        "status": "ONE_TABLE_ADDITIVE_INSERTS_VERIFIED_NOT_CUTOVER",
+        "status": ("ONE_TABLE_ADDITIVE_INSERTS_VERIFIED_NOT_CUTOVER"
+                   if strict_changed == 0 else
+                   "ONE_TABLE_AFFINITY_EQUIVALENT_NOT_STRICT_PARITY_HOLD"),
         "database": DB, "table": TABLE,
         "new_rows_inserted": len(missing),
         "source_rows_at_end": len(end_source),
         "target_rows_at_end": len(end_target),
-        "all_observed_rows_equal": True,
+        "all_observed_rows_equal": strict_changed == 0,
+        "real_affinity_equivalent_inserted_rows_verified": True,
+        "strict_payload_difference_count_after_copy": strict_changed,
+        "strict_row_parity_proven": strict_changed == 0,
         "raw_rows_or_keys_exported": False,
         "target_write_token_exported": False,
         "preserved_bookmark_exported": False,
@@ -217,6 +302,14 @@ def main():
         print("TARGET_ADDITIVE_WRITE_DISABLED_EXPLICIT_APPLY_REQUIRED")
         return 3
     try:
+        # Never trust the environment name alone: an undeclared GitHub
+        # environment is auto-created without protection rules.
+        require_protected_environment(
+            os.getenv("GH_ENV_POLICY_READ_TOKEN", ""),
+            os.getenv("GITHUB_REPOSITORY", ""),
+            os.getenv("GITHUB_EVENT_NAME", ""),
+            os.getenv("GITHUB_REF", ""),
+        )
         report = apply_gate(
             os.getenv("CLOUDFLARE_API_TOKEN", ""),
             os.getenv("CLOUDFLARE_TARGET_AUDIT_TOKEN", ""),
@@ -236,6 +329,12 @@ def main():
     except (OSError, ValueError, TypeError):
         print("D1_TARGET_ADDITIVE_HOLD INTERNAL_OR_IO_ERROR")
         return 3
+    if not report["strict_row_parity_proven"]:
+        print("D1_TARGET_ADDITIVE_HOLD AFFINITY_EQUIVALENT_NOT_STRICT_TYPED_PARITY",
+              "inserted", report["new_rows_inserted"],
+              "strict_differences", report["strict_payload_difference_count_after_copy"],
+              "no_r2 no_restore cutover=false")
+        return 2
     print("D1_TARGET_ADDITIVE_ONE_TABLE_VERIFIED new_rows",
           report["new_rows_inserted"],"no_r2 no_restore cutover=false")
     return 0
