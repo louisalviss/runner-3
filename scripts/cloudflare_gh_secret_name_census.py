@@ -72,7 +72,12 @@ def inspect_names(context_json, probe=inspect_secret):
         if name in bearer_names and isinstance(value, str) and len(value) >= 16:
             # GET-only helper, may read token policy metadata if permitted.
             # No Cloudflare D1 queries, mutations, R2, or restore paths.
-            observed = probe(value)
+            try:
+                observed = probe(value)
+            except (ValueError, TypeError, OSError, RuntimeError):
+                # E.g. malformed authorization header / invalid bearer format.
+                # Neither the secret nor exception is ever printed or exported.
+                observed = {}
             entry["target_d1_metadata_verified"] = observed.get(
                 "target_metadata_verified", False)
             entry["target_d1_http_status"] = observed.get(
