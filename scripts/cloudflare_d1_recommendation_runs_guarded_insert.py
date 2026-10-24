@@ -172,6 +172,18 @@ def write_one(token, sql, params, opener=urllib.request.urlopen):
     return True
 
 
+def same_as_inserted_storage(actual_row, original_source_row):
+    """Allow ONLY SQLite REAL-affinity representation differences.
+
+    A source JSON integer in exploration_ratio may round-trip as a SQLite
+    REAL/JSON float after the insert, depending on API serialization. Never
+    normalize existing source/target rows or TEXT/INTEGER values.
+    """
+    return (canon(actual_row) == canon(original_source_row) or
+            canon(actual_row) ==
+            canon_after_sqlite_real_affinity(original_source_row))
+
+
 def observe_pair(source_read, target_read):
     source_meta = source_read(META_SQL)
     target_meta = target_read(META_SQL)
@@ -231,15 +243,19 @@ def apply_gate(source_token, target_read_token, target_write_token,
         observed = safe_map(target_read(ROWS_SQL))
         expected = {**target, **applied}
         require(set(observed) == set(expected) and
-                all(canon(observed[k]) == canon(expected[k]) for k in expected),
+                all(canon(observed[k]) == canon(target[k]) for k in target) and
+                all(same_as_inserted_storage(observed[k], applied[k])
+                    for k in applied),
                 "TARGET_CHANGED_DURING_APPLY_HOLD")
         require(key not in observed, "TARGET_PK_RACE_BEFORE_INSERT")
         sql, params = params_and_sql(source[key])
         writer(target_write_token, sql, params)
         check = safe_map(target_read(ROWS_SQL))
-        require(set(check) == set(expected) | {key} and
-                all(canon(check[k]) == canon(expected[k]) for k in expected) and
-                canon(check[key]) == canon(source[key]),
+        require(set(check) == (set(expected) | {key}) and
+                all(canon(check[k]) == canon(target[k]) for k in target) and
+                all(same_as_inserted_storage(check[k], applied[k])
+                    for k in applied) and
+                same_as_inserted_storage(check[key], source[key]),
                 "TARGET_POST_INSERT_READBACK_HOLD")
         applied[key] = source[key]
     # Mandatory end-to-end catch-up check; if production adds or edits rows,
@@ -248,17 +264,26 @@ def apply_gate(source_token, target_read_token, target_write_token,
     end_target = safe_map(target_read(ROWS_SQL))
     require(set(end_source) == set(end_target) and
             set(end_target) == set(source) and
-            all(canon(end_source[k]) == canon(end_target[k]) ==
-                canon(source[k]) for k in source),
+            all(canon(end_source[k]) == canon(source[k]) for k in source) and
+            all(canon(end_target[k]) == canon(target[k]) for k in target) and
+            all(same_as_inserted_storage(end_target[k], source[k])
+                for k in missing),
             "FINAL_SOURCE_CATCHUP_DRIFT_HOLD")
+    strict_changed = sum(canon(end_source[k]) != canon(end_target[k])
+                         for k in source)
     return {
         "format": "d1-recommendation-runs-additive-target-insert-v1",
-        "status": "ONE_TABLE_ADDITIVE_INSERTS_VERIFIED_NOT_CUTOVER",
+        "status": ("ONE_TABLE_ADDITIVE_INSERTS_VERIFIED_NOT_CUTOVER"
+                   if strict_changed == 0 else
+                   "ONE_TABLE_AFFINITY_EQUIVALENT_NOT_STRICT_PARITY_HOLD"),
         "database": DB, "table": TABLE,
         "new_rows_inserted": len(missing),
         "source_rows_at_end": len(end_source),
         "target_rows_at_end": len(end_target),
-        "all_observed_rows_equal": True,
+        "all_observed_rows_equal": strict_changed == 0,
+        "real_affinity_equivalent_inserted_rows_verified": True,
+        "strict_payload_difference_count_after_copy": strict_changed,
+        "strict_row_parity_proven": strict_changed == 0,
         "raw_rows_or_keys_exported": False,
         "target_write_token_exported": False,
         "preserved_bookmark_exported": False,
