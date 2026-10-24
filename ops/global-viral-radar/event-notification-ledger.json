@@ -1842,6 +1842,24 @@
       "status": "notification_precommitted",
       "delivery_status": "pending_actual_delivery",
       "evidence_note": "Score 8.9/10 AI standalone. Rippling CEO disclosed usage mix among hundreds of engineers: Anthropic 57->18%, OpenAI 16->52%. Replit >30% discount and >USD100m annual contract reported by The Information anonymous source, not company-confirmed. DataCamp CEO says 40% offer conditional on Codex; not accepted. OpenRouter share reportedly recovered for Anthropic after Opus 5.5, so do not infer universal market-share transfer or realized revenue/profit."
+    },
+    "ELECTRUM|MALICIOUS_SERVER_RBF_TX_SUBSTITUTION|OCT24_2026_EXPLOITED_IN_WILD_AND_4_8_3_PATCH": {
+      "label": "Electrum discloses in-the-wild malicious-server RBF payment redirection, releases security fix 4.8.3",
+      "primary_entity": "Electrum Bitcoin wallet",
+      "underlying_actual_event": "October 24 public security advisory confirms in-the-wild malicious Electrum servers could substitute an invalid unconfirmed outgoing transaction, tricking users who manually bump fees into signing a payment to attacker; two user reports, one lost funds. Electrum 4.8.3 binaries released October 24.",
+      "named_product": "Electrum 4.8.3; GHSA-6jp4-8v48-cc5v",
+      "material_update_key": "OCT24_2026_ELECTRUM_OFFICIAL_GHSA_6JP4_8V48_CC5V_PUBLISHED|MALICIOUS_SERVER_TX_REPLACEMENT_RBF_FUNDS_THEFT|2_USER_REPORTS_1_CONFIRMED_LOSS|SIGNED_4_8_3_BINARIES_RELEASED|PRIOR_TO_4_8_3_AFFECTED|NO_CVE_OR_TOTAL_LOSS_KNOWN",
+      "last_verified_source_url": "https://github.com/spesmilo/electrum/security/advisories/GHSA-6jp4-8v48-cc5v",
+      "supporting_primary_source_url": "https://electrum.org/",
+      "source_event_date": "2026-10-24",
+      "source_event_date_vn": "2026-10-24",
+      "source_event_time_vn": null,
+      "source_event_time_note": "Project advisory and signed binaries publicly released October 24; exact publication clock time not verified. October 23 was code tag, not the public binary release. Private reports dated October 11 and 18 are not the public disclosure event.",
+      "notified_at_vn": "2026-10-25T03:53:49+07:00",
+      "provenance": "verified_primary_vendor_GitHub_security_advisory_and_official_signed_download",
+      "status": "notification_precommitted",
+      "delivery_status": "pending_actual_delivery",
+      "evidence_note": "High severity vendor advisory, no CVE or CVSS assigned; in-the-wild exploit based on two user reports, one loss after RBF. Applies to clients <4.8.3 using untrusted malicious server; trusted self-hosted server not affected. No confirmed total losses or widespread compromise; no crypto price claim; technology/cybersecurity lane, not markets price gate."
     }
   }
 }
