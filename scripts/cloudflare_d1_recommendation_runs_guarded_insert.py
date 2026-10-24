@@ -297,7 +297,27 @@ def apply_gate(source_token, target_read_token, target_write_token,
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--apply", action="store_true")
+    p.add_argument("--verify-github-environment", action="store_true")
     args = p.parse_args()
+    if args.verify_github_environment:
+        if args.apply:
+            print("GITHUB_ENV_PROTECTION_HOLD APPLY_AND_PREFLIGHT_ARE_MUTUALLY_EXCLUSIVE")
+            return 3
+        try:
+            require_protected_environment(
+                os.getenv("GH_ENV_POLICY_READ_TOKEN", ""),
+                os.getenv("GITHUB_REPOSITORY", ""),
+                os.getenv("GITHUB_EVENT_NAME", ""),
+                os.getenv("GITHUB_REF", ""),
+            )
+        except Blocked as exc:
+            print("GITHUB_ENV_PROTECTION_HOLD", str(exc))
+            return 3
+        except (OSError, ValueError, TypeError):
+            print("GITHUB_ENV_PROTECTION_HOLD INTERNAL_OR_IO_ERROR")
+            return 3
+        print("GITHUB_ENV_PROTECTION_PASS independent_review main_only no_d1_calls")
+        return 0
     if not args.apply:
         print("TARGET_ADDITIVE_WRITE_DISABLED_EXPLICIT_APPLY_REQUIRED")
         return 3
