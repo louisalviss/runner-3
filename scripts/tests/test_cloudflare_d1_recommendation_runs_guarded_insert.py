@@ -166,77 +166,6 @@ class GuardedInsert(unittest.TestCase):
             f.run()
         self.assertEqual(f.mutations,0)
 
-    def test_required_independent_github_reviewer_succeeds(self):
-        env=dict(name=m.PROTECTED_ENVIRONMENT,
-                 protection_rules=[dict(type="required_reviewers",
-                 prevent_self_review=True,
-                 reviewers=[dict(type="User",reviewer={"id":124})])])
-        self.assertTrue(m.require_protected_environment(
-            "fakeGithubEnvToken1234567",m.EXPECTED_GITHUB_REPO,
-            "workflow_dispatch","refs/heads/main",lookup=lambda _:env))
-
-    def test_unprotected_or_self_review_environment_fails_closed(self):
-        policies=[
-            dict(name=m.PROTECTED_ENVIRONMENT,protection_rules=[]),
-            dict(name=m.PROTECTED_ENVIRONMENT,
-                 protection_rules=[dict(type="wait_timer",wait_timer=5)]),
-            dict(name=m.PROTECTED_ENVIRONMENT,
-                 protection_rules=[dict(type="required_reviewers",
-                     prevent_self_review=False,
-                     reviewers=[dict(type="User",reviewer={"id":124})])]),
-            dict(name=m.PROTECTED_ENVIRONMENT,
-                 protection_rules=[dict(type="required_reviewers",
-                     prevent_self_review=True,reviewers=[])]),
-        ]
-        for policy in policies:
-            with self.subTest(policy=policy),self.assertRaises(m.Blocked):
-                m.require_protected_environment(
-                    "fakeGithubEnvToken1234567",m.EXPECTED_GITHUB_REPO,
-                    "workflow_dispatch","refs/heads/main",
-                    lookup=lambda _,policy=policy:policy)
-
-    def test_github_context_must_be_manual_main_branch(self):
-        policy=lambda _:self.fail("GitHub API must not be read for wrong context")
-        for repository,event,ref in (
-            ("other/repo","workflow_dispatch","refs/heads/main"),
-            (m.EXPECTED_GITHUB_REPO,"pull_request","refs/heads/main"),
-            (m.EXPECTED_GITHUB_REPO,"workflow_dispatch","refs/heads/test")):
-            with self.subTest(ref=ref),self.assertRaisesRegex(
-                m.Blocked,"WORKFLOW_CONTEXT_MISMATCH"):
-                m.require_protected_environment(
-                    "token-from-github-123456",repository,event,ref,
-                    lookup=policy)
-
-    def test_environment_read_uses_github_get_only(self):
-        class Response:
-            status=200
-            def __enter__(self):return self
-            def __exit__(self,*args):return False
-            def read(self,n):
-                return b'{"name":"cloudflare-target-d1-writes","protection_rules":[]}'
-        seen=[]
-        def opener(req,timeout):
-            seen.append((req.full_url,req.get_method(),req.data,timeout))
-            return Response()
-        result=m.read_environment_policy("fakeGithubEnvToken1234567",opener)
-        self.assertEqual(result["name"],m.PROTECTED_ENVIRONMENT)
-        self.assertEqual(seen,
-           [(m.ENV_POLICY_URL,"GET",None,15)])
-
-    def test_apply_main_never_reads_secrets_before_github_policy_passes(self):
-        with patch("sys.argv",["copier","--apply"]):
-            with patch.dict("os.environ",{
-                "GITHUB_REPOSITORY":m.EXPECTED_GITHUB_REPO,
-                "GITHUB_EVENT_NAME":"workflow_dispatch",
-                "GITHUB_REF":"refs/heads/main",
-                "GH_ENV_POLICY_READ_TOKEN":"fakeGithubEnvToken1234567",
-            },clear=True):
-                with patch.object(m,"require_protected_environment",
-                    side_effect=m.Blocked("GITHUB_REQUIRED_REVIEWERS_NOT_CONFIGURED")):
-                    with patch.object(m,"apply_gate",
-                        side_effect=AssertionError("No D1 call should happen")):
-                        self.assertEqual(m.main(),3)
-
     def test_main_non_strict_affinity_holds_after_persisting_sanitized_counts(self):
         import tempfile
         with tempfile.TemporaryDirectory() as folder:
@@ -247,16 +176,12 @@ class GuardedInsert(unittest.TestCase):
             prepared=f.run()
             self.assertFalse(prepared["strict_row_parity_proven"])
             with patch("sys.argv",["copier","--apply"]),patch.object(m,"OUT",report_path):
-                with patch.object(m,"require_protected_environment",return_value=True):
+                with patch.object(m,"require_recent_solo_dryrun",return_value=True):
                     with patch.object(m,"apply_gate",return_value=prepared):
                         self.assertEqual(m.main(),2)
             sanitized=json.loads(report_path.read_text())
             self.assertEqual(sanitized["strict_payload_difference_count_after_copy"],12)
             self.assertNotIn("run-35",report_path.read_text())
-
-    def test_missing_github_read_token_fails_closed(self):
-        with self.assertRaisesRegex(m.Blocked,"GITHUB_ENV_AUDIT_TOKEN_MISSING"):
-            m.read_environment_policy("")
 
     def test_existing_target_35_untouched(self):
         f=Fixtures()
@@ -396,42 +321,24 @@ class GuardedInsert(unittest.TestCase):
         self.assertEqual(f.mutations,12)
         self.assertEqual(len(f.target),47)
 
-    def test_github_environment_preflight_mode_uses_no_d1_credentials(self):
-        with patch("sys.argv",["copier","--verify-github-environment"]):
-            with patch.object(m,"require_protected_environment",
-                              return_value=True) as check:
+    def test_solo_proof_missing_blocks_main_before_any_d1_write(self):
+        with patch("sys.argv",["copier","--apply"]):
+            with patch.object(m,"require_recent_solo_dryrun",
+                side_effect=m.SoloProofHold("SOLO_PROOF_STALE_OR_CLOCK_INVALID")):
                 with patch.object(m,"apply_gate",
-                                  side_effect=AssertionError("remote D1 forbidden")):
-                    self.assertEqual(m.main(),0)
-                self.assertEqual(check.call_count,1)
-
-    def test_github_environment_preflight_blocks_missing_environment(self):
-        with patch("sys.argv",["copier","--verify-github-environment"]):
-            with patch.object(m,"require_protected_environment",
-                side_effect=m.Blocked("GITHUB_ENV_HTTP_404")):
-                with patch.object(m,"apply_gate",
-                    side_effect=AssertionError("should not reach D1")):
+                    side_effect=AssertionError("remote D1 called without solo proof")):
                     self.assertEqual(m.main(),3)
 
-    def test_preflight_cannot_combine_with_apply_mode(self):
-        with patch("sys.argv",["copier","--verify-github-environment","--apply"]):
-            with patch.object(m,"require_protected_environment",
-                side_effect=AssertionError("should not call GitHub")):
-                with patch.object(m,"apply_gate",
-                    side_effect=AssertionError("should not write D1")):
-                    self.assertEqual(m.main(),3)
-
-    def test_workflow_requires_unprivileged_preflight_before_write_environment(self):
+    def test_workflow_requires_recent_manual_dryrun_job_no_cloudflare_secrets(self):
         text=(ROOT/".github/workflows/cloudflare-d1-recommendation-runs-guarded-insert.yml").read_text()
-        self.assertIn("  environment-preflight:",text)
-        jobs=text.split("  environment-preflight:",1)[1]
-        no_secret_job=jobs.split("  additive-write:",1)[0]
-        self.assertNotIn("CLOUDFLARE_",no_secret_job)
-        self.assertNotIn("environment: cloudflare-target-d1-writes",no_secret_job)
-        self.assertIn("--verify-github-environment",no_secret_job)
-        self.assertIn("needs: environment-preflight",jobs)
-        self.assertIn("needs.environment-preflight.result == 'success'",jobs)
-        self.assertIn("environment: cloudflare-target-d1-writes",jobs)
+        self.assertIn("  recent-dryrun-gate:",text)
+        jobs=text.split("  recent-dryrun-gate:",1)[1]
+        no_cloudflare=jobs.split("  additive-write:",1)[0]
+        self.assertNotIn("CLOUDFLARE_",no_cloudflare)
+        self.assertIn("needs: recent-dryrun-gate",jobs)
+        self.assertNotIn("environment: cloudflare-target-d1-writes",text)
+        self.assertIn("D1_SOLO_DRYRUN_RUN_ID",text)
+        self.assertIn("APPROVE_TARGET_ONLY_RECOMMENDATION_RUNS_12_INSERTS",text)
 
     def test_no_apply_flag_never_uses_credentials_or_calls_remote(self):
         with patch("sys.argv",["copier"]):
