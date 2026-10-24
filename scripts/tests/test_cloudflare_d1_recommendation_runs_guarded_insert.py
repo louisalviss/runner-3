@@ -237,6 +237,27 @@ class GuardedInsert(unittest.TestCase):
                         side_effect=AssertionError("No D1 call should happen")):
                         self.assertEqual(m.main(),3)
 
+    def test_main_non_strict_affinity_holds_after_persisting_sanitized_counts(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            report_path=pathlib.Path(folder)/"sanitized.json"
+            f=Fixtures(
+                source=[{**row(i),"exploration_ratio":0} for i in range(47)],
+                target=[{**row(i),"exploration_ratio":0} for i in range(35)])
+            prepared=f.run()
+            self.assertFalse(prepared["strict_row_parity_proven"])
+            with patch("sys.argv",["copier","--apply"]),patch.object(m,"OUT",report_path):
+                with patch.object(m,"require_protected_environment",return_value=True):
+                    with patch.object(m,"apply_gate",return_value=prepared):
+                        self.assertEqual(m.main(),2)
+            sanitized=json.loads(report_path.read_text())
+            self.assertEqual(sanitized["strict_payload_difference_count_after_copy"],12)
+            self.assertNotIn("run-35",report_path.read_text())
+
+    def test_missing_github_read_token_fails_closed(self):
+        with self.assertRaisesRegex(m.Blocked,"GITHUB_ENV_AUDIT_TOKEN_MISSING"):
+            m.read_environment_policy("")
+
     def test_existing_target_35_untouched(self):
         f=Fixtures()
         prior=copy.deepcopy(f.target)
