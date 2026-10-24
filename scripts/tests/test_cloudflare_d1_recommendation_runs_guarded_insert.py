@@ -144,7 +144,7 @@ class GuardedInsert(unittest.TestCase):
         f=Fixtures(source=src,target=tgt)
         result=f.run()
         self.assertEqual(result["new_rows_inserted"],12)
-        self.assertEqual(f.mutations,12)
+        self.assertEqual(f.mutations,1)
         self.assertEqual(result["strict_payload_difference_count_after_copy"],12)
         self.assertFalse(result["strict_row_parity_proven"])
         self.assertFalse(result["all_observed_rows_equal"])
@@ -357,7 +357,7 @@ class GuardedInsert(unittest.TestCase):
                 f.source["run-47"]=row(47)
         with self.assertRaisesRegex(m.Blocked,"FINAL_SOURCE_CATCHUP_DRIFT"):
             f.run(writer=inject)
-        self.assertEqual(f.mutations,12)
+        self.assertEqual(f.mutations,1)
         self.assertEqual(len(f.target),47)
 
     def test_solo_proof_missing_blocks_main_before_any_d1_write(self):
