@@ -248,7 +248,7 @@ class GuardedInsert(unittest.TestCase):
             original(token,sql,params)
             if f.mutations == 2:
                 f.target["run-0"]["metadata_json"]="external-write"
-        with self.assertRaisesRegex(m.Blocked,"TARGET_CHANGED_DURING_APPLY"):
+        with self.assertRaisesRegex(m.Blocked,"TARGET_POST_INSERT_READBACK_HOLD"):
             f.run(writer=inject)
         self.assertEqual(f.mutations,2)
         self.assertIn("run-35",f.target)
