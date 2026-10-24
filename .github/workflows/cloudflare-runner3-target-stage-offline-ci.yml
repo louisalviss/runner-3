@@ -10,6 +10,9 @@ on:
       - 'scripts/tests/test_cloudflare_d1_core_additive_schema.py'
       - 'ops/cloudflare-account-rehome/staging/runner3-core-additive-proven-16.sql'
       - 'ops/cloudflare-account-rehome/staging/runner3-core-additive-proven-18.sql'
+      - 'scripts/cloudflare_gh_secret_name_census.py'
+      - 'scripts/tests/test_cloudflare_gh_secret_name_census.py'
+      - '.github/workflows/cloudflare-gh-secret-name-census.yml'
       - 'scripts/cloudflare_existing_token_scope_readonly.py'
       - 'scripts/tests/test_cloudflare_existing_token_scope_readonly.py'
       - '.github/workflows/cloudflare-existing-token-scope-readonly.yml'
@@ -77,3 +80,5 @@ jobs:
           PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_solo_dryrun_proof.py' -v
           python3 -m py_compile scripts/cloudflare_existing_token_scope_readonly.py
           PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_existing_token_scope_readonly.py' -v
+          python3 -m py_compile scripts/cloudflare_gh_secret_name_census.py
+          PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_gh_secret_name_census.py' -v
