@@ -1,60 +1,50 @@
-# Guarded target D1 recommendation_runs insert — deployment hold (2026-10-24)
+# D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
-**Status: CODE_READY_FOR_TEST / NO LIVE WRITE APPROVED OR PERFORMED / NO CUTOVER.**
+**Code only. NO live target insert authorized, no R2 calls, no source changes, no production cutover.**
 
-## Verified prerequisites already achieved
+## Why the two-person gate was removed
 
-- [Live parity run #40089305352](https://github.com/louisalviss/runner-3/actions/runs/40089305352): 47 source rows, 35 target rows, 35 matching typed payloads, 12 source-only, no target-only, no changed payloads.
-- [In-memory additive rehearsal #40091169404](https://github.com/louisalviss/runner-3/actions/runs/40091169404): repeated real source/target reads, 12 missing rows passed scratch-only INSERT+readback; no target writes.
-- [Time Travel eligibility #40092563094](https://github.com/louisalviss/runner-3/actions/runs/40092563094): correct target D1 UUID, `version=production`, GET bookmark PASS. **Bookmark was NOT preserved, and no rollback is approved**. Source account production continues; R2 `COST_HOLD rev28`.
+The repository `louisalviss/runner-3` has one operator. GitHub's **Prevent self-review** necessarily blocks a single operator from approving their own deployment. Requiring a second account is not a suitable operating model here. The previous named write environment `cloudflare-target-d1-writes` was absent in the public GitHub environment census (only `github-pages` existed, HTTP 404 for the write environment).
 
-## New actual bounded writer — deliberately not authorized to execute
+The workflow now has **no GitHub environment** and **no independent reviewer**, but preserves a two-stage operator-mediated transaction: *separate successful manual read-only dry-run* → *separate explicit manual target-only INSERT*. It never runs on push, PR or schedule.
 
-`scripts/cloudflare_d1_recommendation_runs_guarded_insert.py` and manual workflow `.github/workflows/cloudflare-d1-recommendation-runs-guarded-insert.yml` are implemented for **this one table only**, target account and D1 UUID hardcoded. Workflow runs **only on explicit manual dispatch**. The runner refuses operation unless `--apply` plus *all* independent conditions:
+## Step A: manually run read-only preflight
 
-1. Three distinct Cloudflare credentials: existing source `CLOUDFLARE_API_TOKEN` **read-only**, existing target `CLOUDFLARE_TARGET_AUDIT_TOKEN` **read-only**, and a **separately created target-account D1 Write** token `CLOUDFLARE_TARGET_D1_WRITE_TOKEN`. Never increase or reuse audit-token permissions.
-2. A privately preserved **fresh pre-apply target Time Travel bookmark**, installed as masked GitHub **environment** secret `CLOUDFLARE_TARGET_PREAPPLY_BOOKMARK`, equal to the current bookmark fetched from the target before issuing any INSERT. The previously hashed/read-only bookmark cannot satisfy this gate. Do not paste secrets or raw bookmark into issues, chats or workflow inputs.
-3. A human-reviewed operational checklist: all target writers identified/paused, a **row-safe recovery mechanism** independently rehearsed, and GitHub environment `cloudflare-target-d1-writes` configured with required reviewers. If environment protection is missing, **do not dispatch**: an environment name alone does not imply reviewer enforcement.
-4. GitHub workflow inputs `approval_phrase=APPROVE_TARGET_ONLY_RECOMMENDATION_RUNS_12_INSERTS`, `target_writers_quiesced=YES`, `row_safe_recovery=YES`. Defaults are unsafe/NO. Never programmatically submit a dispatch.
+[Cloudflare D1 Recommendation Runs Additive Dry-Run (Read Only)](https://github.com/louisalviss/runner-3/actions/workflows/cloudflare-d1-recommendation-runs-additive-dryrun.yml) → **Run workflow → main**.
 
-### On every actual write attempt
+This workflow uses only separate existing source/target read-only Cloudflare credentials, captures both D1 tables twice, checks exact column/PK metadata and typed payloads, rejects conflicts and races, and rehearses missing source-only keys in scratch SQLite. It sends **no D1 INSERT**. It returns aggregate counts and status only. It must have **conclusion=success**.
 
-- Re-read both D1 schemas and **four** bounded row snapshots; require exact matching 8 columns, PK metadata, all common key+typed payloads match, zero unexplained target-only rows, *exactly 12 missing*. All data stays in workflow process memory.
-- Run full bounded additive SQLite in-memory rehearsal again, then match target current bookmark against privately stored pre-apply bookmark before *any* write.
-- For each missing primary key: reread entire bounded target table; abort on target changes, then **ordinary parameter-bound INSERT** of one row; nullable values use literal SQL `NULL`, all other values are positional Cloudflare D1 API `params` strings. Do **not** use UPSERT, REPLACE, UPDATE, DELETE, DROP or CREATE. Fail on unique collisions rather than mask conflict.
-- Require D1 API `changes=1` and verify the newly inserted row and all previously existing rows by target readback. After all 12, read source and target again; any source writer activity or drift yields a HOLD, not an unsafe cutover claim.
-- No raw keys/rows, parameter values, bookmark or tokens in logs/retained artifact. Successful result contains counts only.
+Record its numeric GitHub Actions **run ID**, visible in its URL: `.../actions/runs/<ID>`. Do not reuse #40091169404: it was performed on an older commit and is no longer recent. The new preflight must be on the *identical `main` commit* as the later manual write job, created within the previous **30 minutes**.
 
-### Failure handling and rollback
+## Step B: separately approve target-only write (NOT YET ENABLED)
 
-An interrupted POST may have committed, and any mid-batch failure may leave **some additive target rows inserted**. The script **never automatically deletes** an inserted row and **never invokes Time Travel restore**. On any failure, stop and run the existing read-only parity workflow before considering a later add-only reconciliation. **Do not automatically rerun the same 12-row write**: it insists on exactly 12 source-only records and will fail after partial success.
+[Cloudflare D1 Target Recommendation Runs ADDITIVE WRITE (Solo Two-Step Approval)](https://github.com/louisalviss/runner-3/actions/workflows/cloudflare-d1-recommendation-runs-guarded-insert.yml) → **Run workflow → main**.
 
-A Time Travel restore would replace the **entire target database**, potentially destroying unrelated updates. Cloudflare Time Travel support is not by itself a safe row-level rollback. The bookmarked state and its restore authority must be protected separately; a recovery rehearsal must ensure no other target writes are lost. Cloudflare docs: https://developers.cloudflare.com/d1/reference/time-travel/ and https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/.
+The workflow has required manual inputs: `dryrun_run_id`, exact typed `APPROVE_TARGET_ONLY_RECOMMENDATION_RUNS_12_INSERTS` phrase and separate confirmations `target_writers_quiesced=YES`, `row_safe_recovery=YES`. Both confirmations default to **NO**. Never select YES without real evidence.
 
-## Safety correction verified against the first live rehearsal artifact
+A standalone first GitHub job, `recent-dryrun-gate`, has **no Cloudflare credentials** and retrieves the exact previous GitHub run using only `GET /repos/louisalviss/runner-3/actions/runs/{id}` and the GitHub Actions read-only token. It requires:
 
-The original read-only dry-run ZIP (#40091169404) reports **47/47** source rows with an integral JSON value under SQLite `exploration_ratio REAL`. This is important: D1 REST JSON may serialize integral REAL values as integers, while SQLite REAL affinity may return floating-point values after an INSERT. The original guarded writer verified newly inserted rows with **byte-strict type-preserving JSON** and could therefore stop **after** successfully INSERTing the first row, despite a storage-affinity-equivalent result.
+- Exact previous workflow path/name and `workflow_dispatch` event, `status=completed`, `conclusion=success`, first attempt only.
+- Identical initiating/triggering GitHub actor as the write job, identical `main` commit SHA, branch, current repository and event.
+- Valid created/finished times and <=30 minutes old. Any stale/different/replayed/failed run **fails closed**.
+- The target write job cannot begin unless this first job passes. The writer repeats proof validation before any Cloudflare mutation.
 
-The corrected writer keeps byte-strict typed equality for **all rows that existed on target before the run** and for all source–target comparisons before the first INSERT. **Only new, freshly inserted keys** can be compared against the original source value *or* the exact expected SQLite REAL affinity representation. All other columns remain strict, all new rows receive per-key readback, and the final report publishes a count of any strict typed differences rather than falsely claiming strict 1:1 parity. A nonzero difference forces `ONE_TABLE_AFFINITY_EQUIVALENT_NOT_STRICT_PARITY_HOLD` even if all twelve rows were inserted successfully. An actual target 1:1 match still requires a later read-only verification.
+**IMPORTANT:** Two GitHub Actions runs by the same person are not independent approval. This deliberately trades independent review for a simpler solo operation without removing data integrity, rollback and source-of-truth gates.
 
-The workflow originally referenced an environment by name only. GitHub automatically creates missing environments without protection rules: https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments . The corrected workflow verifies through the GitHub **GET environment REST API** using `GITHUB_TOKEN` (Actions read) that the exact environment has a `required_reviewers` rule, **at least one real reviewer**, and `prevent_self_review=true`. It requires `workflow_dispatch` on `refs/heads/main`. Any HTTP permission denial, missing environment or unprotected rule **fails closed before any D1 query or write**, even if someone types the approval phrase and ticks the two acknowledgments. Having only the workflow's environment field is not approval evidence.
+## Additional non-negotiable prerequisites before any real INSERT
 
-**Do not run** before a separately verified reviewer configuration, distinct D1 write credential, preserved pre-apply bookmark, quiescence, and row-safe rollback. A successful CI test proves guards function synthetically; it does not certify that the GitHub environment or Cloudflare write token actually exists.
+- Three distinct tokens: source read-only `CLOUDFLARE_API_TOKEN`, target read-only `CLOUDFLARE_TARGET_AUDIT_TOKEN`, and separately provisioned target-account D1 Write token `CLOUDFLARE_TARGET_D1_WRITE_TOKEN`. The write token must be permission-scope restricted to the target account/database as supported. Never repurpose an audit token.
+- Private, securely preserved **fresh target Time Travel bookmark** set as GitHub repository secret `CLOUDFLARE_TARGET_PREAPPLY_BOOKMARK`. Its exact value must match the target's *current* bookmark immediately before any INSERT. The old audit stored only a bookmark hash and is **not a rollback point**.
+- **Target writers truly paused** and a **tested row-safe recovery plan**. Time Travel restore overwrites the **entire target D1 database**, including unrelated concurrent changes. No automatic restore is permitted.
+- Read-only real preflight still shows exactly 12 source-only `recommendation_runs` rows, 35 matching existing target rows, no target-only keys, no differing typed payloads, same schema. If the delta changes, block and review; do not blindly replay 12.
+- Ordinary parameter-bound `INSERT` only on the hardcoded D1 target UUID. Each insert must be read back, previously present target rows preserved, source and target re-read after the batch. Any unexpected write/connection error may leave a **partial 12-row append**; stop, never auto-delete or rerun, reconcile with a read-only audit. If SQLite REAL affinity changes typed representation, the writer explicitly records strict parity as **HOLD**, not a false 1:1 claim.
 
-## 2026-10-24 verified GitHub environment blocker and no-autocreate fix
+**As of this commit:** No separately approved target write credentials, private bookmark, paused writers or recovery rehearsals have been verified. **Do NOT dispatch Step B now**. Complete these gates first. R2 `COST_HOLD rev28`, source production and all other D1/Workers parity checks remain in force.
 
-Public read-only GitHub REST census of this **public** repository returned `GET /environments` HTTP **200**, exactly **one** environment (`github-pages`), and `GET /environments/cloudflare-target-d1-writes` HTTP **404**. Sanitized evidence: `staging/github-target-d1-write-environment-20261024.json`. Therefore, the dangerous environment **does not exist** and no required reviewer has been verified. Even with a future D1 Write token, the workflow must remain blocked.
+## Evidence
 
-Security hardening: the workflow now starts with a **separate job `environment-preflight`**, which has no environment, no Cloudflare tokens and no D1 requests. It verifies the environment already exists with the independent `required_reviewers` rule and `prevent_self_review=true`. Only after preflight **SUCCESS** can GitHub schedule the separately protected `additive-write` job. The writer also repeats the GitHub policy GET before touching D1. This specifically avoids GitHub auto-creating a previously absent environment without protections when a job names it. It does **not** weaken the target write credential, fresh bookmark or row-safe recovery requirements.
+- [First live row audit #40089305352](https://github.com/louisalviss/runner-3/actions/runs/40089305352): 47 source, 35 target, 35 exact matching pairs, 12 source-only.
+- [Authenticated additive dry-run #40091169404](https://github.com/louisalviss/runner-3/actions/runs/40091169404): scratch-only 12-row INSERT+readback passed, no target writes.
+- [Target Time Travel capability #40092563094](https://github.com/louisalviss/runner-3/actions/runs/40092563094): production backend and bookmark API confirmed, raw bookmark **not preserved**.
 
-**Action needed in GitHub settings, not in Cloudflare:** `louisalviss/runner-3` → **Settings → Environments → New environment** → `cloudflare-target-d1-writes` → **Required reviewers**, select a *different trusted account* with repository access, and enable **Prevent self-review**. A self-reviewed run cannot satisfy this requirement. For a solo repository, add a trusted reviewer with read access first; do not substitute an approval checkbox for an independently protected environment. After configuring it, its public read-only GET should show the reviewer rule.
-
-This is environment setup only; it does **not** authorize creating D1 Write tokens, supplying a raw Time Travel bookmark to a workflow, performing an insert or running the writer. Source production remains authoritative.
-
-## Still blocked
-
-- Separate D1 Write credentials not verified/provisioned. No independent evidence target writers are quiesced or protected GitHub environment configured.
-- Source writer changes after capture, full D1 row/deletion parity, all D1 schema apply, Worker inventory/bindings/cron and R2 cost hold are separate migration gates.
-- **Do not run the new write workflow now.** Do not cut over source production.
-
-**Recorded flags:** `live_target_rows_inserted_by_this_work=0`; `rollback_ready=false`; `source_deleted=false`; `target_write_approved=false`; `r2_requests=0`; `cutover_ready=false`.
+**State:** `target_d1_writes=0`; `r2_requests=0`; `source_authoritative=true`; `row_rollback_ready=false`; `full_cutover_ready=false`.
