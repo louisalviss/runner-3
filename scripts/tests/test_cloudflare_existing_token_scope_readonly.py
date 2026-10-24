@@ -37,6 +37,13 @@ def test_getter(token,url):
     raise AssertionError("Unexpected HTTP route")
 
 class SafeTokenProbe(unittest.TestCase):
+    def test_known_migration_r2_token_is_inspected_for_d1_read_only(self):
+        self.assertIn("CLOUDFLARE_TARGET_MIGRATION_R2_TOKEN",m.TOKENS)
+        workflow=(ROOT/".github/workflows/cloudflare-existing-token-scope-readonly.yml").read_text()
+        self.assertIn("secrets.CLOUDFLARE_TARGET_MIGRATION_R2_TOKEN",workflow)
+        self.assertNotIn("r2/buckets",workflow)
+        self.assertTrue(all("/r2/" not in url for url in m.URLS.values()))
+
     def test_token_secret_absent_no_calls(self):
         self.assertEqual(m.inspect_secret("",requester=lambda *_:self.fail("network")),
                          {"present":False})
