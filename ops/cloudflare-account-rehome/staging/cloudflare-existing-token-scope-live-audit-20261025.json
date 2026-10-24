@@ -1,0 +1,63 @@
+{
+  "format": "cloudflare-existing-gh-secrets-live-audit-checkpoint-v1",
+  "source": "Authenticated GitHub Actions push workflow",
+  "workflow_run_id": 40128440834,
+  "workflow_url": "https://github.com/louisalviss/runner-3/actions/runs/40128440834",
+  "workflow_commit": "d5078b28c7dcdd3415c84c4e444d0bdb89acb162",
+  "artifact_id": 12573009952,
+  "artifact_digest_sha256": "0bd5fda0c5b7cda7ce297a9f460802bee334cded27e665452ad8b51bf622a4c1",
+  "source_account_id": "7415a87f6bce7884e73ad7cfed5782df",
+  "target_account_id": "748a80810f77f447ee476543ef0e5014",
+  "candidate_secret_names_checked": 7,
+  "candidate_secrets_present": 2,
+  "secrets": {
+    "CLOUDFLARE_API_TOKEN": {
+      "present": true,
+      "source_d1_metadata_http": 200,
+      "target_d1_metadata_http": 401,
+      "target_access_verified": false
+    },
+    "CLOUDFLARE_TARGET_AUDIT_TOKEN": {
+      "present": true,
+      "source_d1_metadata_http": 401,
+      "target_d1_metadata_http": 200,
+      "target_read_access_verified": true,
+      "target_write_access_verified": false
+    },
+    "CLOUDFLARE_TARGET_D1_WRITE_TOKEN": {
+      "present": false
+    },
+    "CLOUDFLARE_MIGRATION_TOKEN": {
+      "present": false
+    },
+    "CLOUDFLARE_TARGET_WRITE_TOKEN": {
+      "present": false
+    },
+    "CLOUDFLARE_TARGET_API_TOKEN": {
+      "present": false
+    },
+    "CLOUDFLARE_ACCOUNT_MIGRATION_TOKEN": {
+      "present": false
+    }
+  },
+  "limitations": [
+    "Other untested or differently named GitHub Secrets may exist: no repository-secret inventory was available.",
+    "GitHub token permission is distinct from Cloudflare account/D1 permission.",
+    "Cloudflare token policy API introspection was not authorized by tested tokens; D1 Write cannot be inferred from successful D1 metadata GET.",
+    "No actual target D1 write or mutation request was executed."
+  ],
+  "actions": {
+    "cloudflare_get_only": true,
+    "d1_query_count": 0,
+    "d1_write_count": 0,
+    "r2_request_count": 0,
+    "restore_count": 0
+  },
+  "migration_status": {
+    "target_12_row_insert_executed": false,
+    "target_write_credential_confirmed": false,
+    "rollback_ready": false,
+    "source_authoritative": true,
+    "r2_cost_hold_revision": 28
+  }
+}
