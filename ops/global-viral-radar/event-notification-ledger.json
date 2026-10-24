@@ -1750,6 +1750,24 @@
       "status": "notification_precommitted",
       "delivery_status": "pending_actual_delivery",
       "evidence_note": "AI standalone score 8.5/10. Actual Oct23 model weights released (not Oct15 preview), 8B total/4B effective, text-only Q4_K_M 64K, OpenMDW-1.1 commercial use, DFlash drafter and recipes. Vendor reports RTX5070 3.5GB VRAM/133.4 tok/s (3K input/50 output) and MultiChallenge 53.1 BF16; results vendor-measured not independently validated. '4GB' is target inference VRAM, GGUF download 6.18GB. Qwen3.5-4B better on Tau2-Bench (75.1 vs 55.1) and BFCL-v3 (70.9 vs 68.5). D1 current/global 2026-10-24 15:26 VN version4 WATCH/AMBER, fresh macro review Oct23 official US Treasury 2Y4.69/10Y5.00/30Y5.33 versus Oct22 4.65/4.96/5.29; Oct28 hold ~90-92% from Oct23 futures, December hike risk elevated, no material decision-state transition; no D1/Sheet write. X scan ok true checkpoint saved/readback true 11 posts, 10 nonmaterial acked and checkpoint readback PASS, qualifying X discovery ID 2113909543050653784 held pending until verified actual notification delivery and ledger readback. GitHub feeder Oct23 18:07Z only TopHub 107277 text chars and NewsNow loading 171 chars; 5 lanes independently researched outside feeder."
+    },
+    "ENVOY_PROXY|BROTLI_CVE_2026_111497|OCT23_2026_CRITICAL_ADVISORY_AND_PATCHED_VERSIONS": {
+      "label": "Envoy publishes critical Brotli decoder CVE-2026-111497 advisory and patched-version matrix; new product-specific remediation phase",
+      "primary_entity": "Envoy Proxy",
+      "underlying_actual_event": "On October 23 at 16:03:27 UTC, Envoy published a critical advisory confirming CVE-2026-111497 in configured Brotli decompression, unauthenticated remote memory corruption with possible disclosure, denial of service, or code execution; listed five patched Envoy versions. Underlying Google Brotli/Node.js flaw was previously disclosed October 21-22, not a new October 23 vulnerability discovery.",
+      "named_event": "Envoy GHSA-3wvj-j6qm-62mr / Google Brotli CVE-2026-111497",
+      "material_update_key": "OCT23_2026_230327_VN_ENVOY_GHSA_3WVJ_J6QM_62MR_PUBLISHED|CVE_2026_111497|CVSS4_9_2_CRITICAL|V1392_V1385_V1377_V13611_AFFECTED|V1400_V1393_V1386_V1378_V13612_PATCHED|NO_IN_THE_WILD_EXPLOIT_VERIFIED",
+      "last_verified_source_url": "https://github.com/envoyproxy/envoy/security/advisories/GHSA-3wvj-j6qm-62mr",
+      "supporting_primary_source_url": "https://nodejs.org/en/blog/vulnerability/october-2026-security-releases",
+      "supporting_government_source_url": "https://www.csa.gov.sg/alerts-and-advisories/alerts/al-2026-154/",
+      "source_event_date": "2026-10-23",
+      "source_event_time_vn": "2026-10-23T23:03:27+07:00",
+      "source_event_time_note": "Exact GitHub security-advisory published_at via official GitHub API; date/time of patched binary release not separately established.",
+      "notified_at_vn": "2026-10-24T17:24:14+07:00",
+      "status": "notification_precommitted",
+      "delivery_status": "pending_actual_runtime_delivery",
+      "provenance": "verified_primary_Envoy_GHSA_GitHub_API_plus_NodeJS_and_Singapore_CSA",
+      "evidence_note": "8.8/10 Tech/Internet. CVSS v4 9.2 Critical Envoy advisory. Affected Envoy v1.39.2,v1.38.5,v1.37.7,v1.36.11; fixed v1.40.0,v1.39.3,v1.38.6,v1.37.8,v1.36.12. Requires Brotli decompressor configured and attacker-controlled Brotli data; exploit in wild not independently confirmed. Distinct Envoy-specific remediation phase, not re-announcement of Oct21 Node.js discovery."
     }
   }
 }
