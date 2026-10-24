@@ -131,8 +131,9 @@ class GHNames(unittest.TestCase):
             env={"GITHUB_REPOSITORY":m.REPO,"GITHUB_EVENT_NAME":"push",
                  "GITHUB_REF":"refs/heads/main","GH_ALL_SECRETS_JSON":
                  json.dumps({"CLOUDFLARE_FULL_ACCESS_TOKEN":TOK})}
+            original=m.inspect_names
             with patch.dict(os.environ,env,clear=True),patch.object(m,"OUTPUT",path):
-                with patch.object(m,"inspect_names",side_effect=lambda jsonraw: m.inspect_names(jsonraw,probe=probe)):
+                with patch.object(m,"inspect_names",side_effect=lambda jsonraw: original(jsonraw,probe=probe)):
                     self.assertEqual(m.main(),0)
             content=path.read_text()
             self.assertNotIn(TOK,content)
