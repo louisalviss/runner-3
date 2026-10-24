@@ -175,8 +175,6 @@ class BoundedReconciliation(unittest.TestCase):
         self.assertEqual(m.META_SQL,'PRAGMA table_xinfo("recommendation_runs")')
         self.assertIn('ORDER BY "render_id" LIMIT 251',m.ROWS_SQL)
         text=(ROOT/"scripts/cloudflare_d1_recommendation_runs_dryrun.py").read_text()
-        self.assertNotIn("CLOUDFLARE_TARGET_D1_WRITE_TOKEN",str(result) if
-                         (result:={}) else "")
         self.assertIn("live_d1_writes",text)
         self.assertNotIn("urllib.request.urlopen",text)
         self.assertNotIn("cloudflare.com/client/v4",text)
