@@ -6,11 +6,9 @@ INSERT+readback in a *local in-memory SQLite database only*. NEVER sends an
 INSERT or data-changing SQL to Cloudflare. Never exports raw keys or rows.
 A DRY_RUN_READY status is not permission or a mechanism for target D1 writes.
 """
-import hashlib
 import json
 import os
 import pathlib
-import secrets
 import sqlite3
 
 from cloudflare_d1_first_live_table_parity import (
@@ -159,10 +157,10 @@ def execute(source_token, target_token, reader=request_json):
 
 def main():
     # Intentionally NO --apply/--write modes; read-only tokens ONLY.
-    require(not os.getenv("CLOUDFLARE_TARGET_WRITE_TOKEN") and
-            not os.getenv("CLOUDFLARE_TARGET_D1_WRITE_TOKEN"),
-            "DRYRUN_WRITE_TOKEN_MUST_NOT_BE_PRESENT")
     try:
+        require(not os.getenv("CLOUDFLARE_TARGET_WRITE_TOKEN") and
+                not os.getenv("CLOUDFLARE_TARGET_D1_WRITE_TOKEN"),
+                "DRYRUN_WRITE_TOKEN_MUST_NOT_BE_PRESENT")
         report = execute(os.environ.get("CLOUDFLARE_API_TOKEN", ""),
                          os.environ.get("CLOUDFLARE_TARGET_AUDIT_TOKEN", ""))
         OUT.parent.mkdir(parents=True, exist_ok=True)
