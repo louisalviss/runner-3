@@ -7,8 +7,9 @@ and explicit writer-quiescence / row-safe recovery attestations. No automatic
 Time Travel RESTORE, source mutation, target DELETE/UPDATE, schema change or R2.
 
 This tool is *not* authorized to run with only the existing audit tokens.
-If a write fails midway, preserve successful additive rows and HOLD; never
-delete unknown rows or restore unrelated data automatically.
+The single parameterized multi-row INSERT is one atomic SQLite statement.
+A network failure after its POST can leave 0 OR 12 inserted rows; HOLD and
+re-audit rather than retrying or restoring the database automatically.
 """
 import argparse
 import json
@@ -65,17 +66,53 @@ def params_and_sql(row):
     return sql, params
 
 
-def write_one(token, sql, params, opener=urllib.request.urlopen):
+def params_and_batch_sql(rows):
+    """Build ONE ordinary INSERT with exactly 12 VALUES tuples.
+
+    SQLite executes one SQL INSERT atomically: a constraint failure cannot
+    leave only some VALUES inserted. No SQL values are interpolated; params
+    always remain a list of D1 API-compatible strings.
+    """
+    require(type(rows) is list and len(rows) == EXPECTED_MISSING,
+            "BATCH_EXACTLY_12_ROWS_REQUIRED")
+    require(all(type(row) is dict for row in rows) and
+            len({row.get("render_id") for row in rows}) == EXPECTED_MISSING,
+            "BATCH_DUPLICATE_PK")
+    prefix = 'INSERT INTO "recommendation_runs" (' + COLUMNS_SQL + ') VALUES '
+    tuples = []
+    all_params = []
+    for row in rows:
+        sql, params = params_and_sql(row)
+        require(sql.startswith(prefix), "BATCH_ROW_SQL_INVALID")
+        tuples.append(sql[len(prefix):])
+        all_params.extend(params)
+    combined = prefix + ",".join(tuples)
+    require(combined.count("?") == len(all_params) and
+            len(all_params) <= EXPECTED_MISSING * len(COLUMNS) and
+            len(combined) < 1500 and ";" not in combined,
+            "BATCH_SQL_BUDGET_EXCEEDED")
+    return combined, all_params
+
+
+def write_batch(token, sql, params, opener=urllib.request.urlopen):
+
     require(type(token) is str and len(token) >= 16,
             "TARGET_D1_WRITE_TOKEN_MISSING")
     require(type(params) is list and
             all(type(v) is str for v in params) and
-            1 <= len(params) <= len(COLUMNS), "UNSAFE_WRITE_PARAMS")
-    allowed_prefix = 'INSERT INTO "recommendation_runs" (' + COLUMNS_SQL + ") VALUES ("
-    require(sql.startswith(allowed_prefix) and sql.endswith(")") and
-            sql.count("?") == len(params) and ";" not in sql and
-            all(h in ("?", "NULL") for h in
-                sql[len(allowed_prefix):-1].split(",")),
+            1 <= len(params) <= EXPECTED_MISSING * len(COLUMNS),
+            "UNSAFE_WRITE_PARAMS")
+    allowed_prefix = 'INSERT INTO "recommendation_runs" (' + COLUMNS_SQL + ') VALUES '
+    require(type(sql) is str and sql.startswith(allowed_prefix) and
+            sql.endswith(")") and len(sql) < 1500 and ";" not in sql,
+            "WRITE_SQL_NOT_ALLOWLISTED")
+    tuples_sql = sql[len(allowed_prefix):]
+    require(tuples_sql.startswith("(") and
+            len(tuples_sql[1:-1].split("),(")) == EXPECTED_MISSING and
+            all(len(chunk.split(",")) == len(COLUMNS) and
+                all(holder in ("?", "NULL") for holder in chunk.split(","))
+                for chunk in tuples_sql[1:-1].split("),(")) and
+            sql.count("?") == len(params),
             "WRITE_SQL_NOT_ALLOWLISTED")
     req = urllib.request.Request(WRITE_URL, method="POST", headers={
         "Authorization": "Bearer " + token,
@@ -108,7 +145,7 @@ def write_one(token, sql, params, opener=urllib.request.urlopen):
     require(isinstance(meta, dict) and
             meta.get("changed_db") is True and
             type(meta.get("changes")) in (int, float) and
-            meta.get("changes") == 1,
+            meta.get("changes") == EXPECTED_MISSING,
             "TARGET_INSERT_WRITE_COUNT_UNEXPECTED_HOLD")
     return True
 
@@ -153,7 +190,7 @@ def observe_pair(source_read, target_read):
 def apply_gate(source_token, target_read_token, target_write_token,
                expected_bookmark, approval, writer_ack, recovery_ack,
                source_reader=request_json, target_reader=request_json,
-               bookmark_reader=get_target_bookmark, writer=write_one):
+               bookmark_reader=get_target_bookmark, writer=write_batch):
     tokens = (source_token, target_read_token, target_write_token)
     require(all(type(t) is str and len(t) >= 16 for t in tokens) and
             len(set(tokens)) == 3, "THREE_DISTINCT_ACCOUNT_TOKENS_REQUIRED")
@@ -179,26 +216,23 @@ def apply_gate(source_token, target_read_token, target_write_token,
     require(isinstance(book, dict) and book.get("bookmark") ==
             expected_bookmark, "TARGET_BOOKMARK_MOVED_OR_NOT_PRESERVED")
 
-    applied = {}
-    for index, key in enumerate(missing):
-        observed = safe_map(target_read(ROWS_SQL))
-        expected = {**target, **applied}
-        require(set(observed) == set(expected) and
-                all(canon(observed[k]) == canon(target[k]) for k in target) and
-                all(same_as_inserted_storage(observed[k], applied[k])
-                    for k in applied),
-                "TARGET_CHANGED_DURING_APPLY_HOLD")
-        require(key not in observed, "TARGET_PK_RACE_BEFORE_INSERT")
-        sql, params = params_and_sql(source[key])
-        writer(target_write_token, sql, params)
-        check = safe_map(target_read(ROWS_SQL))
-        require(set(check) == (set(expected) | {key}) and
-                all(canon(check[k]) == canon(target[k]) for k in target) and
-                all(same_as_inserted_storage(check[k], applied[k])
-                    for k in applied) and
-                same_as_inserted_storage(check[key], source[key]),
-                "TARGET_POST_INSERT_READBACK_HOLD")
-        applied[key] = source[key]
+    # Re-read target *immediately* before the one irreversible statement.
+    before = safe_map(target_read(ROWS_SQL))
+    require(set(before) == set(target) and
+            all(canon(before[k]) == canon(target[k]) for k in target),
+            "TARGET_CHANGED_BEFORE_ATOMIC_INSERT_HOLD")
+    sql, params = params_and_batch_sql([source[k] for k in missing])
+    # Exactly ONE D1 API call: a single multi-VALUES INSERT, no batch or
+    # semicolon-joined statements. SQLite's statement-level ABORT semantics
+    # prevent partial application of the 12 tuples on a constraint error.
+    # Network failure after POST is ambiguous (0 OR 12 rows): stop and audit.
+    writer(target_write_token, sql, params)
+    check = safe_map(target_read(ROWS_SQL))
+    require(set(check) == set(source) and
+            all(canon(check[k]) == canon(target[k]) for k in target) and
+            all(same_as_inserted_storage(check[k], source[k])
+                for k in missing),
+            "TARGET_POST_ATOMIC_INSERT_READBACK_HOLD")
     # Mandatory end-to-end catch-up check; if production adds or edits rows,
     # fail closed with safe additive partial state. Never erase target records.
     end_source = safe_map(source_read(ROWS_SQL))
@@ -219,6 +253,9 @@ def apply_gate(source_token, target_read_token, target_write_token,
                    "ONE_TABLE_AFFINITY_EQUIVALENT_NOT_STRICT_PARITY_HOLD"),
         "database": DB, "table": TABLE,
         "new_rows_inserted": len(missing),
+        "write_statement_count": 1,
+        "single_sqlite_statement_atomic": True,
+        "partial_batch_commit_possible_on_sql_constraint_failure": False,
         "source_rows_at_end": len(end_source),
         "target_rows_at_end": len(end_target),
         "all_observed_rows_equal": strict_changed == 0,
