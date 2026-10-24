@@ -68,6 +68,55 @@ class BoundedReconciliation(unittest.TestCase):
         self.assertFalse(result["cutover_ready"])
         self.assertFalse(result["target_d1_write_token_used"])
 
+    def test_real_affinity_zero_integer_roundtrip_is_safe_in_scratch_only(self):
+        source=[record(1), record(2)]
+        for row in source:
+            row["exploration_ratio"]=0
+        target=copy.deepcopy(source[:1])
+        report=m.execute(SOURCE_TOKEN,TARGET_TOKEN,fake_reader(source,target))
+        self.assertEqual(report["would_insert_rows"],1)
+        self.assertEqual(report["scratch_real_affinity_integer_inputs"],2)
+        self.assertTrue(report["source_target_typed_comparison_not_normalized"])
+        self.assertEqual(report["live_d1_writes"],0)
+
+    def test_real_affinity_integer_and_float_difference_is_a_live_conflict(self):
+        src=record(1)
+        dst=copy.deepcopy(src)
+        src["exploration_ratio"]=0
+        dst["exploration_ratio"]=0.0
+        with self.assertRaisesRegex(m.Blocked,"CONFLICT_OR_UNEXPLAINED"):
+            m.execute(SOURCE_TOKEN,TARGET_TOKEN,
+                      fake_reader(source=[src],target=[dst]))
+
+    def test_real_affinity_decimal_source_remains_exact(self):
+        source=[record(1),record(2)]
+        source[1]["exploration_ratio"]=0.125
+        report=m.execute(SOURCE_TOKEN,TARGET_TOKEN,
+                         fake_reader(source=source,target=[]))
+        self.assertEqual(report["would_insert_rows"],2)
+        self.assertEqual(report["scratch_real_affinity_integer_inputs"],0)
+
+    def test_bad_sqlite_real_text_value_aborts_without_coercion(self):
+        source=record(1)
+        source["exploration_ratio"]="0.25"
+        with self.assertRaisesRegex(m.Blocked,"VALUE_AFFINITY_DRIFT"):
+            m.execute(SOURCE_TOKEN,TARGET_TOKEN,
+                      fake_reader(source=[source],target=[]))
+
+    def test_bad_text_storage_type_aborts_without_coercion(self):
+        source=record(1)
+        source["source_scope"]=42
+        with self.assertRaisesRegex(m.Blocked,"VALUE_AFFINITY_DRIFT"):
+            m.execute(SOURCE_TOKEN,TARGET_TOKEN,
+                      fake_reader(source=[source],target=[]))
+
+    def test_real_affinity_large_integer_rejected(self):
+        source=record(1)
+        source["exploration_ratio"]=2**53 + 1
+        with self.assertRaisesRegex(m.Blocked,"REAL_INTEGER_PRECISION_RISK"):
+            m.execute(SOURCE_TOKEN,TARGET_TOKEN,
+                      fake_reader(source=[source],target=[]))
+
     def test_idempotent_no_missing_rows(self):
         result=m.execute(SOURCE_TOKEN,TARGET_TOKEN,fake_reader())
         self.assertEqual(result["status"],"NO_DELTA_NOT_CUTOVER_PROOF")
