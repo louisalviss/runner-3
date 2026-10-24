@@ -1,0 +1,49 @@
+name: Cloudflare Existing GitHub Tokens Read-only Scope Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-existing-token-scope-readonly.yml'
+      - 'scripts/cloudflare_existing_token_scope_readonly.py'
+      - 'scripts/tests/test_cloudflare_existing_token_scope_readonly.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-existing-secrets-readonly-scope-audit
+  cancel-in-progress: false
+
+jobs:
+  probe-existing-github-secrets:
+    if: ${{ github.repository == 'louisalviss/runner-3' && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_TARGET_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_TARGET_AUDIT_TOKEN }}
+      CLOUDFLARE_TARGET_D1_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_TARGET_D1_WRITE_TOKEN }}
+      CLOUDFLARE_MIGRATION_TOKEN: ${{ secrets.CLOUDFLARE_MIGRATION_TOKEN }}
+      CLOUDFLARE_TARGET_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_TARGET_WRITE_TOKEN }}
+      CLOUDFLARE_TARGET_API_TOKEN: ${{ secrets.CLOUDFLARE_TARGET_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_MIGRATION_TOKEN: ${{ secrets.CLOUDFLARE_ACCOUNT_MIGRATION_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify safety contracts with zero cloud requests
+        run: |
+          python3 -m py_compile scripts/cloudflare_existing_token_scope_readonly.py
+          PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_existing_token_scope_readonly.py' -v
+      - name: Inspect only API token verify, token details and D1 metadata via GET
+        run: python3 scripts/cloudflare_existing_token_scope_readonly.py
+      - name: Retain sanitized booleans and statuses, never secret values
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-existing-tokens-readonly-scope-summary
+          path: migration-out/cloudflare-secret-scope-readonly.json
+          if-no-files-found: error
+          retention-days: 2
