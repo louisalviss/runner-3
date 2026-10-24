@@ -16,6 +16,14 @@ Authenticated [live pilot #40089305352](https://github.com/louisalviss/runner-3/
 
 The standalone workflow `.github/workflows/cloudflare-d1-recommendation-runs-additive-dryrun.yml` is **manual dispatch only**. It uses separately configured source and target *read-only* tokens, runs offline regression tests and uploads a one-day sanitized counts-only artifact. PR CI also runs synthetic tests with no secrets.
 
+## Live dry-run failure and guarded REAL-affinity correction (Oct 24)
+
+The first manual [dry-run #40090457824](https://github.com/louisalviss/runner-3/actions/runs/40090457824) ran its 20 synthetic tests successfully but failed during **local scratch target baseline readback** with `DRYRUN_BASELINE_ROUNDTRIP_MISMATCH`. No Cloudflare D1 changes occurred. This does **not** imply corruption or a known row discrepancy in live target data: the prior cross-account HMAC read-only audit verified 35 identical typed row pairs.
+
+A plausible source of the local difference is a JSON integer representation of a value from the column declared `exploration_ratio REAL`: SQLite can store/read an integer parameter as REAL (e.g. local `0` round-trips as `0.0`). The corrected tool keeps the **actual source-to-target typed payload comparison byte-strict**; it normalizes *only* expected local scratch readback for REAL integer input values. It fails closed on text/numeric type affinity drift, unsafe precision, live target-only records, changed source/target rows or actual payload conflicts. A new aggregate-only `scratch_real_affinity_integer_inputs` count may help validate the cause without exporting any values.
+
+This fix is **not yet proof of the actual cause**; only a subsequent manual, read-only dry-run can confirm the local rehearsal passes. Do not write to target or interpret failing readback as authority for overwriting rows.
+
 ## Separate authorization still required for actual copy
 
 Passing a scratch rehearsal **does not mean the 12 keys are still missing now**. A real copy requires a fresh preflight, a separately configured *target D1 Write* permission, reviewed bounded `INSERT` operations, explicit source-authority and conflict behavior, a verified target snapshot/rollback procedure, per-row readback and subsequent source-writer catch-up. Do not re-use either audit token for writes. The Cloudflare D1 query API supports parameterized statements but this workflow deliberately sends only read-only SQL.
