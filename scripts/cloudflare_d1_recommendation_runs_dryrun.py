@@ -54,12 +54,44 @@ def safe_map(rows):
         for col in COLUMNS:
             typed(row[col])  # reject booleans, blobs, objects, non-finite floats
         mapping[key] = row
+        for index, column in enumerate(COLUMNS):
+            value = row[column]
+            affinity = COLUMN_TYPES[index]
+            if value is None:
+                continue
+            if affinity == "TEXT":
+                require(type(value) is str, "DRYRUN_VALUE_AFFINITY_DRIFT")
+            elif affinity == "INTEGER":
+                require(type(value) is int, "DRYRUN_VALUE_AFFINITY_DRIFT")
+            elif affinity == "REAL":
+                require(type(value) in (int, float),
+                        "DRYRUN_VALUE_AFFINITY_DRIFT")
+                # Float representation cannot preserve integers > 2**53.
+                require(type(value) is not int or abs(value) <= 2**53,
+                        "DRYRUN_REAL_INTEGER_PRECISION_RISK")
     return mapping
 
 
 def canon(row):
     return json.dumps([typed(row[c]) for c in COLUMNS],
                       ensure_ascii=False, separators=(",", ":"),
+                      allow_nan=False).encode("utf8")
+
+
+def canon_after_sqlite_real_affinity(row):
+    """Expected typed values after SQLite REAL-column storage.
+
+    Keep actual source vs target comparisons in canon() *unmodified*, so a
+    source integer and a target real remain a conflict. Only the scratch
+    SQLite storage verification admits the integer->real affinity change.
+    """
+    values = []
+    for col, affinity in zip(COLUMNS, COLUMN_TYPES):
+        value = row[col]
+        if affinity == "REAL" and type(value) is int:
+            value = float(value)
+        values.append(typed(value))
+    return json.dumps(values, ensure_ascii=False, separators=(",", ":"),
                       allow_nan=False).encode("utf8")
 
 
@@ -80,7 +112,7 @@ def scratch_rehearsal(source, target, missing):
             db.execute(INSERT_SQL, tuple(target[k][c] for c in COLUMNS))
         baseline = safe_map([dict(row) for row in db.execute(READ_SQL)])
         require(set(baseline) == set(target) and
-                all(canon(baseline[k]) == canon(target[k]) for k in target),
+                all(canon(baseline[k]) == canon_after_sqlite_real_affinity(target[k]) for k in target),
                 "DRYRUN_BASELINE_ROUNDTRIP_MISMATCH")
         for k in missing:
             require(db.execute(
@@ -91,11 +123,11 @@ def scratch_rehearsal(source, target, missing):
                 'SELECT ' + ",".join('"' + c + '"' for c in COLUMNS) +
                 ' FROM "recommendation_runs" WHERE render_id=?', (k,)
             ).fetchone()
-            require(record is not None and canon(dict(record)) == canon(source[k]),
+            require(record is not None and canon(dict(record)) == canon_after_sqlite_real_affinity(source[k]),
                     "DRYRUN_INSERT_READBACK_MISMATCH")
         after = safe_map([dict(row) for row in db.execute(READ_SQL)])
         require(set(after) == set(source) and
-                all(canon(after[k]) == canon(source[k]) for k in source) and
+                all(canon(after[k]) == canon_after_sqlite_real_affinity(source[k]) for k in source) and
                 all(canon(after[k]) == canon(baseline[k]) for k in baseline),
                 "DRYRUN_WHOLE_TABLE_OR_EXISTING_TARGET_CHANGED")
         require(len(after) == len(target) + len(missing),
@@ -144,6 +176,10 @@ def execute(source_token, target_token, reader=request_json):
         "source_and_target_stable_during_probe": True,
         "schema_equal": True,
         "in_memory_sqlite_rehearsal_passed": True,
+        "scratch_real_affinity_integer_inputs": sum(
+            type(row["exploration_ratio"]) is int
+            for row in s2.values()),
+        "source_target_typed_comparison_not_normalized": True,
         "no_raw_values_or_keys_exported": True,
         "live_d1_writes": 0, "r2_requests": 0,
         "target_d1_write_token_used": False,
