@@ -29,8 +29,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  additive-write:
+  # No environment or Cloudflare tokens. Missing reviewer setup fails before
+  # GitHub can implicitly create an unprotected write environment.
+  environment-preflight:
     if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.approval_phrase == 'APPROVE_TARGET_ONLY_RECOMMENDATION_RUNS_12_INSERTS' && inputs.target_writers_quiesced == 'YES' && inputs.row_safe_recovery == 'YES' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify existing GitHub environment review policy without D1 access
+        env:
+          GH_ENV_POLICY_READ_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/cloudflare_d1_recommendation_runs_guarded_insert.py --verify-github-environment
+
+  additive-write:
+    needs: environment-preflight
+    if: ${{ needs.environment-preflight.result == 'success' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.approval_phrase == 'APPROVE_TARGET_ONLY_RECOMMENDATION_RUNS_12_INSERTS' && inputs.target_writers_quiesced == 'YES' && inputs.row_safe_recovery == 'YES' }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     environment: cloudflare-target-d1-writes

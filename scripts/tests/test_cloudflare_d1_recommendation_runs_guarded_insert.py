@@ -396,6 +396,43 @@ class GuardedInsert(unittest.TestCase):
         self.assertEqual(f.mutations,12)
         self.assertEqual(len(f.target),47)
 
+    def test_github_environment_preflight_mode_uses_no_d1_credentials(self):
+        with patch("sys.argv",["copier","--verify-github-environment"]):
+            with patch.object(m,"require_protected_environment",
+                              return_value=True) as check:
+                with patch.object(m,"apply_gate",
+                                  side_effect=AssertionError("remote D1 forbidden")):
+                    self.assertEqual(m.main(),0)
+                self.assertEqual(check.call_count,1)
+
+    def test_github_environment_preflight_blocks_missing_environment(self):
+        with patch("sys.argv",["copier","--verify-github-environment"]):
+            with patch.object(m,"require_protected_environment",
+                side_effect=m.Blocked("GITHUB_ENV_HTTP_404")):
+                with patch.object(m,"apply_gate",
+                    side_effect=AssertionError("should not reach D1")):
+                    self.assertEqual(m.main(),3)
+
+    def test_preflight_cannot_combine_with_apply_mode(self):
+        with patch("sys.argv",["copier","--verify-github-environment","--apply"]):
+            with patch.object(m,"require_protected_environment",
+                side_effect=AssertionError("should not call GitHub")):
+                with patch.object(m,"apply_gate",
+                    side_effect=AssertionError("should not write D1")):
+                    self.assertEqual(m.main(),3)
+
+    def test_workflow_requires_unprivileged_preflight_before_write_environment(self):
+        text=(ROOT/".github/workflows/cloudflare-d1-recommendation-runs-guarded-insert.yml").read_text()
+        self.assertIn("  environment-preflight:",text)
+        jobs=text.split("  environment-preflight:",1)[1]
+        no_secret_job=jobs.split("  additive-write:",1)[0]
+        self.assertNotIn("CLOUDFLARE_",no_secret_job)
+        self.assertNotIn("environment: cloudflare-target-d1-writes",no_secret_job)
+        self.assertIn("--verify-github-environment",no_secret_job)
+        self.assertIn("needs: environment-preflight",jobs)
+        self.assertIn("needs.environment-preflight.result == 'success'",jobs)
+        self.assertIn("environment: cloudflare-target-d1-writes",jobs)
+
     def test_no_apply_flag_never_uses_credentials_or_calls_remote(self):
         with patch("sys.argv",["copier"]):
             with patch.object(m,"apply_gate",side_effect=AssertionError("remote")):
