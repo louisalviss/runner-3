@@ -25,7 +25,9 @@ from cloudflare_d1_recommendation_runs_dryrun import (
     safe_map, canon, canon_after_sqlite_real_affinity,
     require_expected_columns, scratch_rehearsal,
 )
-from cloudflare_d1_solo_dryrun_proof import from_environment as require_recent_solo_dryrun
+from cloudflare_d1_solo_dryrun_proof import (
+    Hold as SoloProofHold, from_environment as require_recent_solo_dryrun,
+)
 from cloudflare_d1_target_time_travel_readonly import (
     PATHS as BOOKMARK_URLS, get_json as get_target_bookmark,
 )
@@ -256,6 +258,9 @@ def main():
         OUT.parent.mkdir(parents=True, exist_ok=True)
         OUT.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n",
                        encoding="utf8")
+    except SoloProofHold as ex:
+        print("D1_TARGET_ADDITIVE_HOLD", str(ex))
+        return 3
     except Blocked as ex:
         # No raw identifiers, bookmark, token or SQL params on failure.
         print("D1_TARGET_ADDITIVE_HOLD", str(ex))
