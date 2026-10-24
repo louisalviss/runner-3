@@ -74,34 +74,42 @@ class Fixtures:
 
     def writer(self,token,sql,params):
         assert token == TGT_WRITE
-        self.mutations+=1
+        self.mutations += 1  # ONE authenticated D1 POST, not twelve.
         self.assert_sql(sql,params)
-        coltokens=sql[len('INSERT INTO "recommendation_runs" ('+m.COLUMNS_SQL+
-                          ') VALUES ('):-1].split(",")
-        values=[]
-        it=iter(params)
-        for holder in coltokens:
-            values.append(None if holder=="NULL" else next(it))
-        # Simulate storage typed by fixed SQLite column affinities.
-        converted=[]
-        for idx,v in enumerate(values):
-            if v is None:
-                converted.append(None)
-            elif idx in (2,3):
-                converted.append(int(v))
-            elif idx == 4:
-                converted.append(float(v))
-            else:
-                converted.append(v)
-        item=dict(zip(m.COLUMNS,converted))
-        if item["render_id"] in self.target:
-            raise m.Blocked("SIMULATED_UNIQUE_CONFLICT")
-        self.target[item["render_id"]]=item
+        with sqlite3.connect(":memory:") as db:
+            db.row_factory=sqlite3.Row
+            db.execute(m.SCHEMA_SQL if hasattr(m,"SCHEMA_SQL") else
+                       'CREATE TABLE recommendation_runs ('+
+                       'render_id TEXT PRIMARY KEY,source_scope TEXT,'+
+                       'item_count INTEGER,recommended_count INTEGER,'+
+                       'exploration_ratio REAL,model_version TEXT,'+
+                       'created_at TEXT,metadata_json TEXT)')
+            cols=",".join('"' + c + '"' for c in m.COLUMNS)
+            qs=",".join("?" for _ in m.COLUMNS)
+            for item in self.target.values():
+                db.execute("INSERT INTO recommendation_runs ("+cols+
+                           ") VALUES ("+qs+")",
+                           tuple(item[c] for c in m.COLUMNS))
+            # The one SQL statement is atomic for all 12 incoming rows.
+            try:
+                db.execute(sql,params)
+            except sqlite3.IntegrityError:
+                raise m.Blocked("SIMULATED_CONSTRAINT_ABORT_ALL_ROWS") from None
+            new=[dict(x) for x in db.execute(
+                'SELECT * FROM recommendation_runs ORDER BY render_id')]
+            initial_keys=set(self.target)
+            appended=[x for x in new if x["render_id"] not in initial_keys]
+            assert len(appended) == m.EXPECTED_MISSING
+            # Existing target row representations remain untouched in this
+            # synthetic fixture. SQLite-real affinity affects newly inserted.
+            for item in appended:
+                self.target[item["render_id"]]=item
 
     def assert_sql(self,sql,params):
         assert sql.startswith('INSERT INTO "recommendation_runs" (')
         assert ";" not in sql
         assert sql.count("?")==len(params)
+        assert sql.count("),(")==m.EXPECTED_MISSING-1
         assert all(type(p) is str for p in params)
 
     def run(self, **overrides):
@@ -124,7 +132,7 @@ class GuardedInsert(unittest.TestCase):
                          "ONE_TABLE_ADDITIVE_INSERTS_VERIFIED_NOT_CUTOVER")
         self.assertEqual(report["new_rows_inserted"],12)
         self.assertEqual((report["source_rows_at_end"],report["target_rows_at_end"]),(47,47))
-        self.assertEqual(f.mutations,12)
+        self.assertEqual(f.mutations,1)
         self.assertFalse(report["cutover_ready"])
         self.assertFalse(report["all_d1_tables_verified"])
 
@@ -136,7 +144,7 @@ class GuardedInsert(unittest.TestCase):
         f=Fixtures(source=src,target=tgt)
         result=f.run()
         self.assertEqual(result["new_rows_inserted"],12)
-        self.assertEqual(f.mutations,12)
+        self.assertEqual(f.mutations,1)
         self.assertEqual(result["strict_payload_difference_count_after_copy"],12)
         self.assertFalse(result["strict_row_parity_proven"])
         self.assertFalse(result["all_observed_rows_equal"])
@@ -254,9 +262,9 @@ class GuardedInsert(unittest.TestCase):
         self.assertEqual(f.mutations,0)
 
     def test_disallowed_semicolon_sql_blocks(self):
-        sql,params=m.params_and_sql(row(5))
+        sql,params=m.params_and_batch_sql([row(i) for i in range(12)])
         with self.assertRaisesRegex(m.Blocked,"WRITE_SQL_NOT_ALLOWLISTED"):
-            m.write_one(TGT_WRITE,sql+"; DROP TABLE x",params,
+            m.write_batch(TGT_WRITE,sql+"; DROP TABLE x",params,
                         opener=lambda *args: self.fail("No HTTP permitted"))
 
     def test_null_columns_bind_as_sql_null(self):
@@ -275,21 +283,54 @@ class GuardedInsert(unittest.TestCase):
         self.assertNotIn("DROP TABLE",sql)
         self.assertIn("DROP TABLE",params[-1])
 
-    def test_write_response_must_change_exactly_one(self):
+    def test_write_response_must_change_exactly_twelve(self):
         class Resp:
             status=200
             def __init__(self,answer):self.answer=answer
             def __enter__(self):return self
             def __exit__(self,*args):return False
             def read(self,size):return json.dumps(self.answer).encode()
-        sql,params=m.params_and_sql(row(1))
-        for count in (0,2):
+        sql,params=m.params_and_batch_sql([row(i) for i in range(12)])
+        for count in (0,1,11,13):
             with self.subTest(count=count),self.assertRaisesRegex(
                 m.Blocked,"TARGET_INSERT_WRITE_COUNT_UNEXPECTED"):
-                m.write_one(TGT_WRITE,sql,params,opener=lambda *a,**k:
+                m.write_batch(TGT_WRITE,sql,params,opener=lambda *a,**k:
                     Resp({"success":True,"result":[{"success":True,
                          "meta":{"changed_db":True,"changes":count}}]}))
     
+    def test_atomic_batch_has_12_rows_and_max_96_bound_params(self):
+        sql,params=m.params_and_batch_sql([row(i) for i in range(12)])
+        self.assertEqual(sql.count("),("),11)
+        self.assertEqual(sql.count("?"),96)
+        self.assertEqual(len(params),96)
+        self.assertEqual(sql.count("INSERT"),1)
+        self.assertNotIn(";",sql)
+
+    def test_atomic_batch_refuses_11_or_13_rows(self):
+        for n in (11,13):
+            with self.subTest(n=n),self.assertRaisesRegex(
+                m.Blocked,"EXACTLY_12"):
+                m.params_and_batch_sql([row(i) for i in range(n)])
+
+    def test_single_statement_constraint_conflict_rolls_back_all_values(self):
+        f=Fixtures()
+        sql,params=m.params_and_batch_sql([row(i) for i in range(34,46)])
+        # run-34 already exists on target. SQLite should abort entire INSERT,
+        # not commit eleven values then stop.
+        with self.assertRaisesRegex(m.Blocked,"CONSTRAINT_ABORT_ALL_ROWS"):
+            f.writer(TGT_WRITE,sql,params)
+        self.assertEqual(len(f.target),35)
+        self.assertEqual(f.mutations,1)
+        self.assertNotIn("run-35",f.target)
+
+    def test_network_error_after_post_cannot_be_assumed_not_committed(self):
+        import urllib.error
+        sql,params=m.params_and_batch_sql([row(i) for i in range(12)])
+        with self.assertRaisesRegex(m.Blocked,"UNKNOWN_COMMIT_HOLD"):
+            m.write_batch(TGT_WRITE,sql,params,
+                         opener=lambda *args,**kwargs:
+                         (_ for _ in ()).throw(urllib.error.URLError("network")))
+
     def test_target_write_route_is_exact(self):
         self.assertIn(m.DST_ACCOUNT,m.WRITE_URL)
         self.assertIn(m.DST_UUID,m.WRITE_URL)
@@ -301,24 +342,22 @@ class GuardedInsert(unittest.TestCase):
         original=f.writer
         def inject(token,sql,params):
             original(token,sql,params)
-            if f.mutations == 2:
-                f.target["run-0"]["metadata_json"]="external-write"
-        with self.assertRaisesRegex(m.Blocked,"TARGET_POST_INSERT_READBACK_HOLD"):
+            f.target["run-0"]["metadata_json"]="external-write"
+        with self.assertRaisesRegex(m.Blocked,"TARGET_POST_ATOMIC_INSERT_READBACK_HOLD"):
             f.run(writer=inject)
-        self.assertEqual(f.mutations,2)
-        self.assertIn("run-35",f.target)
-        self.assertIn("run-36",f.target)
+        self.assertEqual(f.mutations,1)
+        self.assertEqual(len(f.target),47)
 
     def test_source_write_after_preflight_halts_not_deletes(self):
         f=Fixtures()
         original=f.writer
         def inject(token,sql,params):
             original(token,sql,params)
-            if f.mutations == 12:
+            if f.mutations == 1:
                 f.source["run-47"]=row(47)
         with self.assertRaisesRegex(m.Blocked,"FINAL_SOURCE_CATCHUP_DRIFT"):
             f.run(writer=inject)
-        self.assertEqual(f.mutations,12)
+        self.assertEqual(f.mutations,1)
         self.assertEqual(len(f.target),47)
 
     def test_solo_proof_missing_blocks_main_before_any_d1_write(self):
