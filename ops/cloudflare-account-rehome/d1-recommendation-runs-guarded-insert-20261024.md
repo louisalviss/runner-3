@@ -41,6 +41,16 @@ The workflow originally referenced an environment by name only. GitHub automatic
 
 **Do not run** before a separately verified reviewer configuration, distinct D1 write credential, preserved pre-apply bookmark, quiescence, and row-safe rollback. A successful CI test proves guards function synthetically; it does not certify that the GitHub environment or Cloudflare write token actually exists.
 
+## 2026-10-24 verified GitHub environment blocker and no-autocreate fix
+
+Public read-only GitHub REST census of this **public** repository returned `GET /environments` HTTP **200**, exactly **one** environment (`github-pages`), and `GET /environments/cloudflare-target-d1-writes` HTTP **404**. Sanitized evidence: `staging/github-target-d1-write-environment-20261024.json`. Therefore, the dangerous environment **does not exist** and no required reviewer has been verified. Even with a future D1 Write token, the workflow must remain blocked.
+
+Security hardening: the workflow now starts with a **separate job `environment-preflight`**, which has no environment, no Cloudflare tokens and no D1 requests. It verifies the environment already exists with the independent `required_reviewers` rule and `prevent_self_review=true`. Only after preflight **SUCCESS** can GitHub schedule the separately protected `additive-write` job. The writer also repeats the GitHub policy GET before touching D1. This specifically avoids GitHub auto-creating a previously absent environment without protections when a job names it. It does **not** weaken the target write credential, fresh bookmark or row-safe recovery requirements.
+
+**Action needed in GitHub settings, not in Cloudflare:** `louisalviss/runner-3` → **Settings → Environments → New environment** → `cloudflare-target-d1-writes` → **Required reviewers**, select a *different trusted account* with repository access, and enable **Prevent self-review**. A self-reviewed run cannot satisfy this requirement. For a solo repository, add a trusted reviewer with read access first; do not substitute an approval checkbox for an independently protected environment. After configuring it, its public read-only GET should show the reviewer rule.
+
+This is environment setup only; it does **not** authorize creating D1 Write tokens, supplying a raw Time Travel bookmark to a workflow, performing an insert or running the writer. Source production remains authoritative.
+
 ## Still blocked
 
 - Separate D1 Write credentials not verified/provisioned. No independent evidence target writers are quiesced or protected GitHub environment configured.
