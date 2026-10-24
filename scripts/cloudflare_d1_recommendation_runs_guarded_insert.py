@@ -329,6 +329,12 @@ def main():
     except (OSError, ValueError, TypeError):
         print("D1_TARGET_ADDITIVE_HOLD INTERNAL_OR_IO_ERROR")
         return 3
+    if not report["strict_row_parity_proven"]:
+        print("D1_TARGET_ADDITIVE_HOLD AFFINITY_EQUIVALENT_NOT_STRICT_TYPED_PARITY",
+              "inserted", report["new_rows_inserted"],
+              "strict_differences", report["strict_payload_difference_count_after_copy"],
+              "no_r2 no_restore cutover=false")
+        return 2
     print("D1_TARGET_ADDITIVE_ONE_TABLE_VERIFIED new_rows",
           report["new_rows_inserted"],"no_r2 no_restore cutover=false")
     return 0
