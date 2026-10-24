@@ -14,7 +14,6 @@ import argparse
 import json
 import os
 import pathlib
-import re
 import urllib.error
 import urllib.request
 
@@ -26,6 +25,7 @@ from cloudflare_d1_recommendation_runs_dryrun import (
     safe_map, canon, canon_after_sqlite_real_affinity,
     require_expected_columns, scratch_rehearsal,
 )
+from cloudflare_d1_solo_dryrun_proof import from_environment as require_recent_solo_dryrun
 from cloudflare_d1_target_time_travel_readonly import (
     PATHS as BOOKMARK_URLS, get_json as get_target_bookmark,
 )
@@ -39,67 +39,6 @@ WRITE_URL = ("https://api.cloudflare.com/client/v4/accounts/" + DST_ACCOUNT +
              "/d1/database/" + DST_UUID + "/query")
 # Exact column order and target table authority are pinned in imported modules.
 COLUMNS_SQL = ",".join('"' + c + '"' for c in COLUMNS)
-EXPECTED_GITHUB_REPO = "louisalviss/runner-3"
-PROTECTED_ENVIRONMENT = "cloudflare-target-d1-writes"
-ENV_POLICY_URL = ("https://api.github.com/repos/" + EXPECTED_GITHUB_REPO +
-                  "/environments/" + PROTECTED_ENVIRONMENT)
-GITHUB_TOKEN_MAX_RESPONSE = 64_000
-
-
-def read_environment_policy(github_token, opener=urllib.request.urlopen):
-    require(type(github_token) is str and len(github_token) >= 16,
-            "GITHUB_ENV_AUDIT_TOKEN_MISSING")
-    req = urllib.request.Request(
-        ENV_POLICY_URL, method="GET",
-        headers={"Accept": "application/vnd.github+json",
-                 "X-GitHub-Api-Version": "2022-11-28",
-                 "Authorization": "Bearer " + github_token})
-    require(req.get_method() == "GET" and req.data is None,
-            "GITHUB_ENV_POLICY_NON_READONLY")
-    try:
-        with opener(req, timeout=15) as response:
-            require(response.status == 200, "GITHUB_ENV_HTTP_NOT_200")
-            raw = response.read(GITHUB_TOKEN_MAX_RESPONSE + 1)
-    except urllib.error.HTTPError as err:
-        raise Blocked("GITHUB_ENV_HTTP_" + str(err.code)) from None
-    except (urllib.error.URLError, OSError, TimeoutError):
-        raise Blocked("GITHUB_ENV_UNAVAILABLE") from None
-    require(len(raw) <= GITHUB_TOKEN_MAX_RESPONSE,
-            "GITHUB_ENV_POLICY_RESPONSE_TOO_LARGE")
-    try:
-        value = json.loads(raw)
-    except (UnicodeError, ValueError):
-        raise Blocked("GITHUB_ENV_INVALID_JSON") from None
-    require(type(value) is dict, "GITHUB_ENV_NOT_OBJECT")
-    return value
-
-
-def require_protected_environment(github_token, repository, event, ref,
-                                  lookup=read_environment_policy):
-    require(repository == EXPECTED_GITHUB_REPO and
-            event == "workflow_dispatch" and ref == "refs/heads/main",
-            "GITHUB_WRITE_WORKFLOW_CONTEXT_MISMATCH")
-    env = lookup(github_token)
-    require(type(env) is dict and env.get("name") == PROTECTED_ENVIRONMENT,
-            "GITHUB_ENVIRONMENT_NOT_VERIFIED")
-    rules = env.get("protection_rules")
-    require(type(rules) is list and 1 <= len(rules) <= 20,
-            "GITHUB_REQUIRED_REVIEWERS_NOT_CONFIGURED")
-    reviewers = [r for r in rules if type(r) is dict and
-                 r.get("type") == "required_reviewers"]
-    require(len(reviewers) == 1 and
-            reviewers[0].get("prevent_self_review") is True and
-            type(reviewers[0].get("reviewers")) is list and
-            len(reviewers[0]["reviewers"]) >= 1 and
-            all(type(v) is dict and v.get("type") in ("User", "Team") and
-                type(v.get("reviewer")) is dict and
-                type(v["reviewer"].get("id")) is int and
-                v["reviewer"]["id"] > 0
-                for v in reviewers[0]["reviewers"]),
-            "GITHUB_INDEPENDENT_REQUIRED_REVIEWER_ABSENT")
-    return True
-
-
 def params_and_sql(row):
     require(isinstance(row, dict) and set(row) == set(COLUMNS),
             "UNEXPECTED_WRITE_FIELDS")
@@ -322,14 +261,9 @@ def main():
         print("TARGET_ADDITIVE_WRITE_DISABLED_EXPLICIT_APPLY_REQUIRED")
         return 3
     try:
-        # Never trust the environment name alone: an undeclared GitHub
-        # environment is auto-created without protection rules.
-        require_protected_environment(
-            os.getenv("GH_ENV_POLICY_READ_TOKEN", ""),
-            os.getenv("GITHUB_REPOSITORY", ""),
-            os.getenv("GITHUB_EVENT_NAME", ""),
-            os.getenv("GITHUB_REF", ""),
-        )
+        # Same-actor, same-commit, <=30-minute manual read-only Dry-Run is
+        # required before *any* Cloudflare mutation in solo operation.
+        require_recent_solo_dryrun()
         report = apply_gate(
             os.getenv("CLOUDFLARE_API_TOKEN", ""),
             os.getenv("CLOUDFLARE_TARGET_AUDIT_TOKEN", ""),
