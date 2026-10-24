@@ -22,6 +22,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: cloudflare-target-d1-recommendation-runs-write
@@ -29,11 +30,12 @@ concurrency:
 
 jobs:
   additive-write:
-    if: ${{ inputs.approval_phrase == 'APPROVE_TARGET_ONLY_RECOMMENDATION_RUNS_12_INSERTS' && inputs.target_writers_quiesced == 'YES' && inputs.row_safe_recovery == 'YES' }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.approval_phrase == 'APPROVE_TARGET_ONLY_RECOMMENDATION_RUNS_12_INSERTS' && inputs.target_writers_quiesced == 'YES' && inputs.row_safe_recovery == 'YES' }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     environment: cloudflare-target-d1-writes
     env:
+      GH_ENV_POLICY_READ_TOKEN: ${{ github.token }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_TARGET_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_TARGET_AUDIT_TOKEN }}
       CLOUDFLARE_TARGET_D1_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_TARGET_D1_WRITE_TOKEN }}
@@ -52,6 +54,11 @@ jobs:
           set -euo pipefail
           python3 -m py_compile scripts/cloudflare_d1_recommendation_runs_guarded_insert.py
           PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_recommendation_runs_guarded_insert.py' -v
+      - name: Reject unprotected environment or non-main dispatch before accessing D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -c 'import os,sys;sys.path.insert(0,"scripts");from cloudflare_d1_recommendation_runs_guarded_insert import require_protected_environment;require_protected_environment(os.environ.get("GH_ENV_POLICY_READ_TOKEN", ""),os.environ.get("GITHUB_REPOSITORY", ""),os.environ.get("GITHUB_EVENT_NAME", ""),os.environ.get("GITHUB_REF", ""));print("GITHUB_ENV_INDEPENDENT_REVIEW_PROTECTION_PASS")'
       - name: Apply exactly twelve missing rows only after full gates
         shell: bash
         run: |
