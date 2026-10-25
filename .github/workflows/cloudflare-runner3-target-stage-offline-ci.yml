@@ -38,6 +38,10 @@ on:
       - 'cloudflare/runner3-core/migrations/0015_personal_score_stage.sql'
       - 'cloudflare/runner3-core/migrations/0017_user_content_event_idempotency.sql'
       - 'cloudflare/runner3-core/artifact-library-reader-v82-stable-shell-entry.js'
+      - 'scripts/cloudflare_d1_bookmark_encrypted_escrow.py'
+      - 'scripts/cloudflare_d1_bookmark_install_vps_only.py'
+      - 'scripts/tests/test_cloudflare_d1_bookmark_encrypted_escrow.py'
+      - '.github/workflows/cloudflare-d1-target-bookmark-encrypted-escrow.yml'
       - '.github/workflows/cloudflare-runner3-target-stage-offline-ci.yml'
 
 permissions:
@@ -77,3 +81,18 @@ jobs:
           PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_solo_dryrun_proof.py' -v
           python3 -m py_compile scripts/cloudflare_existing_token_scope_readonly.py
           PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_existing_token_scope_readonly.py' -v
+
+  encrypted-bookmark-escrow-offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install public crypto library
+        run: python3 -m pip install --quiet 'cryptography>=42,<47'
+      - name: Verify encrypted escrow and VPS install safety offline only
+        run: |
+          python3 -m py_compile scripts/cloudflare_d1_bookmark_encrypted_escrow.py scripts/cloudflare_d1_bookmark_install_vps_only.py
+          PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_bookmark_encrypted_escrow.py' -v
