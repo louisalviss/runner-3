@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""Manual target-only D1 dependency footprint before any row-safe recovery design.
+
+READ-ONLY Cloudflare D1 queries; no INSERT, DELETE, UPDATE, restore, R2,
+row keys, row values, source account, or ciphertext/bookmark access.
+This is a schema diagnostic, NOT approval to reverse any D1 write.
+"""
+import json
+import os
+import pathlib
+import re
+import urllib.error
+import urllib.request
+
+TARGET_ACCOUNT = "748a80810f77f447ee476543ef0e5014"
+TARGET_UUID = "82613659-8d08-455f-b6e7-f8f6e4312e22"
+TABLE = "recommendation_runs"
+DB = "runner3-content-intelligence"
+ENDPOINT = ("https://api.cloudflare.com/client/v4/accounts/" + TARGET_ACCOUNT +
+            "/d1/database/" + TARGET_UUID + "/query")
+META_SQL = ("SELECT type,name,tbl_name,sql FROM sqlite_master "
+            "WHERE type IN ('table','trigger','view') "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY type,name LIMIT 101")
+COLUMN_SQL = 'PRAGMA table_xinfo("recommendation_runs")'
+MAX_SQL_RESPONSE = 400_000
+MAX_OBJECTS = 100
+MAX_TABLES = 80
+NAME = re.compile(r"[A-Za-z_][A-Za-z_0-9]{0,127}\Z")
+OUT = pathlib.Path("migration-out/d1-row-recovery-dependency-footprint.json")
+
+class Hold(Exception):
+    pass
+
+def ensure(condition, code):
+    if not condition:
+        raise Hold(code)
+
+def foreign_key_sql(name):
+    ensure(type(name) is str and NAME.fullmatch(name) is not None,
+           "INVALID_SQLITE_OBJECT_NAME")
+    return 'PRAGMA foreign_key_list("' + name + '")'
+
+def allowed_sql(sql):
+    if sql in (META_SQL, COLUMN_SQL):
+        return True
+    match = re.fullmatch(r'PRAGMA foreign_key_list\("([A-Za-z_][A-Za-z_0-9]{0,127})"\)',sql)
+    return match is not None
+
+def query(token, sql, opener=urllib.request.urlopen):
+    ensure(type(token) is str and len(token) >= 16, "MISSING_AUDIT_CREDENTIAL")
+    ensure(allowed_sql(sql), "NON_READONLY_SQL_BLOCKED")
+    req = urllib.request.Request(ENDPOINT,
+        data=json.dumps({"sql": sql}).encode(), method="POST", headers={
+          "Authorization": "Bearer " + token, "Content-Type": "application/json",
+          "Accept": "application/json",
+        })
+    ensure(req.get_method() == "POST" and b'"sql"' in req.data,
+           "QUERY_CONTRACT_INVALID")
+    try:
+        with opener(req,timeout=20) as response:
+            ensure(response.status == 200, "CLOUDFLARE_HTTP_FAILURE")
+            raw = response.read(MAX_SQL_RESPONSE + 1)
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError, TimeoutError):
+        raise Hold("CLOUDFLARE_READ_FAILED") from None
+    ensure(len(raw) <= MAX_SQL_RESPONSE, "D1_READ_TOO_LARGE")
+    try:
+        d = json.loads(raw)
+    except (UnicodeError, ValueError):
+        raise Hold("D1_INVALID_RESPONSE") from None
+    ensure(type(d) is dict and d.get("success") is True, "D1_READ_UNSUCCESSFUL")
+    results = d.get("result")
+    ensure(type(results) is list and len(results) == 1 and
+           type(results[0]) is dict and results[0].get("success") is True and
+           type(results[0].get("results")) is list,
+           "D1_RESULTS_MALFORMED")
+    meta = results[0].get("meta") or {}
+    ensure(type(meta) is dict and meta.get("rows_written", 0) == 0 and
+           meta.get("changed_db", False) is False, "READ_ONLY_METADATA_FAILURE")
+    return results[0]["results"]
+
+def assess(token, reader=query):
+    entries = reader(token, META_SQL)
+    ensure(type(entries) is list and len(entries) <= MAX_OBJECTS, "SCHEMA_TOO_LARGE")
+    ensure(all(type(x) is dict and
+               x.get("type") in ("table","trigger","view") and
+               type(x.get("name")) is str and
+               NAME.fullmatch(x["name"]) is not None and
+               type(x.get("tbl_name")) is str and
+               type(x.get("sql")) is str
+               for x in entries), "UNKNOWN_SCHEMA_OBJECT")
+    ensure(len({x["name"] for x in entries}) == len(entries), "DUPLICATE_SCHEMA_OBJECT")
+    tables = [x for x in entries if x["type"] == "table"]
+    ensure(0 < len(tables) <= MAX_TABLES and any(x["name"] == TABLE for x in tables),
+           "TARGET_TABLE_OR_SCHEMA_NOT_FOUND")
+    columns = reader(token, COLUMN_SQL)
+    ensure(type(columns) is list and len(columns) == 8 and
+           [x.get("name") for x in sorted(columns, key=lambda c:c.get("cid",-1))] ==
+           ["render_id","source_scope","item_count","recommended_count",
+            "exploration_ratio","model_version","created_at","metadata_json"] and
+           any(x.get("name") == "render_id" and x.get("pk") == 1 for x in columns),
+           "TARGET_COLUMN_PK_MISMATCH")
+    inbound = outbound = 0
+    for item in tables:
+        refs = reader(token, foreign_key_sql(item["name"]))
+        ensure(type(refs) is list and len(refs) <= 100 and
+               all(type(x) is dict and type(x.get("table")) is str
+                   for x in refs), "INVALID_FK_METADATA")
+        if item["name"] == TABLE:
+            outbound += len(refs)
+        else:
+            inbound += sum(x.get("table","").lower() == TABLE.lower() for x in refs)
+    triggers = [x for x in entries if x["type"] == "trigger"]
+    related_views = sum(TABLE.lower() in x["sql"].lower()
+                        for x in entries if x["type"] == "view")
+    # Conservative: any trigger whatsoever means further manual inspection.
+    # Even if unrelated, do not mistakenly clear indirect DML effects.
+    recovery_schema_clear = inbound == 0 and outbound == 0 and not triggers and not related_views
+    return {
+        "format": "target-d1-recommendation-runs-row-recovery-dependency-audit-v1",
+        "database": DB, "table": TABLE,
+        "schema_object_count": len(entries),
+        "tables_checked_for_foreign_keys": len(tables),
+        "inbound_foreign_key_count": inbound,
+        "outbound_foreign_key_count": outbound,
+        "trigger_count_any_table": len(triggers),
+        "views_referencing_table_count": related_views,
+        "target_pk_columns_verified": True,
+        "schema_local_dependency_clear": recovery_schema_clear,
+        "independent_writer_quiescence_verified": False,
+        "row_safe_recovery_rehearsed": False,
+        "bookmark_escrow_installed": False,
+        "cloudflare_write_requests": 0, "restore_requests": 0,
+        "r2_requests": 0, "cutover_ready": False,
+        "status": ("SCHEMA_FOOTPRINT_CLEAR_BUT_ROLLBACK_NOT_READY" if recovery_schema_clear
+                   else "SCHEMA_DEPENDENCIES_REQUIRE_MANUAL_REVIEW_HOLD"),
+    }
+
+def main():
+    try:
+        ensure(os.environ.get("GITHUB_REPOSITORY") == "louisalviss/runner-3"
+               and os.environ.get("GITHUB_REF") == "refs/heads/main"
+               and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch",
+               "UNTRUSTED_WORKFLOW")
+        ensure(not os.environ.get("CLOUDFLARE_TARGET_D1_WRITE_TOKEN"),
+               "WRITE_CREDENTIAL_NOT_ALLOWED")
+        r = assess(os.environ.get("CLOUDFLARE_TARGET_AUDIT_TOKEN", ""))
+        OUT.parent.mkdir(parents=True, exist_ok=True)
+        OUT.write_text(json.dumps(r,sort_keys=True,indent=2)+"\n")
+        print("D1_RECOVERY_SCHEMA_AUDIT",r["status"],
+              "tables",r["tables_checked_for_foreign_keys"],
+              "foreign_keys",r["inbound_foreign_key_count"]+r["outbound_foreign_key_count"],
+              "triggers",r["trigger_count_any_table"],
+              "NO_WRITES NO_RESTORE ROLLBACK_NOT_READY")
+        return 0
+    except (Hold, OSError, ValueError, TypeError):
+        print("D1_RECOVERY_SCHEMA_AUDIT_HOLD NO_WRITES")
+        return 3
+
+if __name__ == "__main__":
+    raise SystemExit(main())
