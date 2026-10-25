@@ -91,5 +91,26 @@ class Footprint(unittest.TestCase):
         with self.assertRaises(m.Hold):
             m.assess("audit-token",fake(model=ROWS+[ROWS[0]]))
 
+    def test_query_http_errors_are_sanitized_and_categorized(self):
+        import urllib.error
+        def denied(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 403, "sensitive cloud response", {}, None)
+        for sql, category in ((m.META_SQL, "SCHEMA"),
+                              (m.COLUMN_SQL, "COLUMNS"),
+                              (m.foreign_key_sql("recommendation_runs"), "FOREIGN_KEY")):
+            with self.subTest(category=category), self.assertRaises(m.Hold) as ctx:
+                m.query("very-private-test-audit-token", sql, opener=denied)
+            self.assertEqual(str(ctx.exception), "CLOUDFLARE_HTTP_403_" + category)
+            self.assertNotIn("sensitive", str(ctx.exception))
+            self.assertNotIn("very-private", str(ctx.exception))
+
+    def test_query_network_error_is_sanitized(self):
+        import urllib.error
+        def network_down(req, timeout=None):
+            raise urllib.error.URLError("private proxy details")
+        with self.assertRaises(m.Hold) as ctx:
+            m.query("very-private-test-audit-token", m.META_SQL, opener=network_down)
+        self.assertEqual(str(ctx.exception), "CLOUDFLARE_NETWORK_SCHEMA")
+
 if __name__ == "__main__":
     unittest.main()

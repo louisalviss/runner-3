@@ -60,8 +60,17 @@ def query(token, sql, opener=urllib.request.urlopen):
         with opener(req,timeout=20) as response:
             ensure(response.status == 200, "CLOUDFLARE_HTTP_FAILURE")
             raw = response.read(MAX_SQL_RESPONSE + 1)
-    except (urllib.error.HTTPError, urllib.error.URLError, OSError, TimeoutError):
-        raise Hold("CLOUDFLARE_READ_FAILED") from None
+    except urllib.error.HTTPError as exc:
+        # The original workflow suppressed the only information needed to
+        # distinguish unsupported read-only SQL from a permissions failure.
+        # Restrict reporting to Cloudflare HTTP status and static query type.
+        kind = ("SCHEMA" if sql == META_SQL else
+                "COLUMNS" if sql == COLUMN_SQL else "FOREIGN_KEY")
+        raise Hold("CLOUDFLARE_HTTP_" + str(int(exc.code)) + "_" + kind) from None
+    except (urllib.error.URLError, OSError, TimeoutError):
+        kind = ("SCHEMA" if sql == META_SQL else
+                "COLUMNS" if sql == COLUMN_SQL else "FOREIGN_KEY")
+        raise Hold("CLOUDFLARE_NETWORK_" + kind) from None
     ensure(len(raw) <= MAX_SQL_RESPONSE, "D1_READ_TOO_LARGE")
     try:
         d = json.loads(raw)
