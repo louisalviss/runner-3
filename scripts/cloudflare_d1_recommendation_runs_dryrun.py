@@ -132,6 +132,26 @@ def scratch_rehearsal(source, target, missing):
                 "DRYRUN_WHOLE_TABLE_OR_EXISTING_TARGET_CHANGED")
         require(len(after) == len(target) + len(missing),
                 "DRYRUN_ROW_COUNT_NOT_CONSERVED")
+        # SCRATCH DATABASE ONLY: rehearse reversing exactly the added rows.
+        # Never issue this DELETE via request_json or against Cloudflare.
+        for k in missing:
+            record = db.execute(
+                'SELECT ' + ",".join('"' + c + '"' for c in COLUMNS) +
+                ' FROM "recommendation_runs" WHERE render_id=?', (k,)
+            ).fetchone()
+            require(record is not None and
+                    canon(dict(record)) == canon_after_sqlite_real_affinity(source[k]),
+                    "SCRATCH_ROLLBACK_INSERTED_ROW_CHANGED_HOLD")
+            affected = db.execute(
+                'DELETE FROM "recommendation_runs" WHERE render_id=?', (k,)
+            )
+            require(affected.rowcount == 1,
+                    "SCRATCH_ROLLBACK_DELETE_COUNT_UNEXPECTED")
+        restored = safe_map([dict(row) for row in db.execute(READ_SQL)])
+        require(set(restored) == set(baseline) and
+                len(restored) == len(target) and
+                all(canon(restored[k]) == canon(baseline[k]) for k in baseline),
+                "SCRATCH_ROLLBACK_BASELINE_NOT_RESTORED")
 
 
 def execute(source_token, target_token, reader=request_json):
@@ -176,6 +196,9 @@ def execute(source_token, target_token, reader=request_json):
         "source_and_target_stable_during_probe": True,
         "schema_equal": True,
         "in_memory_sqlite_rehearsal_passed": True,
+        "in_memory_sqlite_row_reversal_passed": True,
+        "scratch_recovered_original_target_rows": len(t2),
+        "real_target_delete_requests": 0,
         "scratch_real_affinity_integer_inputs": sum(
             type(row["exploration_ratio"]) is int
             for row in s2.values()),
