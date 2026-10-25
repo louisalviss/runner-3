@@ -63,10 +63,24 @@ class BoundedReconciliation(unittest.TestCase):
         self.assertEqual(result["source_rows"],47)
         self.assertEqual(result["target_rows"],35)
         self.assertEqual(result["would_insert_rows"],12)
+        self.assertTrue(result["in_memory_sqlite_row_reversal_passed"])
+        self.assertEqual(result["scratch_recovered_original_target_rows"],35)
+        self.assertEqual(result["real_target_delete_requests"],0)
         self.assertEqual(result["matching_existing_rows"],35)
         self.assertEqual(result["live_d1_writes"],0)
         self.assertFalse(result["cutover_ready"])
         self.assertFalse(result["target_d1_write_token_used"])
+
+    def test_rollback_rehearsal_on_null_and_unicode_rows(self):
+        source=[record(1),record(2),record(3)]
+        source[2]["render_id"]="unicode-测试"
+        source[2]["metadata_json"]=None
+        target=copy.deepcopy(source[:2])
+        report=m.execute(SOURCE_TOKEN,TARGET_TOKEN,fake_reader(source,target))
+        self.assertTrue(report["in_memory_sqlite_row_reversal_passed"])
+        self.assertEqual(report["scratch_recovered_original_target_rows"],2)
+        self.assertEqual(report["real_target_delete_requests"],0)
+        self.assertFalse(report["rollback_readiness_proven"])
 
     def test_real_affinity_zero_integer_roundtrip_is_safe_in_scratch_only(self):
         source=[record(1), record(2)]
