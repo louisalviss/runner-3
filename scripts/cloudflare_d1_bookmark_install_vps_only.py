@@ -85,7 +85,7 @@ def main():
         # subprocess stdin ONLY, never argv, logs, shell history or disk.
         p = subprocess.run(
             ["gh", "secret", "set", SECRET_NAME, "-R", REPO, "--app", "actions"],
-            input=bookmark + "\n", text=True, capture_output=True, timeout=30)
+            input=bookmark, text=True, capture_output=True, timeout=30)
         require(p.returncode == 0, "GITHUB_SECRET_INSTALL_FAILED")
         # Read only metadata, NOT value; no cloud or database writes.
         status = subprocess.run(
