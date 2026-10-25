@@ -42,6 +42,9 @@ on:
       - 'scripts/cloudflare_d1_bookmark_install_vps_only.py'
       - 'scripts/tests/test_cloudflare_d1_bookmark_encrypted_escrow.py'
       - '.github/workflows/cloudflare-d1-target-bookmark-encrypted-escrow.yml'
+      - 'scripts/cloudflare_d1_row_recovery_dependencies_readonly.py'
+      - 'scripts/tests/test_cloudflare_d1_row_recovery_dependencies_readonly.py'
+      - '.github/workflows/cloudflare-d1-target-row-recovery-dependencies-readonly.yml'
       - '.github/workflows/cloudflare-runner3-target-stage-offline-ci.yml'
 
 permissions:
@@ -96,3 +99,16 @@ jobs:
         run: |
           python3 -m py_compile scripts/cloudflare_d1_bookmark_encrypted_escrow.py scripts/cloudflare_d1_bookmark_install_vps_only.py
           PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_bookmark_encrypted_escrow.py' -v
+
+  row-recovery-dependencies-offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify schema and SQL fail-closed tests without credentials
+        run: |
+          python3 -m py_compile scripts/cloudflare_d1_row_recovery_dependencies_readonly.py
+          PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_row_recovery_dependencies_readonly.py' -v

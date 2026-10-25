@@ -1,0 +1,41 @@
+name: Cloudflare D1 Target Row Recovery Dependency Audit (Read Only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-d1-row-recovery-dependency-readonly
+  cancel-in-progress: false
+
+jobs:
+  target-only-schema-footprint:
+    if: ${{ github.repository == 'louisalviss/runner-3' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Reject unsafe SQL and check synthetic dependency cases offline
+        run: |
+          python3 -m py_compile scripts/cloudflare_d1_row_recovery_dependencies_readonly.py
+          PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_row_recovery_dependencies_readonly.py' -v
+      - name: Read target D1 schema and foreign key dependencies only
+        env:
+          CLOUDFLARE_TARGET_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_TARGET_AUDIT_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: python3 scripts/cloudflare_d1_row_recovery_dependencies_readonly.py
+      - name: Save aggregate-only metadata, no raw schema SQL or rows
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-target-recovery-dependency-readonly-summary
+          path: migration-out/d1-row-recovery-dependency-footprint.json
+          if-no-files-found: error
+          retention-days: 2
