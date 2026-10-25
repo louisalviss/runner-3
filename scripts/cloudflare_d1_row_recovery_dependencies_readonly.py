@@ -152,8 +152,13 @@ def main():
               "triggers",r["trigger_count_any_table"],
               "NO_WRITES NO_RESTORE ROLLBACK_NOT_READY")
         return 0
-    except (Hold, OSError, ValueError, TypeError):
-        print("D1_RECOVERY_SCHEMA_AUDIT_HOLD NO_WRITES")
+    except Hold as exc:
+        # Hold codes are static, internally authored labels only. Never
+        # print Cloudflare responses, SQL contents, table names or secrets.
+        print("D1_RECOVERY_SCHEMA_AUDIT_HOLD", str(exc), "NO_WRITES")
+        return 3
+    except (OSError, ValueError, TypeError):
+        print("D1_RECOVERY_SCHEMA_AUDIT_HOLD INTERNAL_FAILURE NO_WRITES")
         return 3
 
 if __name__ == "__main__":
