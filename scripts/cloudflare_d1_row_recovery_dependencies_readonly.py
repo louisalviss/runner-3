@@ -108,29 +108,36 @@ def assess(token, reader=query):
             "exploration_ratio","model_version","created_at","metadata_json"] and
            any(x.get("name") == "render_id" and x.get("pk") == 1 for x in columns),
            "TARGET_COLUMN_PK_MISMATCH")
-    inbound = outbound = 0
+    # The D1 REST endpoint returned HTTP 400 for PRAGMA foreign_key_list,
+    # despite Cloudflare documenting the SQL statement. Do not guess at
+    # foreign-key counts or loosen write/restore gates. A fail-closed
+    # inspection of CREATE TABLE statements is sufficient to identify whether
+    # additional FK review is required without executing a second SQL query.
+    possible_fk_tables = 0
     for item in tables:
-        refs = reader(token, foreign_key_sql(item["name"]))
-        ensure(type(refs) is list and len(refs) <= 100 and
-               all(type(x) is dict and type(x.get("table")) is str
-                   for x in refs), "INVALID_FK_METADATA")
-        if item["name"] == TABLE:
-            outbound += len(refs)
-        else:
-            inbound += sum(x.get("table","").lower() == TABLE.lower() for x in refs)
+        ddl = item["sql"].strip()
+        ensure(ddl.upper().startswith("CREATE TABLE "),
+               "UNSUPPORTED_TABLE_DDL_REQUIRE_REVIEW")
+        # SQLite CREATE TABLE FK constraints must contain REFERENCES, either
+        # column-level or table-level. A mention in comments/strings will
+        # conservatively produce a false-positive HOLD, never a false PASS.
+        if re.search(r"\\bREFERENCES\\b|\\bFOREIGN\\s+KEY\\b", ddl, re.I):
+            possible_fk_tables += 1
     triggers = [x for x in entries if x["type"] == "trigger"]
     related_views = sum(TABLE.lower() in x["sql"].lower()
                         for x in entries if x["type"] == "view")
-    # Conservative: any trigger whatsoever means further manual inspection.
-    # Even if unrelated, do not mistakenly clear indirect DML effects.
-    recovery_schema_clear = inbound == 0 and outbound == 0 and not triggers and not related_views
+    # Keep HOLD on any potential FK, trigger or dependent view.
+    recovery_schema_clear = possible_fk_tables == 0 and not triggers and not related_views
     return {
         "format": "target-d1-recommendation-runs-row-recovery-dependency-audit-v1",
         "database": DB, "table": TABLE,
         "schema_object_count": len(entries),
         "tables_checked_for_foreign_keys": len(tables),
-        "inbound_foreign_key_count": inbound,
-        "outbound_foreign_key_count": outbound,
+        "inbound_foreign_key_count": None,
+        "outbound_foreign_key_count": None,
+        "possible_foreign_key_table_count": possible_fk_tables,
+        "foreign_key_detection_method": "conservative_sqlite_master_ddl_scan",
+        "exact_foreign_key_relationships_verified": False,
         "trigger_count_any_table": len(triggers),
         "views_referencing_table_count": related_views,
         "target_pk_columns_verified": True,
@@ -157,7 +164,7 @@ def main():
         OUT.write_text(json.dumps(r,sort_keys=True,indent=2)+"\n")
         print("D1_RECOVERY_SCHEMA_AUDIT",r["status"],
               "tables",r["tables_checked_for_foreign_keys"],
-              "foreign_keys",r["inbound_foreign_key_count"]+r["outbound_foreign_key_count"],
+              "tables_with_possible_fk",r["possible_foreign_key_table_count"],
               "triggers",r["trigger_count_any_table"],
               "NO_WRITES NO_RESTORE ROLLBACK_NOT_READY")
         return 0
