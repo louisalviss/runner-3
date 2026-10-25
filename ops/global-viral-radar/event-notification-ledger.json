@@ -1878,6 +1878,24 @@
       "status": "notification_precommitted",
       "delivery_status": "pending_actual_delivery",
       "evidence_note": "Politics exceptional security/transport restoration phase; 8.3/10. Two terminals for Saudi-carrier flights after roughly two weeks of disruption. One flight to Jeddah independently observed; no evidence full foreign-carrier or pre-war throughput restored. Houthi renewed threats and drone interceptions make operations fragile. No D1 regime transition implied."
+    },
+    "GPU_UNLOCK_ADA|RTX4090|OCT24_2026_INDEPENDENT_MATCHED_HARDWARE_VALIDATION": {
+      "label": "Independent RTX 4090 owner validates experimental Ada GPU tensor-rate unlock with matched stock/unlocked measurements",
+      "primary_entity": "JustAResearcher gpu-unlock-ada project and independent RTX 4090 owner alansley",
+      "underlying_actual_event": "Independent hardware owner on October 24 verified the existing experimental RTX 4090 Ada GPU speed-select unlock against a matched stock baseline, correct numerical outputs and a post-reboot repeat; this is independent validation of the Oct23 proof of concept, not a new NVIDIA product launch or 2x application speed.",
+      "named_product": "gpu-unlock-ada PR #1 reviewed revision 8855e7b and RTX 4090 matched hardware evidence",
+      "material_update_key": "OCT24_2026_INDEPENDENT_RTX4090_OWNER_MATCHED_STOCK_UNLOCKED_VALIDATION|PR1_8855E7B|BF16_159_7_TO_320_2_TFLOPS_ISSUE_RATE|FP16_160_4_TO_320_4|GEMM_MIXED_0_995_TO_1_344X|NOT_APPLICATION_INFERENCE_SPEED",
+      "last_verified_source_url": "https://github.com/JustAResearcher/gpu-unlock-ada/blob/main/docs/evidence/rtx4090-pr1-matched/README.md",
+      "supporting_original_contributor_url": "https://github.com/JustAResearcher/gpu-unlock-ada/pull/1",
+      "original_project_url": "https://github.com/Zagitta/gpu-unlock",
+      "source_event_date": "2026-10-24",
+      "source_event_time_vn": "2026-10-24T23:57:22+07:00",
+      "source_event_time_note": "GitHub independent evidence publication commit f5d96e9f9d1023785e5e11f718fb8a8e13278f8a at Oct24 16:57:22 UTC; the actual physical test time is not established.",
+      "notified_at_vn": "2026-10-25T16:11:07+07:00",
+      "provenance": "primary_independent_owner_pr_hardware_reproduction_with_sanitized_checksums_and_original_open_source",
+      "status": "notification_precommitted",
+      "delivery_status": "pending_actual_delivery",
+      "evidence_note": "AI/Tech standalone score 8.2/10. On one RTX4090 Linux 7.2.11 NVIDIA 615.78.08 450W power cap, FP16/FP32 instruction rate 160.4->320.4 TF/s; BF16/FP32 159.7->320.2 TF/s; INT8 unchanged. cuBLAS dense GEMM across six sizes 0.995x to 1.344x; one BF16 GEMM did not improve. Six seeded numerical cases zero mismatch, warm reboot repeat succeeded. Not 2x real inference, not broadly tested or approved by NVIDIA, unsigned experimental kernel module with security/firmware risk. Distinct Oct24 independently verified material phase after Oct23 original demonstration; no new market price claim."
     }
   }
 }
