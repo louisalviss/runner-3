@@ -31,7 +31,7 @@ class Footprint(unittest.TestCase):
         self.assertTrue(r["schema_local_dependency_clear"])
         self.assertEqual(r["possible_foreign_key_table_count"],0)
         self.assertIsNone(r["inbound_foreign_key_count"])
-        self.assertFalse(r["exact_foreign_key_relationships_verified"])
+        self.assertTrue(r["exact_foreign_key_relationships_verified"])
         self.assertFalse(r["row_safe_recovery_rehearsed"])
         self.assertFalse(r["independent_writer_quiescence_verified"])
         self.assertFalse(r["cutover_ready"])
@@ -42,17 +42,21 @@ class Footprint(unittest.TestCase):
         r=m.assess("audit-token",fake(model=rows))
         self.assertEqual(r["status"],"SCHEMA_DEPENDENCIES_REQUIRE_MANUAL_REVIEW_HOLD")
         self.assertEqual(r["possible_foreign_key_table_count"],1)
+        self.assertEqual(r["inbound_foreign_key_count"],1)
         self.assertFalse(r["schema_local_dependency_clear"])
 
     def test_outbound_fk_holds(self):
         rows=[dict(ROWS[0],sql="CREATE TABLE recommendation_runs (source_id TEXT, FOREIGN KEY(source_id) REFERENCES content_items(id))"), ROWS[1]]
         r=m.assess("audit-token",fake(model=rows))
+        self.assertEqual(r["outbound_foreign_key_count"],1)
         self.assertFalse(r["schema_local_dependency_clear"])
 
     def test_fk_marker_in_comment_holds_conservatively(self):
         rows=[ROWS[0],dict(ROWS[1],sql="CREATE TABLE content_items (id TEXT) /* references */")]
         r=m.assess("audit-token",fake(model=rows))
         self.assertEqual(r["possible_foreign_key_table_count"],1)
+        self.assertFalse(r["ddl_fk_marker_and_local_sqlite_agree"])
+        self.assertFalse(r["schema_local_dependency_clear"])
 
     def test_unexpected_table_ddl_blocks(self):
         rows=[ROWS[0],dict(ROWS[1],sql="CREATE VIRTUAL TABLE content_items USING fts5(content)")]
@@ -98,6 +102,31 @@ class Footprint(unittest.TestCase):
     def test_duplicates_block(self):
         with self.assertRaises(m.Hold):
             m.assess("audit-token",fake(model=ROWS+[ROWS[0]]))
+
+    def test_multiple_foreign_keys_count_exact_relationships(self):
+        rows=[
+            dict(ROWS[0],sql="CREATE TABLE recommendation_runs (render_id TEXT PRIMARY KEY)"),
+            dict(ROWS[1],sql='CREATE TABLE content_items (id TEXT PRIMARY KEY, run1 TEXT REFERENCES recommendation_runs(render_id) ON DELETE CASCADE, run2 TEXT REFERENCES recommendation_runs(render_id))')
+        ]
+        r=m.assess("audit-token",fake(model=rows))
+        self.assertEqual(r["inbound_foreign_key_count"],2)
+        self.assertEqual(r["local_sqlite_foreign_key_table_count"],1)
+        self.assertTrue(r["ddl_fk_marker_and_local_sqlite_agree"])
+        self.assertFalse(r["schema_local_dependency_clear"])
+
+    def test_multiple_sql_statements_rejected_by_ddl_replay(self):
+        rows=[ROWS[0],dict(ROWS[1],sql="CREATE TABLE content_items (id TEXT); DROP TABLE recommendation_runs")]
+        with self.assertRaises(m.Hold):
+            m.assess("audit-token",fake(model=rows))
+
+    def test_view_and_trigger_still_hold_without_fk(self):
+        rows=ROWS+[{"type":"trigger","name":"changed","tbl_name":"content_items",
+                    "sql":"CREATE TRIGGER changed AFTER INSERT ON content_items BEGIN SELECT 1; END"},
+                   {"type":"view","name":"v","tbl_name":"v",
+                    "sql":"CREATE VIEW v AS SELECT * FROM recommendation_runs"}]
+        r=m.assess("audit-token",fake(model=rows))
+        self.assertEqual(r["inbound_foreign_key_count"],0)
+        self.assertFalse(r["schema_local_dependency_clear"])
 
     def test_http_failures_are_sanitized(self):
         def denied(req,timeout=None):
