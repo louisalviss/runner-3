@@ -1,0 +1,43 @@
+name: Cloudflare D1 Target Bookmark ENCRYPTED Escrow (Read Only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-d1-bookmark-escrow
+  cancel-in-progress: false
+
+jobs:
+  encrypt-target-bookmark:
+    if: ${{ github.repository == 'louisalviss/runner-3' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install public cryptography dependency
+        run: python3 -m pip install --quiet 'cryptography>=42,<47'
+      - name: Test encryption and GET-only safety offline, no Cloudflare token
+        run: |
+          python3 -m py_compile scripts/cloudflare_d1_bookmark_encrypted_escrow.py scripts/cloudflare_d1_bookmark_install_vps_only.py
+          PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_bookmark_encrypted_escrow.py' -v
+      - name: Capture D1 bookmark via pinned GET and encrypt to VPS-only public key
+        env:
+          CLOUDFLARE_TARGET_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_TARGET_AUDIT_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: python3 scripts/cloudflare_d1_bookmark_encrypted_escrow.py
+      - name: Upload encrypted envelope only; never bookmark or credentials
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner3-d1-target-bookmark-encrypted-escrow
+          path: migration-out/d1-target-bookmark-encrypted-escrow.json
+          if-no-files-found: error
+          retention-days: 1
