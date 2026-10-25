@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import re
+import sqlite3
 import urllib.error
 import urllib.request
 
@@ -117,21 +118,60 @@ def assess(token, reader=query):
         # conservatively produce a false-positive HOLD, never a false PASS.
         if re.search(r"\bREFERENCES\b|\bFOREIGN\s+KEY\b", ddl, re.I):
             possible_fk_tables += 1
+    # Reconstruct only the metadata CREATE TABLE statements inside SQLite
+    # :memory:. Each execute() accepts exactly one statement. This never
+    # writes to Cloudflare, and never imports target row content or scripts.
+    # An unsupported/ambiguous DDL fails closed.
+    inbound = outbound = sqlite_fk_tables = 0
+    try:
+        with sqlite3.connect(":memory:") as scratch:
+            scratch.enable_load_extension(False)
+            scratch.setlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH, 50000)
+            for item in tables:
+                ddl = item["sql"].strip()
+                ensure(len(ddl) <= 40_000 and ";" not in ddl and
+                       " AS SELECT" not in ddl.upper(),
+                       "UNSAFE_OR_OVERSIZED_TABLE_DDL")
+                scratch.execute(ddl)
+            for item in tables:
+                # Item names already passed strict identifier validation.
+                rows = scratch.execute(
+                    'PRAGMA foreign_key_list("' + item["name"] + '")').fetchall()
+                ensure(len(rows) <= 300, "TOO_MANY_LOCAL_FOREIGN_KEYS")
+                by_id = {}
+                for fk in rows:
+                    ensure(len(fk) >= 3 and type(fk[0]) is int and
+                           type(fk[2]) is str, "INVALID_LOCAL_FK_RESULT")
+                    by_id[fk[0]] = fk[2]
+                if by_id:
+                    sqlite_fk_tables += 1
+                if item["name"].casefold() == TABLE.casefold():
+                    outbound += len(by_id)
+                else:
+                    inbound += sum(ref.casefold() == TABLE.casefold()
+                                   for ref in by_id.values())
+    except (sqlite3.Error, AttributeError, ValueError, TypeError):
+        raise Hold("LOCAL_DDL_REPLAY_FAILED_HOLD") from None
+
     triggers = [x for x in entries if x["type"] == "trigger"]
     related_views = sum(TABLE.lower() in x["sql"].lower()
                         for x in entries if x["type"] == "view")
-    # Keep HOLD on any potential FK, trigger or dependent view.
-    recovery_schema_clear = possible_fk_tables == 0 and not triggers and not related_views
+    # Fail closed on DDL text markers not understood by local SQLite.
+    markers_match = possible_fk_tables == sqlite_fk_tables
+    recovery_schema_clear = (markers_match and inbound == 0 and outbound == 0
+                             and not triggers and not related_views)
     return {
         "format": "target-d1-recommendation-runs-row-recovery-dependency-audit-v1",
         "database": DB, "table": TABLE,
         "schema_object_count": len(entries),
         "tables_checked_for_foreign_keys": len(tables),
-        "inbound_foreign_key_count": None,
-        "outbound_foreign_key_count": None,
+        "inbound_foreign_key_count": inbound,
+        "outbound_foreign_key_count": outbound,
         "possible_foreign_key_table_count": possible_fk_tables,
-        "foreign_key_detection_method": "conservative_sqlite_master_ddl_scan",
-        "exact_foreign_key_relationships_verified": False,
+        "local_sqlite_foreign_key_table_count": sqlite_fk_tables,
+        "ddl_fk_marker_and_local_sqlite_agree": markers_match,
+        "foreign_key_detection_method": "isolated_in_memory_sqlite_ddl_replay",
+        "exact_foreign_key_relationships_verified": markers_match,
         "trigger_count_any_table": len(triggers),
         "views_referencing_table_count": related_views,
         "target_pk_columns_verified": True,
@@ -158,7 +198,9 @@ def main():
         OUT.write_text(json.dumps(r,sort_keys=True,indent=2)+"\n")
         print("D1_RECOVERY_SCHEMA_AUDIT",r["status"],
               "tables",r["tables_checked_for_foreign_keys"],
-              "tables_with_possible_fk",r["possible_foreign_key_table_count"],
+              "inbound_fk",r["inbound_foreign_key_count"],
+              "outbound_fk",r["outbound_foreign_key_count"],
+              "fk_ddl_agreement",r["ddl_fk_marker_and_local_sqlite_agree"],
               "triggers",r["trigger_count_any_table"],
               "NO_WRITES NO_RESTORE ROLLBACK_NOT_READY")
         return 0
