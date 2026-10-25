@@ -30,7 +30,7 @@ class Footprint(unittest.TestCase):
         self.assertEqual(r["status"],"SCHEMA_FOOTPRINT_CLEAR_BUT_ROLLBACK_NOT_READY")
         self.assertTrue(r["schema_local_dependency_clear"])
         self.assertEqual(r["possible_foreign_key_table_count"],0)
-        self.assertIsNone(r["inbound_foreign_key_count"])
+        self.assertEqual(r["inbound_foreign_key_count"],0)
         self.assertTrue(r["exact_foreign_key_relationships_verified"])
         self.assertFalse(r["row_safe_recovery_rehearsed"])
         self.assertFalse(r["independent_writer_quiescence_verified"])
