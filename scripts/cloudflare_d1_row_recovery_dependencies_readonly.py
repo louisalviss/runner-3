@@ -115,7 +115,7 @@ def assess(token, reader=query):
         # SQLite CREATE TABLE FK constraints must contain REFERENCES, either
         # column-level or table-level. A mention in comments/strings will
         # conservatively produce a false-positive HOLD, never a false PASS.
-        if re.search(r"\\bREFERENCES\\b|\\bFOREIGN\\s+KEY\\b", ddl, re.I):
+        if re.search(r"\bREFERENCES\b|\bFOREIGN\s+KEY\b", ddl, re.I):
             possible_fk_tables += 1
     triggers = [x for x in entries if x["type"] == "trigger"]
     related_views = sum(TABLE.lower() in x["sql"].lower()
