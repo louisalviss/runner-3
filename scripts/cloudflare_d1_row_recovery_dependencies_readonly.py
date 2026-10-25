@@ -35,16 +35,10 @@ def ensure(condition, code):
     if not condition:
         raise Hold(code)
 
-def foreign_key_sql(name):
-    ensure(type(name) is str and NAME.fullmatch(name) is not None,
-           "INVALID_SQLITE_OBJECT_NAME")
-    return 'PRAGMA foreign_key_list("' + name + '")'
-
 def allowed_sql(sql):
-    if sql in (META_SQL, COLUMN_SQL):
-        return True
-    match = re.fullmatch(r'PRAGMA foreign_key_list\("([A-Za-z_][A-Za-z_0-9]{0,127})"\)',sql)
-    return match is not None
+    # Only these two proven read-only D1 SQL shapes. In this account,
+    # PRAGMA foreign_key_list returned HTTP 400 through the REST API.
+    return sql in (META_SQL, COLUMN_SQL)
 
 def query(token, sql, opener=urllib.request.urlopen):
     ensure(type(token) is str and len(token) >= 16, "MISSING_AUDIT_CREDENTIAL")
