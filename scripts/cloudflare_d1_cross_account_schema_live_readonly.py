@@ -137,7 +137,7 @@ def compare(source_token,target_token,transport=api):
         # Emit only normal table identifiers, never source CREATE statements
         # or index/trigger/view SQL. Unusual table names require manual review.
         import re
-        table_name=re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}\\Z")
+        table_name=re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
         source_tables=sorted(key[1] for key in source_only
                              if key[0]=="table" and table_name.fullmatch(key[1]))
         target_tables=sorted(key[1] for key in target_only
