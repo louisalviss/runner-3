@@ -1,7 +1,7 @@
 [Unit]
 Description=Daily SEO and Flippa source-owned opportunity handoff
-Wants=network-online.target
-After=network-online.target seotrends-public-refresh.service
+Wants=network-online.target flippa-vn-proxy-relay.service
+After=network-online.target seotrends-public-refresh.service flippa-vn-proxy-relay.service
 [Service]
 Type=oneshot
 User=root
