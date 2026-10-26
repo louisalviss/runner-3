@@ -141,7 +141,7 @@ def read_inventory(token):
                                      scripts_page.get("total_count") == len(worker_list))
     # Cloudflare documents this separate endpoint as "List all Workers".
     # It may fail if token scope does not allow it; never invent a 0 result.
-    alt_worker_names, alt_status = None, "UNAVAILABLE"
+    alt_worker_names, alt_status, alt_http_code = None, "UNAVAILABLE", None
     try:
         alt_data = get(token, "/workers/workers?per_page=100&page=1")
         alt_items = limited_unique(alt_data.get("result"), "name", MAX_WORKERS, "WORKER_V2")
@@ -154,7 +154,14 @@ def read_inventory(token):
         else:
             alt_worker_names = [x["name"] for x in alt_items]
             alt_status = "COMPLETE"
-    except AuditBlocked:
+    except AuditBlocked as exc:
+        # Preserve just the numeric HTTP status for permission diagnosis.
+        # Never print/serialize token, Cloudflare body or request URL.
+        status = str(exc)
+        if status.startswith("HTTP_") and status[5:].isdigit():
+            code = int(status[5:])
+            if 100 <= code <= 599:
+                alt_http_code = code
         alt_status = "UNAVAILABLE"
     workers = []
     for obj in worker_list:
@@ -208,6 +215,7 @@ def read_inventory(token):
         "alternative_worker_count": len(alt_worker_names) if alt_worker_names is not None else None,
         "alternative_worker_names": alt_worker_names,
         "alternative_worker_list_status": alt_status,
+        "alternative_worker_list_http_code": alt_http_code,
         "worker_census_state": census_state,
         "worker_census_consistent": census_agrees,
         "target_workers_zero_verified": False,
