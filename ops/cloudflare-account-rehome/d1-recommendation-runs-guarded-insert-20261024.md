@@ -1,5 +1,18 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
+## Target live D1 Worker binding attribution — 2026-10-27 (latest; migration HOLD)
+
+**New result: complete read-only Worker-to-D1 attribution for the target account**. [Workflow #40377262061](https://github.com/louisalviss/runner-3/actions/runs/40377262061), after [PR #475](https://github.com/louisalviss/runner-3/pull/475) merged on main. The workflow uses scoped `CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW`; both Worker lists show 6 matching Workers, all settings/schedules read successfully, target has 9 matching historical D1 identities. Zero cron schedules. It matches physical D1 binding IDs only in memory against the same **live target** D1 UUID map and publishes target D1 **names only**, no UUID or raw binding/secret.
+
+- `volamidle-rogue`: binding `DB` matches live target D1 `volamidle-rogue-data`.
+- The remaining 5 deployed Workers have **no D1 bindings**.
+- `worker_d1_binding_attribution_complete=true`; `recommendation_runs_db_worker_binding_absent_verified=true`, referring **only to this account's currently deployed Worker bindings**. No target Worker binds directly to `runner3-content-intelligence`.
+- **`target_nonworker_writers_excluded=false`, `writer_quiescence_proven=false`, `cutover_ready=false`**. API tokens and other external clients, source scripts, runners, remote jobs, and future Worker deploys have not all been proven idle; the Worker finding is not an authorization to attest quiescence or run INSERT.
+- GitHub Secret metadata rechecked: `CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW` and independent `CLOUDFLARE_TARGET_D1_WRITE_TOKEN` are present, but **`CLOUDFLARE_TARGET_PREAPPLY_BOOKMARK` remains absent**. No escrow recovery test, rollback readiness, real restore test or production D1 writes. Earlier encrypted bookmark may expire and must not be treated as installed.
+- Earlier 39 source-only schema objects missing on target across `runner3-core` and `runner3-content-intelligence` remain an **unresolved historical gap**, not a statement of newly measured parity. Preserve source-only and target-only D1 objects. R2 remains cost-gated HOLD.
+- Next safe work: investigate **non-Worker writers** without stopping source production; independently establish a verifiable bounded target quiescence procedure, solve authorized restoration bookmark escrow without bypassing prior caller-side private-key block, and build a full row/schema reconciliation plan. No automatic production write.
+
+
 ## New verified target Workers census — 2026-10-27 (supersedes earlier HTTP 403 findings)
 
 **Worker audit token unblocked.** Operator created a **separate** GitHub Actions Secret `CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW`, verified present in repository secret metadata 2026-10-26T17:08:50Z. Prior legacy `CLOUDFLARE_TARGET_AUDIT_TOKEN` was unchanged. Do not confuse either audit Secret with independent Write-only migration Secret `CLOUDFLARE_TARGET_D1_WRITE_TOKEN`.
