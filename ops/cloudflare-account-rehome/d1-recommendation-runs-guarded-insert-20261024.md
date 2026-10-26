@@ -1,5 +1,40 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
+## Live 15-table content-presence and FK-dependency checks — 2026-10-27 (latest, HOLD)
+
+Two authenticated, bounded **read-only** workflows passed; both were synthetic-tested and run manually from `main`, with sanitized artifacts and no production writes.
+
+1. [Source-only 15-table existence run #40389799662](https://github.com/louisalviss/runner-3/actions/runs/40389799662), from [PR #483](https://github.com/louisalviss/runner-3/pull/483). It made exactly 15 bounded `SELECT 1 AS present FROM "<allowlisted_table>" LIMIT 1` queries on SOURCE, not `COUNT(*)`, and returned only empty/nonempty flags with **no application row content**. 12/15 missing-on-target source tables were nonempty; 3 were empty.
+2. [Isolated 39-DDL replay with FK dependencies #40390362550](https://github.com/louisalviss/runner-3/actions/runs/40390362550), from [PR #484](https://github.com/louisalviss/runner-3/pull/484). The already PASS full source-pinned 39/39 additive CREATE-only rehearsal now additionally fails closed if any source FK parent table is absent and summarizes table-level FK edges. Nine independent synthetic tests PASS. Still **zero D1 writes**.
+
+**Source tables confirmed empty (no rows in source at time of query):**
+- `runner3-content-intelligence.checkpoints` (composite PK)
+- `runner3-core.artifact_library_pin_attempts` (one-column PK)
+- `runner3-core.ebook_reader_trace_v113` (composite PK)
+
+**Source tables confirmed nonempty (at least one row; exact row count and content are NOT known):**
+- `runner3-content-intelligence`: `link_interest_events`, `workflow_state`.
+- `runner3-core`: `artifact_library_auth`, `artifact_library_magic_links`, `checkpoints`, `d1_migrations`, `delivery_permalinks`, `events`, `r2_receipts`, `typed_kv`, `vps_mailbox_jobs`, `workflow_state`.
+
+**Foreign keys in reconstructed `runner3-content-intelligence` source schema (all three are on tables ALREADY present at target):**
+- `content_features` → `content_items`, `ON DELETE CASCADE`.
+- `content_scores` → `content_items`, `ON DELETE CASCADE`.
+- `user_content_events` → `content_items`, `ON DELETE CASCADE`.
+
+`runner3-core` has zero declared FKs. **None of the 15 source-only missing tables is the parent or child of those three source-declared FKs**. This removes a DDL topological blocker in *empty scratch SQLite* but does not validate uniqueness, dependent triggers on populated targets, application referential consistency, or row copying order.
+
+### Required migration treatment — policy, not automatic permission
+
+- **Schema-only candidates:** three source-empty tables can be considered for CREATE-only staging, provided a fresh source check, target-empty/absence identity check and tested recovery are performed immediately before any actual DDL. Do not equate a source-empty snapshot with permanently empty tables.
+- **Data-backed candidates:** 12 source-nonempty tables require bounded keyed row reconciliation, source/target create-definition/constraint verification, append-only or explicit conflict policy, and handling of changes while copying.
+- **High-risk authentication/session state:** `artifact_library_auth`, `artifact_library_magic_links` must not be blindly migrated as live credentials or session links; require deliberate invalidate/reissue/preserve policy and leakage safeguards. `artifact_library_pin_attempts` is empty only at this snapshot.
+- **Operational state and history:** `d1_migrations`, `workflow_state`, `vps_mailbox_jobs` require single-owner replay/idempotency and source authority decisions. Never automatically replay jobs or copy migration history.
+- **R2-related metadata:** `r2_receipts` is nonempty and may encode external R2 references; remains separately subject to `CLOUDFLARE-R2-COST-001 HOLD` and its explicit operation-cost budget.
+- **Triggers and remaining objects:** One missing trigger is verified locally as CREATE-only but **has never fired on a populated target**; 23 missing indexes have not been checked for unique-key conflicts against populated target rows.
+
+GitHub Actions Secret metadata rechecked after these runs: `CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW` and `CLOUDFLARE_TARGET_D1_WRITE_TOKEN` present; **`CLOUDFLARE_TARGET_PREAPPLY_BOOKMARK` still absent**. No validated immediately-pre-apply recovery/restore capability. External writer quiescence, full source/target keyed row/content/delete parity and authorization are missing. **DO NOT schedule or run live DDL, row INSERT, restore, Worker cutover or R2 operations; production migration remains HOLD.**
+
+
 ## All 39 source-pinned missing CREATE DDL — isolated empty SQLite rehearsal PASS (2026-10-27)
 
 [Dispatch-only isolated replay #40388871787](https://github.com/louisalviss/runner-3/actions/runs/40388871787) on merged [PR #481](https://github.com/louisalviss/runner-3/pull/481) **PASS**. Uses the verified NEW Cloudflare target read-only Audit Secret plus independent source read-only token. Re-ran the existing source-pinned exact-six DDL capture and independently checked the 33 source-fingerprint-pinned CREATE candidates from versioned repository input. Both current target database identities and their schema metadata were checked via Cloudflare API without row content or any schema/data write. Candidate raw SQL existed **only in transient GitHub Action memory**; no raw CREATE SQL was stored in the artifact or log.
