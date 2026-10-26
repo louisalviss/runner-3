@@ -28,8 +28,23 @@ class TestIsolatedReplay(unittest.TestCase):
         self.assertEqual(result["simulated_create_count"],3)
         self.assertEqual(result["source_object_count"],4)
         self.assertEqual(result["foreign_key_constraints"],1)
+        self.assertEqual(result["foreign_key_edges"],[
+            {"from_table":"audit","to_table":"common",
+             "on_delete":"NO ACTION",
+             "from_table_missing_on_target":True,
+             "to_table_missing_on_target":False}
+        ])
         self.assertFalse(result["target_existing_row_constraints_tested"])
         self.assertFalse(result["source_d1_row_parity_proven"])
+
+    def test_missing_fk_parent_fails_closed(self):
+        src=self.source.copy()
+        src[("table","audit")]=src[("table","audit")].replace(
+            "REFERENCES common(id)","REFERENCES ghost(id)")
+        candidate=self.candidate.replace(
+            "REFERENCES common(id)","REFERENCES ghost(id)")
+        with self.assertRaises(m.Hold):
+            m.replay(self.target,src,candidate)
 
     def test_empty_and_invalid_dangerous_statements_rejected(self):
         for script in (
