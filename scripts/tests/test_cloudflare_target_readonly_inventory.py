@@ -43,7 +43,8 @@ assert x["d1_schema_row_parity_verified"] is False
 assert x["worker_code_deployment_parity_verified"] is False
 assert x["cutover_ready"] is False and x["r2_operations"] == 0
 assert x["all_worker_settings_verified"] and x["all_worker_cron_verified"]
-assert x["worker_census_consistent"] is True and x["worker_census_state"] == "BOTH_LISTS_MATCH"
+assert x["worker_census_consistent"] is True
+assert x["alternative_worker_list_http_code"] is None and x["worker_census_state"] == "BOTH_LISTS_MATCH"
 assert x["historical_target_d1_uuid_matches_live"]["runner3-core"] is True
 assert x["historical_target_d1_uuid_matches_live"]["clm-copilot-calibration"] is False
 assert x["target_workers_zero_verified"] is False
@@ -138,6 +139,9 @@ with patch.object(m,"get",side_effect=alt_denied):
     denied = m.read_inventory("fake-only-target-read-scope-token")
 assert denied["worker_census_state"] == "ALTERNATE_WORKERS_LIST_UNAVAILABLE"
 assert denied["alternative_worker_count"] is None
+assert denied["alternative_worker_list_http_code"] == 403
+assert "fake-only-target-read-scope-token" not in str(denied)
+
 assert not denied["all_worker_settings_verified"]
 print("PASS alternative endpoint denied never reports complete Worker census")
 
@@ -150,5 +154,6 @@ def alt_truncated(token,path):
 with patch.object(m,"get",side_effect=alt_truncated):
     truncated = m.read_inventory("fake-only-target-read-scope-token")
 assert truncated["worker_census_state"] == "ALTERNATE_WORKERS_LIST_INCOMPLETE_PAGE"
+assert truncated["alternative_worker_list_http_code"] is None
 assert not truncated["worker_census_consistent"]
 print("PASS paginated Worker API truncation is rejected")
