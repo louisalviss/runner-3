@@ -1,5 +1,28 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
+## Live 39-object schema gap decomposition — 2026-10-27 (latest, READ-ONLY)
+
+[Source/target D1 schema diff #40384015167](https://github.com/louisalviss/runner-3/actions/runs/40384015167) completed **PASS** after [PR #477](https://github.com/louisalviss/runner-3/pull/477) (8 offline unit tests PASS independently, 0 D1 writes, 0 R2 requests). Source and target both have 9 D1; 8 names shared, 6 shared schema-identical. Source-only `clm-copilot-calibration` and target-only `louis-context-index` remain preserved pending independent owner/retention review.
+
+The **39 source-only schema objects** are classified using live `sqlite_master` metadata (SQL definitions were compared but **not published**):
+
+| Target database with incomplete schema | Missing tables | Missing indexes | Missing triggers | Missing views | Total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `runner3-content-intelligence` | 3 | 14 | 1 | 0 | 18 |
+| `runner3-core` | 12 | 9 | 0 | 0 | 21 |
+| **Total** | **15** | **23** | **1** | **0** | **39** |
+
+Tables missing on target, **names only**:
+- `runner3-content-intelligence`: `checkpoints`, `link_interest_events`, `workflow_state`.
+- `runner3-core`: `artifact_library_auth`, `artifact_library_magic_links`, `artifact_library_pin_attempts`, `checkpoints`, `d1_migrations`, `delivery_permalinks`, `ebook_reader_trace_v113`, `events`, `r2_receipts`, `typed_kv`, `vps_mailbox_jobs`, `workflow_state`.
+
+**Safety and implementation order:** This is a schema-only census. No table counts, PK-based row digests, deletions, FK dependencies, trigger semantics, schema application or data reconciliation were established by this run. Some table names imply authentication or migration bookkeeping; name-based classification alone cannot establish retention or copy authorization. Verify **source-exact DDL plus table PK/constraints and indexes**, separately review credential-related and migration-history tables, validate dependencies in isolated SQLite, then construct additive-only DDL and independent keyed row reconciliation. A trigger must not be enabled before examining how it affects copied or preexisting rows. Do not automatically recreate all 39 objects from names.
+
+Target Worker read-only binding census #40377262061 proves no *deployed target Worker* binds `runner3-content-intelligence`, but does not eliminate external token/API clients. On VPS, an additional read-only configuration scan on 2026-10-27 checked six relevant services, resolved two service EnvironmentFiles (without printing values), and found source Worker/account references but no literal target account UUID, target D1 UUID, or target Worker address. This is **negative static evidence only**: dynamically loaded settings and other clients remain possible writers. Do not set `target_writers_quiesced=YES` from these findings.
+
+**Production readiness remains HOLD**: `CLOUDFLARE_TARGET_PREAPPLY_BOOKMARK` GitHub Secret absent when last checked; authorized usable escrow + tested recovery unproven; full-account row/delete/tombstone parity missing; R2 cost HOLD. No D1 writes or Worker deployments, no source/target deletion or cutover.
+
+
 ## Target live D1 Worker binding attribution — 2026-10-27 (latest; migration HOLD)
 
 **New result: complete read-only Worker-to-D1 attribution for the target account**. [Workflow #40377262061](https://github.com/louisalviss/runner-3/actions/runs/40377262061), after [PR #475](https://github.com/louisalviss/runner-3/pull/475) merged on main. The workflow uses scoped `CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW`; both Worker lists show 6 matching Workers, all settings/schedules read successfully, target has 9 matching historical D1 identities. Zero cron schedules. It matches physical D1 binding IDs only in memory against the same **live target** D1 UUID map and publishes target D1 **names only**, no UUID or raw binding/secret.
