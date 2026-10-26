@@ -1,0 +1,38 @@
+name: Cloudflare D1 Source Missing Tables Primary Keys (Read Only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-d1-source-missing-table-pk-readonly
+  cancel-in-progress: false
+
+jobs:
+  source-missing-table-pk:
+    if: ${{ github.repository == 'louisalviss/runner-3' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run fail-closed synthetic tests without secrets
+        run: |
+          python3 -m py_compile scripts/cloudflare_d1_source_missing_table_pk_readonly.py
+          PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_source_missing_table_pk_readonly.py' -v
+      - name: Inspect SOURCE primary-key metadata (PRAGMA only)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: python3 scripts/cloudflare_d1_source_missing_table_pk_readonly.py
+      - name: Upload sanitized table PK counts only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-d1-source-missing-tables-pk-readonly
+          path: migration-out/d1-source-missing-tables-pk-readonly.json
+          if-no-files-found: error
+          retention-days: 3
