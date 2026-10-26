@@ -32,7 +32,7 @@ def table_sql(name):
 def request(token,path,payload=None):
     require(type(token) is str and len(token)>=16,"MISSING_SOURCE_AUDIT_TOKEN")
     inventory=path=="/d1/database?per_page=100&page=1" and payload is None
-    bounded_query=bool(re.fullmatch(r"/d1/database/"+UUID.pattern[0:-1]+r"/query",path))
+    bounded_query=bool(re.fullmatch(r"/d1/database/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/query",path))
     if not inventory:
         require(bounded_query and type(payload) is dict and
                 set(payload)=={"sql"} and payload["sql"] in {
