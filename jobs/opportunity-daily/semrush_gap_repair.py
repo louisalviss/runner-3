@@ -16,7 +16,7 @@ COOLDOWN=pathlib.Path('/var/lib/semrush-research/config/provider-rate-limit.json
 TZ=ZoneInfo('Asia/Ho_Chi_Minh')
 FIRST=datetime.date(2026,10,18)
 DAY_CAP=25
-WINDOW_DAYS=7
+WINDOW_DAYS=14
 
 def read(path):
     try:return json.loads(path.read_text(encoding='utf8'))
@@ -58,6 +58,18 @@ def eligible(day):
     accepted=('NOX_DASHBOARD_CHALLENGE','SEMRUSH_LIVE_AUTH_UNAVAILABLE','NOX_LOGIN_CHALLENGE','NOX_LOGIN_REQUIRED','SEMRUSH_AUTO_RECOVERY_FAILED','Session expired')
     if sr.get('status')=='BLOCKED' and any(m in reason for m in accepted):
         return {'day':day,'mode':'EXPORT_THEN_SERP','shortlist':len(items),'reason':'PROVIDER_AUTH'}
+    # Some historic exports partially succeeded before a transient broker error.
+    # Reuse their cached exports and retry only the failed domains; never auto-
+    # retry quota/report-limit responses, whose repeated calls could violate caps.
+    if sr.get('status')=='PARTIAL':
+        failed=[x for x in sr.get('items') or [] if x.get('status')!='PASS']
+        transient=('SEMRUSH_BROKER_RUNTIME_ERROR','Something went wrong. Please try again.',
+                   'PROFILE_LAUNCH_TIMEOUT','SEMRUSH_RESOURCE_ADMISSION_DENIED')
+        quota=('Limits exceeded','SEMRUSH_RATE_LIMIT','SEMRUSH_REPORT_LIMIT','BLOCKED_QUOTA_LIMIT','Report limit reached')
+        if failed and len(failed)<=5 and all(any(t in str(x.get('reason') or '') for t in transient)
+                                            and not any(q in str(x.get('reason') or '') for q in quota)
+                                            for x in failed):
+            return {'day':day,'mode':'EXPORT_THEN_SERP','shortlist':len(items),'reason':'PARTIAL_TRANSIENT_ONLY'}
     if sr.get('status')=='PASS' and te.get('status')!='PASS':
         return {'day':day,'mode':'SERP_ONLY','shortlist':len(items),'reason':'TERMINAL_NOT_PASS'}
     return None
