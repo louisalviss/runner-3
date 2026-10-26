@@ -69,21 +69,21 @@
       "seeded_vn_date": "2026-10-09"
     },
     "SPACEX|AI_CHIP_FINANCING|2026": {
-      "label": "SpaceX CEO confirms $40B GPU debt financing closed, moving October 6 negotiations to CEO-reported completion",
-      "primary_entity": "SpaceX",
-      "underlying_actual_event": "CEO Elon Musk publicly stated on October 25 US time that the previously reported $40 billion GPU debt financing had closed; distinct material phase from October 6 negotiations and October 23 reports of pricing difficulties.",
-      "named_deal": "SpaceX $40 billion Nvidia GPU purchase debt financing",
-      "material_update_key": "OCT25_2026_MUSK_DIRECT_STATEMENT_40B_GPU_DEBT_FINANCING_CLOSED|PREVIOUS_OCT6_ONLY_TALKS|CALLABLE_GPU_DEBT_Q1_Q2_2027_DELIVERY|NO_LENDER_TERMS_OR_DRAWN_AMOUNT_VERIFIED",
-      "last_verified_source_url": "https://www.reuters.com/business/media-telecom/musk-says-spacex-raised-40-billion-debt-gpus-2026-10-25/",
+      "label": "SpaceX SEC 8-K corrects earlier $40B financing-close claim: binding Apollo GPU finance-lease commitment, master lease not closed",
+      "primary_entity": "Space Exploration Technologies Corp. (SpaceX)",
+      "underlying_actual_event": "Same $40B GPU financing narrative: Oct 26 SEC 8-K discloses an Oct 24 binding commitment letter with an Apollo-managed lessor, not an executed master finance lease or completed $40B debt raise. This independently verified material clarification supersedes the CEO's Oct25 broad statement that the financing was closed.",
+      "named_deal": "SpaceX–Apollo $40B aggregate GPU finance-lease principal commitments",
+      "material_update_key": "OCT26_2026_SEC_8K_PUBLIC_FILING_OCT24_BINDING_COMMITMENT|APOLLO_GPU_FINANCE_LEASE_NOT_CLOSED|USD40B_AGGREGATE_PRINCIPAL_PAYMENTS_OVER_LEASE_TERMS_NOT_CASH_RAISED|5_TO_5_25_YEAR_TRANCHES|RATE_PRICING_UNSET|CLOSING_EXPECTED_BY_END_2026|MATERIAL_CORRECTION_TO_PRIOR_CEO_CLOSED_CLAIM",
+      "last_verified_source_url": "https://www.sec.gov/Archives/edgar/data/1181412/000110465926118614/tm2628247d1_8k.htm",
       "supporting_prior_phase_url": "https://www.reuters.com/business/media-telecom/spacex-seeks-40-billion-buy-nvidia-chips-ft-reports-2026-10-06/",
       "supporting_primary_prior_balance_sheet_url": "https://www.sec.gov/Archives/edgar/data/1181412/000162828026066880/spcx-20260930.htm",
-      "source_event_date": "2026-10-25",
+      "source_event_date": "2026-10-24",
       "source_event_date_vn": "2026-10-26",
-      "source_event_time_vn": null,
+      "source_event_time_vn": "2026-10-26T19:00:00+07:00",
       "source_report_time_vn": "2026-10-26T03:05:00+07:00",
-      "source_event_time_note": "Exact clock time of CEO X post and legal closing not verified; Reuters directly quoted CEO and published at 2026-10-25T20:05:00Z = 2026-10-26T03:05+07. Date October 26 VN refers to first verified report, not an invented legal closing timestamp.",
-      "notified_at_vn": "2026-10-26T04:04:05.887+07:00",
-      "provenance": "Reuters_direct_verification_of_CEO_first_person_X_statement; SEC Sep30 balance sheet confirms earlier debt only, not new closing",
+      "source_event_time_note": "Underlying binding commitment letter signed Oct24 US local (clock time unknown). SEC filing accepted Oct26 at 08:00 EDT = 19:00 VN, when this material legal clarification became public. Not a claim of deal closing.",
+      "notified_at_vn": "2026-10-26T20:22:49+07:00",
+      "provenance": "SpaceX_signed_CFO_SEC_8K_primary_plus_Reuters_independent_Oct26",
       "status": "notification_precommitted",
       "delivery_status": "pending_actual_delivery",
       "prior_notification_memory": {
@@ -94,7 +94,18 @@
         "material_update_key": null,
         "seeded_vn_date": "2026-10-09"
       },
-      "evidence_note": "Standalone 8.6/10 new completed-financing phase. Reuters Oct6 documented $40B talks; Bloomberg Oct23 pricing obstacles; Musk now says closed. Callable debt for GPUs arriving Q1/Q2 2027. CEO statement not yet corroborated by closing documents, lender terms, debt draw, or GPU delivery. Not $40B realized revenue and not proof all chips installed. D1 regime unchanged, no heartbeat."
+      "evidence_note": "9.2/10 material factual correction/new verified disclosure, not a second $40B deal. SEC says binding commitment to future master finance lease, closing subject to conditions expected by year-end; $40B is aggregate principal payments over 5-5.25-year tranche leases, fixed financing rate to be set later; GPU delivery H1 2027. Prior Oct25 CEO/Reuters headline 'closed $40B in debt financing' must not be read as proof that this master lease is closed or $40B cash has been disbursed. No D1 state change.",
+      "verified_material_phase_history": [
+        {
+          "material_update_key": "OCT25_2026_MUSK_DIRECT_STATEMENT_40B_GPU_DEBT_FINANCING_CLOSED|PREVIOUS_OCT6_ONLY_TALKS|CALLABLE_GPU_DEBT_Q1_Q2_2027_DELIVERY|NO_LENDER_TERMS_OR_DRAWN_AMOUNT_VERIFIED",
+          "last_verified_source_url": "https://www.reuters.com/business/media-telecom/musk-says-spacex-raised-40-billion-debt-gpus-2026-10-25/",
+          "notified_at_vn": "2026-10-26T04:04:05.887+07:00",
+          "status": "notification_precommitted",
+          "delivery_status": "pending_actual_delivery",
+          "source_event_date": "2026-10-25"
+        }
+      ],
+      "independent_reporting_url": "https://www.reuters.com/business/media-telecom/spacex-enters-40-billion-deal-with-apollo-ai-chip-financing-2026-10-26/"
     },
     "UPSCALE_AI|TOKEN_FABRIC|LAUNCH": {
       "label": "Upscale AI Token Fabric announcement",
@@ -2076,6 +2087,40 @@
         "META_PLATFORMS|Q3_2026_EARNINGS_CAPEX_CLASS_C|OCT21_2026"
       ],
       "evidence_note": "Standalone 9.3/10. New actual launch of concurrent underwritten offerings is distinct from October 21 Class C recapitalization and capex disclosure. $35B offering not closed or proceeds realized; forward sellers initially deliver shares without Meta receiving proceeds until later settlement. $60B ATM is only planned, no agreement signed or sales. Nvidia/AMD/Broadcom indicated nonbinding interest up to $5B in aggregate; not committed or bought. 2026 capex guidance $135B-$145B and Q3 FCF -$2.12B previously disclosed; not new separate events. No D1 macro state change. X feeder candidates not primary evidence."
+    },
+    "ANTHROPIC|CATHEDRAL_AUTHORIZED_SECURITY_TEST|OCT26_2026_THIRD_PARTY_SALES_HR_IT_ACCESS_DISCLOSURE": {
+      "label": "Anthropic confirms Cathedral researchers accessed limited sales/HR/IT data via third-party software in authorized testing",
+      "primary_entity": "Anthropic and Cathedral cybersecurity researchers",
+      "underlying_actual_event": "October 26 Washington Post first public disclosure of Cathedral's earlier October authorized vulnerability-disclosure exercise, with direct Anthropic statement confirming limited business-system access and remediation.",
+      "named_security_incident": "Cathedral third-party business software vulnerability-disclosure access to Anthropic internal systems",
+      "material_update_key": "OCT26_2026_WAPO_FIRST_DISCLOSURE|CATHEDRAL_AI_AGENT_TEST_LT12H|ANTHROPIC_CONFIRMS_LIMITED_SALES_HR_IT_ACCESS|SOME_CUSTOMER_CONTACT_AND_BASIC_ACCOUNT_RECORDS|NO_MODEL_WEIGHTS_SOURCE_CODE_CUSTOMER_CHAT_ACCESS|MONITORING_DETECTED_SOME_ACTIVITY|VENDOR_PATHS_PATCHED",
+      "last_verified_source_url": "https://www.washingtonpost.com/technology/2026/10/26/researchers-cybersecurity-start-up-cathedral-got-inside-anthropic/",
+      "source_event_date": "2026-10-26",
+      "source_event_time_vn": "2026-10-26T12:00:00+07:00",
+      "source_event_time_note": "Washington Post publication Oct26 01:00 EDT = 12:00 VN. Underlying authorized test disclosed earlier in October; exact testing date/time not publicly verified.",
+      "notified_at_vn": "2026-10-26T20:22:49+07:00",
+      "provenance": "Washington_Post_original_Cathedral_report_review_plus_Anthropic_direct_statement_plus_independent_expert_Alex_Stamos_review",
+      "status": "notification_precommitted",
+      "delivery_status": "pending_actual_delivery",
+      "evidence_note": "8.8/10 major AI supply-chain security finding. Authorized disclosure testing, not proof of malicious breach or theft. Anthropic confirmed limited sales/HR/IT records; no evidence of outsider exploitation, no model weights, code or customer conversations accessed. Vendor names withheld. No crypto quantum linkage."
+    },
+    "EQT_RANGE_RESOURCES|DEFINITIVE_ALL_STOCK_MERGER|OCT25_26_2026": {
+      "label": "EQT signs definitive ~$12.83B all-stock acquisition of Range Resources, creating largest US gas producer",
+      "primary_entity": "EQT Corporation and Range Resources Corporation",
+      "underlying_actual_event": "October 25 2026 board-approved definitive merger agreement between EQT and Range, publicly filed and jointly announced October 26; closing subject to shareholder/regulatory approvals.",
+      "named_deal": "EQT–Range Resources definitive merger agreement",
+      "material_update_key": "OCT25_2026_DEFINITIVE_MERGER_SIGNED_PUBLIC_OCT26|ALL_STOCK_0_987_EQT_PER_RANGE_SHARE|USD12_83B_EQUITY_VALUE|PRO_FORMA_EV_GT50B|COMBINED_PRODUCTION_GT9_BCFE_PER_DAY|325M_ANNUAL_SYNERGIES_TARGET|Q1_2027_CLOSE_PENDING_APPROVALS",
+      "last_verified_source_url": "https://www.sec.gov/Archives/edgar/data/33213/000121390026112242/ea0309601-8k425_eqtcorp.htm",
+      "independent_reporting_url": "https://www.reuters.com/business/eqt-buy-range-resources-over-50-billion-deal-2026-10-26/",
+      "source_event_date": "2026-10-25",
+      "source_event_date_vn": "2026-10-26",
+      "source_event_time_vn": "2026-10-26T17:10:00+07:00",
+      "source_event_time_note": "Definitive agreement signed Oct25 US local; exact signature clock unknown. Reuters first reviewed report Oct26 10:10 UTC = 17:10 VN. This is source report time, not merger signing time.",
+      "notified_at_vn": "2026-10-26T20:22:49+07:00",
+      "provenance": "EQT_original_SEC_8K_definitive_agreement_plus_Reuters_independent",
+      "status": "notification_precommitted",
+      "delivery_status": "pending_actual_delivery",
+      "evidence_note": "8.9/10 signed material US gas consolidation. ~USD12.83B all-stock equity value, >USD50B combined EV, >9 Bcfe/d, 0.987 exchange ratio, 20.6% premium to prior Range close; $325M annual synergies and $20B 5-year FCF are company projections, not realized. Q1 2027 closing subject to shareholder and regulatory approval; no immediate energy output jump. Macro D1 unchanged."
     }
   }
 }
