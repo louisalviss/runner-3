@@ -12,7 +12,7 @@ EXPORTER=pathlib.Path('/opt/dhs-control/executors/semrush_dpa_export.py')
 PYTHON='/opt/chatgpt-bridge/venv/bin/python'
 TLD=r'(?:com|net|org|io|co|app|ai|site|us|info|pro|dev|me|xyz)'
 DOM=re.compile(r'(?<![\w.])((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+'+TLD+r')(?![\w.-])',re.I)
-BLOCK_MARKERS=('SEMRUSH_LIVE_AUTH_UNAVAILABLE','NOX_LOGIN_CHALLENGE','NOX_LOGIN_FORM_MISSING','SEMRUSH_HUMAN_HANDOFF_ACTIVE','SEMRUSH_RATE_LIMIT','NOX_CREDENTIALS_INVALID')
+BLOCK_MARKERS=('SEMRUSH_LIVE_AUTH_UNAVAILABLE','NOX_LOGIN_CHALLENGE','NOX_DASHBOARD_CHALLENGE','NOX_LOGIN_REQUIRED','NOX_LOGIN_FORM_MISSING','SEMRUSH_HUMAN_HANDOFF_ACTIVE','SEMRUSH_RATE_LIMIT','SEMRUSH_RESOURCE_ADMISSION_DENIED','NOX_CREDENTIALS_INVALID')
 
 def domain_from_verified_listing(row, deep):
     if row.get('verified_detail') is not True:return None
