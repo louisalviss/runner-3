@@ -22,7 +22,9 @@ def sourcehash(p):
  except OSError:return None
 
 def audit():
- today=datetime.datetime.now(TZ).date();end=today
+ now=datetime.datetime.now(TZ)
+ # Do not count today's future 08:05/09:15/10:00 jobs as missing before audit time.
+ end=now.date() if now.hour>=10 else now.date()-datetime.timedelta(days=1)
  days=[];pending=[];dd=[];missing_flippa=[]
  totals=Counter();dates=[]
  for n in range((end-FIRST).days+1):
@@ -48,9 +50,12 @@ def audit():
   flippa_ok=bool(flippa.get('recent_done') is True and len(set(flippa.get('recent_ids') or []))==500 and flippa.get('first_done') is True)
   if not flippa_ok:missing_flippa.append(day)
   if not sem_ok:
+   bydomain={str(i.get('domain') or '').lower():i for i in sem.get('items') or []}
    for item in candidates:
     domain=str(item.get('domain') or '').lower()
-    pending.append({'day':day,'domain':domain,'reason':sem.get('global_blocker') or sem.get('status') or 'MISSING','seo_source_sha256':sourcehash(qpath)})
+    result=bydomain.get(domain) or {}
+    if result.get('status')=='PASS':continue
+    pending.append({'day':day,'domain':domain,'reason':result.get('reason') or sem.get('global_blocker') or sem.get('status') or 'MISSING','seo_source_sha256':sourcehash(qpath)})
   for x in qualification.get('candidates') or []:
    if x.get('category') in ('BUILD_DD','BUY_DD','DUAL_DD'):
     ev=x.get('evidence') or {}
@@ -65,7 +70,7 @@ def audit():
  backlog=j(O/'flippa-backlog-current.json')
  ddc=Counter(x['category'] for x in dd)
  status='PASS' if not pending and not missing_flippa and all(x['acceptance']=='PASS' for x in days) else 'UNRESOLVED_GAPS'
- summary={'scope_start':FIRST.isoformat(),'scope_end':end.isoformat(),'days_checked':len(days),'scanned':totals['discovery_scanned'],'source_days_complete':totals['source_days_complete'],'semrush_serp_pass_days':totals['provider_days_complete'],'flippa_pass_days':totals['flippa_days_complete'],'acceptance_pass_days':totals['acceptance_pass_days'],'semrush_pass_shortlists':sum(x['semrush_pass_count'] for x in days if x['semrush']=='PASS'),'unique_unprocessed_domains':len({x['domain'] for x in pending}),'unprocessed_domain_rows':len(pending),'dd_pending_items':len({x['identity'] for x in dd}),'dd_categories':dict(ddc),'flippa_missing_days':missing_flippa,'cumulative_flippa_active':backlog.get('active_count'),'cumulative_flippa_closed_historical':backlog.get('closed_historical_count'),'last_verified_flippa_recent':backlog.get('last_scoped_recent_scan'),'full_inventory_observation':backlog.get('last_full_inventory_observation'),'cannot_reconstruct_expired_flippa_recent_windows':bool(missing_flippa)}
+ summary={'scope_start':FIRST.isoformat(),'scope_end':end.isoformat(),'days_checked':len(days),'scanned':totals['discovery_scanned'],'source_days_complete':totals['source_days_complete'],'semrush_serp_pass_days':totals['provider_days_complete'],'flippa_pass_days':totals['flippa_days_complete'],'acceptance_pass_days':totals['acceptance_pass_days'],'semrush_pass_shortlists':sum(x['semrush_pass_count'] for x in days),'unique_unprocessed_domains':len({x['domain'] for x in pending}),'unprocessed_domain_rows':len(pending),'dd_pending_items':len({x['identity'] for x in dd}),'dd_categories':dict(ddc),'flippa_missing_days':missing_flippa,'cumulative_flippa_active':backlog.get('active_count'),'cumulative_flippa_closed_historical':backlog.get('closed_historical_count'),'last_verified_flippa_recent':backlog.get('last_scoped_recent_scan'),'full_inventory_observation':backlog.get('last_full_inventory_observation'),'cannot_reconstruct_expired_flippa_recent_windows':bool(missing_flippa)}
  ledger={'schema':'acquisition-gap-ledger-v1','generated_at':datetime.datetime.now(TZ).isoformat(),'status':status,'summary':summary,'daily':days,'pending_semrush':pending,'historical_dd_candidates':dd,'limits':{'source_traffic_not_new_site_forecast':True,'seller_metrics_not_audited':True,'historical_listings_not_guaranteed_live':True,'unobserved_inventory_not_proven_empty':True,'no_social_check':True,'no_purchase_or_build_authorized':True}}
  output=O/('gap-ledger-'+end.isoformat()+'.json')
  temp=output.with_suffix('.json.tmp');temp.write_text(json.dumps(ledger,ensure_ascii=False,indent=2)+'\n');temp.replace(output)
