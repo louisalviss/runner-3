@@ -1,5 +1,43 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
+## Consolidated account-wide audit — 2026-10-26 evening (latest)
+
+**Outcome: SAFE_READ_ONLY_AUDIT_COMPLETE / ACCOUNT_MIGRATION_HOLD.** User requested end-to-end execution in one pass, not a sequence of repeated dry-runs. Safe, authorized diagnostic workflows were run together. No Cloudflare D1 INSERT/DELETE/RESTORE, Worker deploy, Worker disable, R2 operation or source cutover was performed.
+
+### Fresh authenticated evidence (main)
+
+- [Cross-account 9-D1 schema comparison #40324195505](https://github.com/louisalviss/runner-3/actions/runs/40324195505): 9 D1 databases source and 9 target; 8 shared names. **6/8 shared databases have identical sqlite_master object names/types and CREATE SQL**, but **NO row/key/content/deletion parity proof**:
+  - `clm-copilot-v1`: 4/4 object parity PASS.
+  - `louis-task-context`: 4/4 PASS.
+  - `personal-library`: 26/26 PASS.
+  - `runner3-opportunity-radar`: 21/21 PASS.
+  - `runner3-rss`: 31/31 PASS.
+  - `volamidle-rogue-data`: 4/4 PASS.
+  - `runner3-content-intelligence`: 27 source / 9 target; **18 source-only schema objects absent on target**, no target-only objects or changes to common CREATE SQL.
+  - `runner3-core`: 22 source / 1 target; **21 source-only objects absent on target**, no target-only objects or changes to common CREATE SQL.
+  - Total missing source-side schema objects in the two shared D1s: **39**. This is schema inventory, **not** 39 rows or safe-to-apply DDL.
+  - Source-only named DB: `clm-copilot-calibration`; target-only named DB: `louis-context-index`. Do not conflate or silently drop either.
+- [Source nine-schema encrypted audit #40322914590](https://github.com/louisalviss/runner-3/actions/runs/40322914590): PASS; source metadata encrypted artifact, no plaintext DDL/row export.
+- [Target nine-schema encrypted audit #40322929050](https://github.com/louisalviss/runner-3/actions/runs/40322929050): PASS; target metadata encrypted artifact.
+- [Target Worker read-only inventory #40323345810](https://github.com/louisalviss/runner-3/actions/runs/40323345810), with sanitized diagnostic from PR #470: 9 target D1 UUIDs match their historical identities; legacy /workers/scripts gives 0, **independent /workers/workers returns HTTP 403**. Thus `target_workers_zero_verified=false`, binding/cron/Worker permissions unverified. **Workers Metadata Read-Only / Workers Scripts Read** permission for account `louisalviss3` is required for a reliable census; do not substitute source/global credentials.
+- [Target bookmark encryption #40322947069](https://github.com/louisalviss/runner-3/actions/runs/40322947069): PASS. The one-day **ciphertext-only** artifact expires 2026-10-27T12:29:52Z. A successful encrypted artifact **does not mean recoverable private key escrow was tested or the GitHub Secret installed**. Previous private-key decryption/install path was caller-side blocked: no circumvention.
+- [Target Time Travel GET #40321609830](https://github.com/louisalviss/runner-3/actions/runs/40321609830): PASS, not rollback-ready.
+- [Reversible read-only D1 table rehearsal #40321583016](https://github.com/louisalviss/runner-3/actions/runs/40321583016): source 47, target 35, 12 source-only rows, matching 35, 0 conflicts; insert and row-safe reverse rehearsal in ephemeral SQLite restored 35/35, never applied to Cloudflare. This is **one table only**, not full-account row parity, source writer quiescence, or production rollback proof.
+- GitHub Actions secret metadata as of 2026-10-26: `CLOUDFLARE_TARGET_D1_WRITE_TOKEN` present, `CLOUDFLARE_TARGET_PREAPPLY_BOOKMARK` absent.
+- Source Worker config in `cloudflare/runner3-core/wrangler.jsonc` still binds `CONTENT_DB` to source D1, not target. VPS `library-index-d1-sync.service` uses source Worker URL. This narrows obvious writers but **does not prove target has no other writers**.
+- R2 migration operation gate `ops/cloudflare-account-rehome/r2-migration-operation-gate.json` remains `HOLD`, `permit_r2_migration=false`. No R2 requests made in these D1 audits.
+
+### Consolidated remaining external dependencies — do not start target D1 writes
+
+1. Owner must grant appropriate **target-account Workers Metadata Read-Only or Workers Scripts Read** to an authorized *read-only* Workers inventory identity. Current target D1 audit token gets HTTP 403 from the independently documented Worker list endpoint. Do not assume a zero-worker count from incomplete API results. Re-run one full census after authorization to identify Worker bindings/crons/traffic and independently establish a bounded quiescence plan.
+2. A currently **unblocked, authorized private escrow** must preserve an immediately-pre-write Time Travel bookmark in `CLOUDFLARE_TARGET_PREAPPLY_BOOKMARK` and independently verify usable restoration. An encrypted, expiring artifact alone is insufficient. No retry via alternate wrappers to evade the prior caller-side block.
+3. Construct/review **source-exact and additive-only** DDL for the 39 missing objects, validate every dependency/constraint/uniqueness against populated target and source, preserve target-only data and source production. No bulk target DDL apply until backups/rollback, quiescence, actual row parity and approvals are ready.
+4. Independently reconcile full keyed row payloads, source-only and target-only keys plus delete/tombstones on all databases. The schema-matched six are **not** data-matched merely from identical CREATE statements.
+5. R2 remains `CLOUDFLARE-R2-COST-001 HOLD` until the residual PUT cost issue, bounded request budget and explicit release are resolved. Never treat user request to execute general migration as a verified cost-gate release.
+6. Only then stage Workers privately, test bindings/schedules, perform separately approved bounded cutover and preserve source until checks pass. The guarded 12-row D1 INSERT workflow still requires same actor/SHA recent Dry-Run, exact phrase and honestly verified YES recovery/quiescence; do not fabricate these flags.
+
+**No more re-running identical 47/35/12 dry-runs without a new prerequisite being fulfilled.** The next decisive operations are permissioned target Worker metadata census and an authorized recovery-secret installation, not a token-creation loop.
+
 ## Current evidence — 2026-10-26 (supersedes historical token claims below)
 
 **Decision: HOLD.** No live D1 INSERT/DELETE/RESTORE, no R2 operation, no production cutover has been authorized or executed by this migration workflow.
