@@ -48,6 +48,10 @@ assert x["alternative_worker_list_http_code"] is None and x["worker_census_state
 assert x["historical_target_d1_uuid_matches_live"]["runner3-core"] is True
 assert x["historical_target_d1_uuid_matches_live"]["clm-copilot-calibration"] is False
 assert x["target_workers_zero_verified"] is False
+assert x["worker_d1_binding_attribution_complete"] is False
+assert x["recommendation_runs_db_worker_binding_absent_verified"] is False
+assert x["target_nonworker_writers_excluded"] is False
+assert x["writer_quiescence_proven"] is False
 flat=str(x)
 assert "NEVER_LOG_THIS_SECRET" not in flat
 assert "DO_NOT_SERIALIZE_DB_ID" not in flat
@@ -157,3 +161,50 @@ assert truncated["worker_census_state"] == "ALTERNATE_WORKERS_LIST_INCOMPLETE_PA
 assert truncated["alternative_worker_list_http_code"] is None
 assert not truncated["worker_census_consistent"]
 print("PASS paginated Worker API truncation is rejected")
+
+# Test live TARGET D1 UUID-to-name binding attribution. Never output UUIDs.
+def known_binding(token,path):
+    result = fake_get(token,path)
+    if path.endswith("/settings"):
+        result = {"success":True,"result":{"bindings":[
+            {"type":"d1","name":"DB","id":"477fc6b8-4dec-4e15-afa7-eefa3846fba1"},
+            {"type":"secret_text","name":"API_SECRET","text":"NEVER_EXPOSE_ME"}
+        ]}}
+    return result
+
+with patch.object(m,"get",side_effect=known_binding):
+    mapped=m.read_inventory("fake-only-target-read-scope-token")
+assert mapped["worker_d1_binding_attribution_complete"]
+assert mapped["recommendation_runs_db_worker_binding_absent_verified"]
+assert not mapped["writer_quiescence_proven"]
+for worker in mapped["workers"]:
+    d1s=[b for b in worker["bindings"] if b["type"]=="d1"]
+    assert d1s == [{"type":"d1","binding":"DB",
+                    "target_database_match":"MATCH",
+                    "target_database_name":"runner3-core"}]
+assert "477fc6b8-4dec-4e15-afa7-eefa3846fba1" not in str(mapped["workers"])
+assert "NEVER_EXPOSE_ME" not in str(mapped)
+print("PASS target Worker D1 binding matches live D1 name without publishing physical UUID")
+
+# An unknown binding UUID fails attribution closed, does not leak its value.
+def unknown_binding(token,path):
+    result=known_binding(token,path)
+    if path.endswith("/settings"):
+        result["result"]["bindings"][0]["id"]="DO_NOT_PUBLISH_UNKNOWN_UUID"
+    return result
+
+with patch.object(m,"get",side_effect=unknown_binding):
+    unknown=m.read_inventory("fake-only-target-read-scope-token")
+assert not unknown["worker_d1_binding_attribution_complete"]
+assert not unknown["recommendation_runs_db_worker_binding_absent_verified"]
+assert "DO_NOT_PUBLISH_UNKNOWN_UUID" not in str(unknown)
+assert unknown["workers"][0]["bindings"][0]["target_database_match"]=="UNKNOWN"
+print("PASS unknown Worker D1 binding fails closed without leaking physical UUID")
+
+# Binding may carry database_id rather than id; still only match live metadata.
+assert m.summarize_bindings(
+    [{"type":"d1","name":"DB","database_id":"known-physical-uuid"}],
+    {"known-physical-uuid":"personal-library"}
+) == [{"type":"d1","binding":"DB","target_database_match":"MATCH",
+       "target_database_name":"personal-library"}]
+print("PASS alternate database_id key is supported")
