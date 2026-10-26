@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
-      CLOUDFLARE_TARGET_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_TARGET_AUDIT_TOKEN }}
+      CLOUDFLARE_TARGET_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW }}
     steps:
       - uses: actions/checkout@v4
       - name: Verify audited script offline without credentials
