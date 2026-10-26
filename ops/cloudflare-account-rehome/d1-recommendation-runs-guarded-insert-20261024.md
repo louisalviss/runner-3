@@ -1,6 +1,23 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
-## Consolidated account-wide audit — 2026-10-26 evening (latest)
+## New verified target Workers census — 2026-10-27 (supersedes earlier HTTP 403 findings)
+
+**Worker audit token unblocked.** Operator created a **separate** GitHub Actions Secret `CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW`, verified present in repository secret metadata 2026-10-26T17:08:50Z. Prior legacy `CLOUDFLARE_TARGET_AUDIT_TOKEN` was unchanged. Do not confuse either audit Secret with independent Write-only migration Secret `CLOUDFLARE_TARGET_D1_WRITE_TOKEN`.
+
+[Manual read-only validation #40366950155](https://github.com/louisalviss/runner-3/actions/runs/40366950155) used the **NEW** Secret explicitly; target 9 D1 identity verification PASS and both Worker-list endpoints returned 6 matching workers (**Workers API HTTP 403 resolved**). All 6 settings and cron reads PASS, zero cron schedules reported. Redacted Worker binding summary:
+
+- `balatro-clef-api`: Workers AI binding `AI`; zero cron.
+- `khotruyen-worker`: no bindings; zero cron.
+- `runner3-x-fast-direct`: no bindings; zero cron.
+- `runner5-restore-proxy`: no bindings; zero cron.
+- `volamidle-rogue`: one D1 binding `DB`; zero cron.
+- `wave-rider-scanner`: no bindings; zero cron.
+
+**IMPORTANT: NOT target writer quiescence proof.** The inventory deliberately redacts physical D1 binding UUIDs and does not prove whether the sole D1 Worker binding points to `runner3-content-intelligence`. Non-Worker clients and external calls have not been completely excluded. No Worker disabled or redeployed.
+
+The canonical manual D1+Workers metadata inventory workflow has been remapped to `CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW`. The legacy audit Secret is retained for other existing workflows unless separately reviewed. No INSERT/DELETE/RESTORE, R2 action or cutover authorized.
+
+## Consolidated account-wide audit — 2026-10-26 evening (historical snapshot)
 
 **Outcome: SAFE_READ_ONLY_AUDIT_COMPLETE / ACCOUNT_MIGRATION_HOLD.** User requested end-to-end execution in one pass, not a sequence of repeated dry-runs. Safe, authorized diagnostic workflows were run together. No Cloudflare D1 INSERT/DELETE/RESTORE, Worker deploy, Worker disable, R2 operation or source cutover was performed.
 
