@@ -72,9 +72,10 @@ def limited_unique(items, key, limit, label):
         seen.add(val)
     return sorted(items, key=lambda a: a[key])
 
-def summarize_bindings(rows):
+def summarize_bindings(rows, target_d1_name_by_uuid=None):
     if not isinstance(rows, list):
         raise AuditBlocked("WORKER_BINDINGS_INVALID")
+    target_d1_name_by_uuid = target_d1_name_by_uuid or {}
     result = []
     for b in rows:
         if not isinstance(b, dict):
@@ -86,6 +87,15 @@ def summarize_bindings(rows):
         item = {"type": typ, "binding": name}
         if typ == "service":
             item["service"] = str(b.get("service", ""))[:128]
+        if typ == "d1":
+            # Match only against the D1 UUIDs returned live from this TARGET
+            # account. Never serialize the Worker-provided physical UUID.
+            physical = b.get("id") or b.get("database_id")
+            match = (target_d1_name_by_uuid.get(physical)
+                     if isinstance(physical, str) else None)
+            item["target_database_match"] = "MATCH" if match else "UNKNOWN"
+            if match:
+                item["target_database_name"] = match
         # Never emit secret values, raw bindings, database UUIDs, KV IDs,
         # DO namespace IDs, environment variable contents or API responses.
         result.append(item)
@@ -116,6 +126,17 @@ def read_inventory(token):
     if total_pages is not None and (type(total_pages) is not int or total_pages != 1):
         raise AuditBlocked("D1_PAGINATION_INCOMPLETE")
     d1_names = [x["name"] for x in d1]
+    # Duplicate/missing physical UUIDs must not create a false match.
+    uuid_occurrences = {}
+    for obj in d1:
+        physical = obj.get("uuid")
+        if isinstance(physical, str) and physical:
+            uuid_occurrences[physical] = uuid_occurrences.get(physical, 0) + 1
+    target_d1_name_by_uuid = {
+        obj["uuid"]: obj["name"] for obj in d1
+        if isinstance(obj.get("uuid"), str)
+        and uuid_occurrences.get(obj["uuid"]) == 1
+    }
     # Confirm configured historical destination UUIDs without publishing raw UUIDs.
     try:
         history = json.loads(HISTORIC_MAP.read_text(encoding="utf-8"))
@@ -173,7 +194,8 @@ def read_inventory(token):
         try:
             settings = get(token, "/workers/scripts/" + escaped + "/settings")
             payload = settings.get("result") or {}
-            entry["bindings"] = summarize_bindings(payload.get("bindings") or [])
+            entry["bindings"] = summarize_bindings(
+                payload.get("bindings") or [], target_d1_name_by_uuid)
             entry["settings_verified"] = True
         except AuditBlocked:
             pass
@@ -188,6 +210,15 @@ def read_inventory(token):
             pass
         workers.append(entry)
     names = {w["name"] for w in workers}
+    worker_d1_bindings = [b for w in workers for b in (w["bindings"] or [])
+                          if b["type"] == "d1"]
+    d1_binding_attribution_complete = bool(
+        workers and all(w["settings_verified"] for w in workers)
+        and all(b["target_database_match"] == "MATCH" for b in worker_d1_bindings))
+    recommendation_runs_db_worker_binding_absent = bool(
+        d1_binding_attribution_complete
+        and not any(b.get("target_database_name") == "runner3-content-intelligence"
+                    for b in worker_d1_bindings))
     census_agrees = bool(scripts_page_complete and alt_status == "COMPLETE" and
                          names == set(alt_worker_names) and len(names) > 0)
     if not scripts_page_complete:
@@ -224,6 +255,11 @@ def read_inventory(token):
         },
         "all_worker_settings_verified": census_agrees and all(w["settings_verified"] for w in workers),
         "all_worker_cron_verified": census_agrees and all(w["cron_verified"] for w in workers),
+        "worker_d1_binding_attribution_complete": census_agrees and d1_binding_attribution_complete,
+        "recommendation_runs_db_worker_binding_absent_verified": (
+            census_agrees and recommendation_runs_db_worker_binding_absent),
+        "target_nonworker_writers_excluded": False,
+        "writer_quiescence_proven": False,
         "d1_schema_row_parity_verified": False,
         "worker_code_deployment_parity_verified": False,
         "worker_binding_secret_values_checked": False,
