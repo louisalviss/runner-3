@@ -166,11 +166,34 @@ def replay(target_catalog, source_catalog, candidate):
                     for k in source_catalog),
                 "SOURCE_DDL_TEXT_MISMATCH")
         fk_count=0
-        for key in final:
+        fk_edges=[]
+        known_tables={key[1] for key in final if key[0]=="table"}
+        new_tables={key[1] for key in absent if key[0]=="table"}
+        for key in sorted(final):
             if key[0] == "table":
-                row=db.execute('PRAGMA foreign_key_list("'+key[1]+'")').fetchall()
-                require(len(row) <= 100,"FK_COUNT_TOO_LARGE")
-                fk_count+=len({r[0] for r in row})
+                rows=db.execute('PRAGMA foreign_key_list("'+key[1]+'")').fetchall()
+                require(len(rows) <= 100,"FK_COUNT_TOO_LARGE")
+                grouped={}
+                for row in rows:
+                    require(type(row[0]) is int and type(row[2]) is str and
+                            SAFE_ID.fullmatch(row[2]) is not None and
+                            row[2] in known_tables and type(row[6]) is str and
+                            row[6] in ("NO ACTION","RESTRICT","CASCADE","SET NULL","SET DEFAULT"),
+                            "UNRESOLVED_FOREIGN_KEY_TARGET")
+                    if row[0] in grouped:
+                        require(grouped[row[0]]==(row[2],row[6]),
+                                "INCONSISTENT_COMPOSITE_FK")
+                    else:
+                        grouped[row[0]]=(row[2],row[6])
+                fk_count+=len(grouped)
+                for referred,on_delete in grouped.values():
+                    fk_edges.append({
+                        "from_table":key[1],"to_table":referred,
+                        "on_delete":on_delete,
+                        "from_table_missing_on_target":key[1] in new_tables,
+                        "to_table_missing_on_target":referred in new_tables,
+                    })
+        require(len(fk_edges)==fk_count and fk_count<=80,"FK_EDGE_CENSUS_INVALID")
         # These checks do NOT exercise uniqueness/FKs on populated target rows.
         integrity=db.execute("PRAGMA integrity_check").fetchone()
         require(integrity and integrity[0]=="ok","SCRATCH_INTEGRITY_FAILURE")
@@ -179,6 +202,7 @@ def replay(target_catalog, source_catalog, candidate):
             "simulated_create_count":len(source_names),
             "source_table_count":sum(k[0]=="table" for k in source_catalog),
             "foreign_key_constraints":fk_count,
+            "foreign_key_edges":fk_edges,
             "source_d1_row_parity_proven":False,
             "target_existing_row_constraints_tested":False}
 
