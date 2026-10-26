@@ -1,5 +1,22 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
+## All 39 source-pinned missing CREATE DDL — isolated empty SQLite rehearsal PASS (2026-10-27)
+
+[Dispatch-only isolated replay #40388871787](https://github.com/louisalviss/runner-3/actions/runs/40388871787) on merged [PR #481](https://github.com/louisalviss/runner-3/pull/481) **PASS**. Uses the verified NEW Cloudflare target read-only Audit Secret plus independent source read-only token. Re-ran the existing source-pinned exact-six DDL capture and independently checked the 33 source-fingerprint-pinned CREATE candidates from versioned repository input. Both current target database identities and their schema metadata were checked via Cloudflare API without row content or any schema/data write. Candidate raw SQL existed **only in transient GitHub Action memory**; no raw CREATE SQL was stored in the artifact or log.
+
+The workflow constructed the existing TARGET schema in empty, ephemeral in-memory SQLite, then applied source CREATE-only candidates in isolation and compared every resulting schema object name/CREATE definition against the LIVE SOURCE schema. It also checked no silent IF NOT EXISTS no-ops, no changes to preexisting target catalog objects, SQLite `integrity_check=ok` and FK schema metadata. Eight independent synthetic tests passed (including destructive statement and no-op rejection).
+
+| D1 | Target existing objects | Source-pinned CREATE objects rehearsed | Simulated final schema objects |
+| --- | ---: | ---: | ---: |
+| `runner3-core` | 1 | 21 | 22 |
+| `runner3-content-intelligence` | 9 | 18 | 27 |
+| **Total** | **10** | **39** | **49** |
+
+The reconstructed Content Intelligence schema contains **three foreign key constraints**, Core zero, as reported by local SQLite `foreign_key_list`. This counts constraint definitions, NOT live target FK compliance, target table size, source/target row count, or row-safety of schema migration. No real row content was loaded; uniqueness, FK enforcement on production rows, trigger execution/side-effects, migration ordering on data, table-by-table PK/row/delete/tombstone parity and retention of auth/migration state remain **UNPROVEN**. SQLite simulation confirms structural compatibility in empty scratch only, not actual apply safety.
+
+**DO NOT auto-apply the 39 CREATE statements.** This result does not release `target_writers_quiesced`, `row_safe_recovery`, or the separate D1 WRITE approval. `CLOUDFLARE_TARGET_PREAPPLY_BOOKMARK` secret still absent at last metadata check and previous private-key secret-install path blocked (do not reroute). External writers and full D1 rows are not reconciled; R2 cost gate remains HOLD; no Cloudflare writes, restore calls, Worker deploys, R2 operations or cutover occurred.
+
+
 ## Live source-only table PK census — 2026-10-27 (latest, still HOLD)
 
 [Manual read-only PK workflow #40384940380](https://github.com/louisalviss/runner-3/actions/runs/40384940380) PASS after [PR #479](https://github.com/louisalviss/runner-3/pull/479), using the source-account read-only API credential and exact allowlisted `PRAGMA table_xinfo` for all 15 previously identified source-only tables. Independent six offline synthetic tests passed. There were **zero table row reads, zero D1 writes, zero R2 or target requests**. No raw column values/names, UUIDs, token values, or DDL definitions were serialized.
