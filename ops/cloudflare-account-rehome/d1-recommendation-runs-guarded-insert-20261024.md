@@ -1,5 +1,21 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
+## Live source-only table PK census — 2026-10-27 (latest, still HOLD)
+
+[Manual read-only PK workflow #40384940380](https://github.com/louisalviss/runner-3/actions/runs/40384940380) PASS after [PR #479](https://github.com/louisalviss/runner-3/pull/479), using the source-account read-only API credential and exact allowlisted `PRAGMA table_xinfo` for all 15 previously identified source-only tables. Independent six offline synthetic tests passed. There were **zero table row reads, zero D1 writes, zero R2 or target requests**. No raw column values/names, UUIDs, token values, or DDL definitions were serialized.
+
+**Result: 15/15 source-only tables have a declared primary key**. 12 tables single-column PK; exactly three tables have two-column composite PKs:
+- `runner3-content-intelligence.checkpoints` (8 total columns, two-column PK)
+- `runner3-core.checkpoints` (8 total columns, two-column PK)
+- `runner3-core.ebook_reader_trace_v113` (7 total columns, two-column PK)
+
+The remaining 12 tables have a one-column PK: `link_interest_events`, `workflow_state` (in both DBs), `artifact_library_auth`, `artifact_library_magic_links`, `artifact_library_pin_attempts`, `d1_migrations`, `delivery_permalinks`, `events`, `r2_receipts`, `typed_kv`, `vps_mailbox_jobs`.
+
+**Interpretation:** The PK design permits future deterministic key-based reconciliation in principle, subject to verifying index/constraint semantics, row payloads, deletion policy and auth/migration-state ownership. It **does not** prove one row is safe to copy, or that the target schema can be applied; target still lacks 15 tables, 23 indexes and 1 trigger. Avoid automatically copying auth secrets, magic links or migration bookkeeping merely because a PK exists.
+
+GitHub secret `CLOUDFLARE_TARGET_PREAPPLY_BOOKMARK` remains absent at last check. No approved independently tested escrow / row-safe recovery. External writer quiescence is unproven. Source production and R2 HOLD remain unchanged. **Never attest YES to the guarded D1 production INSERT workflow on this evidence.**
+
+
 ## Live 39-object schema gap decomposition — 2026-10-27 (latest, READ-ONLY)
 
 [Source/target D1 schema diff #40384015167](https://github.com/louisalviss/runner-3/actions/runs/40384015167) completed **PASS** after [PR #477](https://github.com/louisalviss/runner-3/pull/477) (8 offline unit tests PASS independently, 0 D1 writes, 0 R2 requests). Source and target both have 9 D1; 8 names shared, 6 shared schema-identical. Source-only `clm-copilot-calibration` and target-only `louis-context-index` remain preserved pending independent owner/retention review.
