@@ -1,46 +1,45 @@
 {
-  "generated_at": "2026-10-26T12:47:52.132418+00:00",
+  "generated_at": "2026-10-26T14:29:40.660817+00:00",
   "status": "BLOCKED",
   "render_allowed": false,
   "full_quality": false,
   "blocking_reasons": [
-    "trends_not_healthy_fresh_top10",
-    "f33_not_full_healthy_fresh"
+    "forum_signal_not_usable_fresh"
   ],
   "target_vietnam_date": "2026-10-26",
   "inputs": {
     "trends": {
       "path": "trends_vn_latest.json",
-      "ok": false,
+      "ok": true,
       "status": "HEALTHY",
-      "captured_at": "2026-10-26T07:01:03.977445+00:00",
-      "age_minutes": 346.8,
+      "captured_at": "2026-10-26T12:48:28.258650+00:00",
+      "age_minutes": 101.2,
       "top10_count": 10
     },
     "f33": {
       "path": "voz_f33_latest.json",
-      "vietnam_date": "2026-10-25",
-      "ok": false,
-      "status": "FAILED",
-      "generated_at": "2026-10-25T18:33:19.792Z",
-      "age_minutes": 1094.5,
-      "run_id": 40221748524,
-      "artifact_id": 12608584161,
-      "threads_discovered": 0,
-      "expected_pages_total": null,
-      "fetched_pages_total": null,
-      "missing_pages_total": null,
-      "posts_total": null
+      "vietnam_date": "2026-10-26",
+      "ok": true,
+      "status": "HEALTHY",
+      "generated_at": "2026-10-26T12:50:40.980Z",
+      "age_minutes": 99.0,
+      "run_id": 40325312539,
+      "artifact_id": 12650463416,
+      "threads_discovered": 20,
+      "expected_pages_total": 97,
+      "fetched_pages_total": 97,
+      "missing_pages_total": 0,
+      "posts_total": 1593
     },
     "forum_signal": {
       "path": "forum_signal_latest.json",
-      "ok": true,
-      "status": "DEGRADED",
-      "generated_at": "2026-10-26T06:55:48.418Z",
-      "age_minutes": 352.1,
-      "run_id": 40282008352,
-      "artifact_id": 12632562544,
-      "crawl_outcome": "success"
+      "ok": false,
+      "status": "FAILED",
+      "generated_at": "2026-10-26T14:29:21.794Z",
+      "age_minutes": 0.3,
+      "run_id": 40339961780,
+      "artifact_id": 0,
+      "crawl_outcome": "skipped"
     }
   }
 }
