@@ -58,6 +58,16 @@ def eligible(day):
     accepted=('NOX_DASHBOARD_CHALLENGE','SEMRUSH_LIVE_AUTH_UNAVAILABLE','NOX_LOGIN_CHALLENGE','NOX_LOGIN_REQUIRED','SEMRUSH_AUTO_RECOVERY_FAILED','Session expired')
     if sr.get('status')=='BLOCKED' and any(m in reason for m in accepted):
         return {'day':day,'mode':'EXPORT_THEN_SERP','shortlist':len(items),'reason':'PROVIDER_AUTH'}
+    # A temporary provider throttle is not a permanent failure. Resume only
+    # after the provider's recorded cooldown expires; never retry report caps.
+    if sr.get('status')=='BLOCKED' and any(m in reason for m in ('SEMRUSH_RATE_LIMIT','BLOCKED_RATE_LIMIT')):
+        try:
+            expires=float(read(COOLDOWN).get('until_epoch'))
+        except (TypeError,ValueError):
+            return None  # No trustworthy expiration: fail closed.
+        if time.time() >= expires:
+            return {'day':day,'mode':'EXPORT_THEN_SERP','shortlist':len(items),'reason':'RATE_LIMIT_EXPIRED'}
+        return None
     # Some historic exports partially succeeded before a transient broker error.
     # Reuse their cached exports and retry only the failed domains; never auto-
     # retry quota/report-limit responses, whose repeated calls could violate caps.
@@ -72,6 +82,36 @@ def eligible(day):
             return {'day':day,'mode':'EXPORT_THEN_SERP','shortlist':len(items),'reason':'PARTIAL_TRANSIENT_ONLY'}
     if sr.get('status')=='PASS' and te.get('status')!='PASS':
         return {'day':day,'mode':'SERP_ONLY','shortlist':len(items),'reason':'TERMINAL_NOT_PASS'}
+    return None
+
+def reconcile_interrupted(attempts, now=None, min_age_seconds=600):
+    """Mark abandoned STARTED receipts; never infer recovery or authorize replay."""
+    now=now or datetime.datetime.now(TZ)
+    changed=False
+    for day,item in attempts.items():
+        if item.get('status')!='ATTEMPT_STARTED':continue
+        try:
+            started=datetime.datetime.fromisoformat(item['started_at'])
+            seconds=(now-started).total_seconds()
+        except (ValueError,TypeError,KeyError):continue
+        if seconds < min_age_seconds:continue
+        item['status']='INTERRUPTED_UNVERIFIED'
+        item['reason']='NO_COMPLETION_RECEIPT'
+        item['interrupted_detected_at']=now.isoformat()
+        changed=True
+    return changed
+
+def choose_candidate(days, attempts, ticket):
+    for x in days:
+        if attempts.get(x['day'],{}).get('handoff_event')!=ticket:
+            return x
+    for x in days:
+        prev=attempts.get(x['day']) or {}
+        if (x['reason']=='RATE_LIMIT_EXPIRED'
+            and prev.get('handoff_event')==ticket
+            and prev.get('status')=='NOT_RECOVERED'
+            and prev.get('retry_after_cooldown_used') is not True):
+            return {**x,'retry_after_cooldown_used':True}
     return None
 
 def process():
@@ -92,20 +132,23 @@ def process():
         item=eligible(date.isoformat())
         if item:days.append(item)
     if not days:return {'state':'NO_ELIGIBLE_BACKLOG','handoff_verified':True}
-    chosen=None
-    for x in days:
-        if attempts.get(x['day'],{}).get('handoff_event')!=event:
-            chosen=x;break
+    chosen=choose_candidate(days,attempts,event)
     if not chosen:return {'state':'EVENT_ALREADY_USED_FOR_ALL_PENDING_DAYS','remaining':len(days)}
     LOCK.parent.mkdir(parents=True,exist_ok=True)
     with LOCK.open('a+') as lock:
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:return {'state':'SOURCE_PIPELINE_BUSY'}
         if handoff_ticket()!=event:return {'state':'HANDOFF_CHANGED'}
+        # Under the single-source lock, older interrupted workers may be
+        # classified as unresolved. Their ticket remains used for that day.
+        if reconcile_interrupted(attempts):
+            atomic(STATE,{'schema':'semrush-gap-repair-v1','attempts':attempts})
         if not eligible(chosen['day']):return {'state':'SOURCE_ALREADY_RECOVERED'}
         day=chosen['day']
+        retry_used=bool(chosen.get('retry_after_cooldown_used'))
         attempts[day]={'handoff_event':event,'status':'ATTEMPT_STARTED','mode':chosen['mode'],
-                       'started_at':datetime.datetime.now(TZ).isoformat(),'shortlist':chosen['shortlist']}
+                       'started_at':datetime.datetime.now(TZ).isoformat(),'shortlist':chosen['shortlist'],
+                       'retry_after_cooldown_used':retry_used}
         atomic(STATE,{'schema':'semrush-gap-repair-v1','attempts':attempts})
         result={'day':day,'mode':chosen['mode'],'status':'NOT_RECOVERED','shortlist':chosen['shortlist']}
         try:
@@ -128,7 +171,7 @@ def process():
         except (OSError,subprocess.TimeoutExpired) as err:
             result['reason']=type(err).__name__
         result['completed_at']=datetime.datetime.now(TZ).isoformat()
-        attempts[day]={'handoff_event':event,**result}
+        attempts[day]={'handoff_event':event,'retry_after_cooldown_used':retry_used,**result}
         atomic(STATE,{'schema':'semrush-gap-repair-v1','attempts':attempts})
         try:subprocess.run(['python3','/var/lib/acquisition-radar-scan/audit_gap_ledger.py'],capture_output=True,text=True,timeout=30,check=False)
         except (OSError,subprocess.TimeoutExpired):pass
