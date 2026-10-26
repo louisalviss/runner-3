@@ -90,7 +90,7 @@ class TestSchema(unittest.TestCase):
             if db is not None and account==m.SOURCE:
                 o["result"][0]["results"].append({
                     "type":"table","name":"weird-table",
-                    "sql":"CREATE TABLE \\"weird-table\\" (id INT)"})
+                    "sql":'CREATE TABLE "weird-table" (id INT)'})
             return o
         r=m.compare("source","target",irregular)
         for row in r["per_database"]:
