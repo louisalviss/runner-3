@@ -1,7 +1,8 @@
 [Unit]
 Description=Dedicated Flippa legacy Docker HTTP relay through verified VN VPN egress
 After=docker.service vyprvpn-egress.service
-Requires=docker.service vyprvpn-egress.service
+Requires=docker.service
+Wants=vyprvpn-egress.service
 [Service]
 Type=simple
 ExecStart=/usr/bin/python3 /usr/local/libexec/flippa-vn-proxy-relay.py
