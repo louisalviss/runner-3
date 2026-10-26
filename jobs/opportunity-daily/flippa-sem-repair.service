@@ -1,0 +1,11 @@
+[Unit]
+Description=Backfill verified Flippa independent Semrush evidence after authenticated provider session
+After=network-online.target semrush-rpc-broker.service
+Wants=network-online.target
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/var/lib/acquisition-radar-scan
+ExecStart=/usr/bin/python3 /var/lib/acquisition-radar-scan/flippa_semrush_repair.py
+TimeoutStartSec=12min
+Nice=10
