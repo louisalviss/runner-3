@@ -51,6 +51,14 @@ class SafeBackfill(unittest.TestCase):
         self.res.write_text(json.dumps({'status':'PASS'}))
         self.term.write_text(json.dumps({'status':'PASS'}))
         self.assertIsNone(m.eligible(self.day))
+    def test_partial_transient_one_failed_is_eligible(self):
+        self.res.write_text(json.dumps({'status':'PARTIAL','items':[{'domain':'example.com','status':'FAIL','reason':'RuntimeError:BROKER_DPA:SEMRUSH_BROKER_RUNTIME_ERROR'}]}))
+        x=m.eligible(self.day)
+        self.assertIsNotNone(x)
+        self.assertEqual(x['reason'],'PARTIAL_TRANSIENT_ONLY')
+    def test_partial_provider_quota_must_not_replay(self):
+        self.res.write_text(json.dumps({'status':'PARTIAL','items':[{'domain':'example.com','status':'FAIL','reason':"RuntimeError:BROKER_DPA:{'code': -32098, 'message': 'Limits exceeded'}"}]}))
+        self.assertIsNone(m.eligible(self.day))
     def test_provider_pass_but_serp_pending(self):
         self.res.write_text(json.dumps({'status':'PASS'}))
         self.assertEqual(m.eligible(self.day)['mode'],'SERP_ONLY')
