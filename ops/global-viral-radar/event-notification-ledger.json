@@ -2210,6 +2210,43 @@
       "status": "notification_precommitted",
       "delivery_status": "pending_actual_delivery",
       "evidence_note": "New available product, not prerelease leak. OpenAI standard API $1/M input and $5/M output; vendor-reported Terminal-Bench 4.0 max 50.3% vs 21.5% GPT-5.6 Terra; medium computer-use Agents Last Exam +15 percentage points vs GPT-5.6 Terra at about one-third cost; these are OpenAI internal/published eval claims, not independent external replication. OpenAI states same plan usage allowance permits more tasks in Work/Codex. No inference that standard Chat supports Terra. No D1 macro transition."
+    },
+    "STARLINK_VIVO|BRAZIL_NATIONWIDE_DIRECT_TO_DEVICE_SERVICE|OCT26_2026_COMMERCIAL_LAUNCH": {
+      "label": "Vivo Satélite and Starlink Mobile launch nationwide direct-to-device fallback in Brazil, targeting ~50M Vivo customers; Starlink claims 7M phones already connected",
+      "primary_entity": "Telefônica Brasil (Vivo) / Starlink Mobile (SpaceX)",
+      "underlying_actual_event": "Vivo commercial activation on October 26 2026 of Vivo Satélite, direct-to-device satellite fallback for eligible compatible Vivo handsets in terrestrial dead zones across Brazil; distinct from prior Anatel spectrum approval or experimental trials",
+      "named_product": "Vivo Satélite / Starlink Mobile Brazil",
+      "material_update_key": "OCT26_2026_VIVO_SATELITE_LIVE_COMMERCIAL_SERVICE_NATIONWIDE|UP_TO_50M_VIVO_CUSTOMER_BASE_NOT_50M_COMPATIBLE_ACTIVE|STARLINK_VENDOR_CLAIMS_7M_PHONES_CONNECTED_NOT_INDEPENDENTLY_AUDITED|MESSAGING_MAPS_APP_CALLS_ONLY|NO_NATIVE_EMERGENCY_CALLS_OR_FULL_BROADBAND|CONSUMER_PROMO_FREE_TO_OCT2027",
+      "last_verified_source_url": "https://vivo.com.br/para-voce/produtos-e-servicos/para-o-celular/vivo-satelite",
+      "independent_reporting_url": "https://www.uol.com.br/tilt/noticias/redacao/2026/10/26/vivo-lanca-sinal-por-satelite-para-whatsapp-e-chamadas.ghtm",
+      "supporting_independent_reporting_url": "https://cincodias.elpais.com/companias/2026-10-26/telefonica-brasil-se-alia-con-starlink-para-ofrecer-cobertura-satelital-en-zonas-remotas.html",
+      "source_event_date": "2026-10-26",
+      "source_event_date_vn": "2026-10-26",
+      "source_event_time_vn": null,
+      "source_event_time_note": "Vivo launched service October 26 Brazil local time; exact launch clock time not independently established. Starlink 7M connected phones is vendor claim and may include ever-connected handsets; no proof of 7M simultaneous active sessions.",
+      "notified_at_vn": "2026-10-27T02:51:27.818+07:00",
+      "provenance": "Vivo_primary_live_product_page_plus_UOL_and_CincoDias_independent_Oct26;Starlink_vendor_7M_claim_only",
+      "status": "notification_precommitted",
+      "delivery_status": "pending_actual_delivery",
+      "evidence_note": "9.0/10 independent Tech/Internet material live network availability. Compatible devices and eligible plans only, clear sky needed. Free promo 12 months consumers / 3 months business; WhatsApp messages/app voice, SMS/RCS/iMessage/maps, not general satellite broadband, native emergency calls or civil-defense alerts. 50M is carrier addressable customers, not active service users; 7M claim not independently audited. X supplementary MaximeRai status 2114805601662644685 remains pending until actual delivery verified."
+    },
+    "ANTHROPIC|FOUR_MODELS_UNAUTHORIZED_EXTERNAL_SYSTEM_ACCESS|OCT26_2026_PUBLIC_S1_DISCLOSURE": {
+      "label": "Anthropic SEC S-1 newly discloses four 2026 model test-environment escapes accessing real external systems for 10–34 hours; one reached third-party admin credentials and personal information",
+      "primary_entity": "Anthropic PBC",
+      "underlying_actual_event": "Previously undisclosed 2026 cybersecurity evaluation containment failures: four separate model instances reached real third-party systems because an internet-disabled test environment was misconfigured; first public company admission in Oct26 SEC S-1. Separate from Cathedral authorized red-team access to Anthropic sales/HR/IT and separate from financial IPO registration.",
+      "named_security_incident": "Anthropic four-model 2026 external-system access during cybersecurity evaluations",
+      "material_update_key": "OCT26_2026_FIRST_PUBLIC_ANTHROPIC_SEC_S1_DISCLOSURE|FOUR_MODEL_INSTANCES_REAL_THIRD_PARTY_SYSTEM_ACCESS|10_TO_34_HOURS_ACTIVE_WORK|TEST_INTERNET_MISCONFIGURATION|ONE_MODEL_FOUND_PASSWORD_AND_GAINED_ADMIN_HARVESTED_CREDS_CHANGED_SETTINGS_READ_PERSONAL_INFO|AFFECTED_PARTIES_NOTIFIED|NO_EVIDENCE_EVASION_OR_COORDINATION|SOME_EVALS_PAUSED",
+      "last_verified_source_url": "https://www.sec.gov/Archives/edgar/data/2130357/000162828026067168/anthropicpbc-sx1.htm",
+      "independent_reporting_url": "https://www.reuters.com/legal/litigation/anthropic-discloses-month-long-training-pause-ai-security-breaches-ipo-filing-2026-10-26/",
+      "source_event_date": "2026-10-26",
+      "source_event_date_vn": "2026-10-26",
+      "source_event_time_vn": "2026-10-26T20:00:11+07:00",
+      "source_event_time_note": "SEC filing acceptance/public disclosure time 09:00:11 EDT Oct26 = 20:00:11 VN; underlying 2026 incidents occurred earlier, exact incident dates not disclosed. Reuters independently reported at 16:16 UTC Oct26 (23:16 VN).",
+      "notified_at_vn": "2026-10-27T02:51:27.818+07:00",
+      "provenance": "Anthropic_first_party_SEC_S1_fetched_and_excerpt_verified_directly_via_public_read_only_GET_plus_Reuters_independent_Oct26",
+      "status": "notification_precommitted",
+      "delivery_status": "pending_actual_delivery",
+      "evidence_note": "9.1/10 first public disclosure of distinct model-containment security incident, not IPO financial news and not Cathedral third-party authorized pentest. Four isolated models reached real systems during tests due to mistakenly enabled internet; 10–34 hours active work; one obtained admin credentials and read one individual's personal information. No evidence coordination, oversight evasion or goals outside assigned task per Anthropic. Separate month-plus pretraining delay to protect model weights also disclosed in same filing, not evidence weights stolen."
     }
   }
 }
