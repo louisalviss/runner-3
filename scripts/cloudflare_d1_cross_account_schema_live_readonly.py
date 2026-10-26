@@ -123,9 +123,34 @@ def compare(source_token,target_token,transport=api):
         b=schema(target_token,TARGET,dst[name],transport)
         sa,sb=set(a),set(b)
         changed=sum(a[k]!=b[k] for k in sa&sb)
+        source_only=sa-sb
+        target_only=sb-sa
+        known_types=("table","index","view","trigger")
+        source_type_counts={
+            typ:sum(key[0]==typ for key in source_only)
+            for typ in known_types
+        }
+        target_type_counts={
+            typ:sum(key[0]==typ for key in target_only)
+            for typ in known_types
+        }
+        # Emit only normal table identifiers, never source CREATE statements
+        # or index/trigger/view SQL. Unusual table names require manual review.
+        import re
+        table_name=re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
+        source_tables=sorted(key[1] for key in source_only
+                             if key[0]=="table" and table_name.fullmatch(key[1]))
+        target_tables=sorted(key[1] for key in target_only
+                             if key[0]=="table" and table_name.fullmatch(key[1]))
         output.append({"name":name,"source_objects":len(a),
-                       "target_objects":len(b),"source_only_objects":len(sa-sb),
-                       "target_only_objects":len(sb-sa),
+                       "target_objects":len(b),"source_only_objects":len(source_only),
+                       "target_only_objects":len(target_only),
+                       "source_only_types":source_type_counts,
+                       "target_only_types":target_type_counts,
+                       "source_only_table_names":source_tables,
+                       "target_only_table_names":target_tables,
+                       "nonstandard_source_only_table_name_count":source_type_counts["table"]-len(source_tables),
+                       "nonstandard_target_only_table_name_count":target_type_counts["table"]-len(target_tables),
                        "common_object_definition_differences":changed,
                        "schema_exact_equal":not(sa^sb) and changed==0})
     return {"status":"SCHEMA_ONLY_NO_ROW_PARITY_NOT_CUTOVER_READY",

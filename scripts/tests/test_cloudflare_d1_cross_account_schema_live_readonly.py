@@ -75,6 +75,29 @@ class TestSchema(unittest.TestCase):
         r=m.compare("source","target",distinct)
         self.assertEqual(r["per_database"][0]["source_only_objects"],1)
         self.assertEqual(r["per_database"][0]["target_only_objects"],1)
+        for row in r["per_database"]:
+            self.assertEqual(row["source_only_types"]["table"],1)
+            self.assertEqual(row["target_only_types"]["table"],1)
+            self.assertEqual(row["source_only_table_names"],["source_extra"])
+            self.assertEqual(row["target_only_table_names"],["target_extra"])
+            self.assertEqual(row["source_only_types"]["index"],0)
+            self.assertEqual(row["target_only_types"]["trigger"],0)
+        self.assertNotIn("CREATE TABLE",str(r))
+
+    def test_nonstandard_table_name_is_not_disclosed(self):
+        def irregular(token,account,db):
+            o=fake(token,account,db)
+            if db is not None and account==m.SOURCE:
+                o["result"][0]["results"].append({
+                    "type":"table","name":"weird-table",
+                    "sql":'CREATE TABLE "weird-table" (id INT)'})
+            return o
+        r=m.compare("source","target",irregular)
+        for row in r["per_database"]:
+            self.assertEqual(row["source_only_types"]["table"],1)
+            self.assertEqual(row["source_only_table_names"],[])
+            self.assertEqual(row["nonstandard_source_only_table_name_count"],1)
+            self.assertNotIn("weird-table",str(row))
 
     def test_schema_query_restricted(self):
         self.assertTrue(m.SCHEMA_SQL.startswith("SELECT type,name,sql FROM sqlite_master"))
