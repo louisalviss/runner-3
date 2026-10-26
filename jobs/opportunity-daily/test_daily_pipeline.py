@@ -43,6 +43,13 @@ class DailyPipelineGates(unittest.TestCase):
   self.assertEqual(v["counts"]["PASS"],1)
   v2=inspect("2026-10-14",self.flippa,self.d/'deep.json',output_root=self.d,exporter=self.d/'missing.py')
   self.assertEqual(v2["items"][0]["source"],"fresh-export")
+ def test_dashboard_challenge_is_blocked_not_uninteresting_domain(self):
+  f=self.d/'dashboard.py'
+  f.write_text("import json\nprint(json.dumps({'status':'FAIL','reason':'RuntimeError:BROKER_DPA:NOX_DASHBOARD_CHALLENGE'}))\n")
+  v=inspect('2026-10-14',self.flippa,self.d/'deep.json',output_root=self.d,exporter=f,timeout=10)
+  self.assertEqual(v['status'],'BLOCKED')
+  self.assertEqual(v['items'][0]['status'],'BLOCKED')
+  self.assertNotIn('metrics',v['items'][0])
  def test_auth_failure_blocks_and_no_zero_demand(self):
   f=self.d/'fake_block.py'
   f.write_text("import json\nprint(json.dumps({'status':'FAIL','reason':'BROKER_DPA:SEMRUSH_LIVE_AUTH_UNAVAILABLE'}))\n")
