@@ -1203,21 +1203,38 @@
       "evidence_note": "EUR10.8B is enterprise value including debt, NOT equity purchase price; all-cash EUR46.50/share. Signed BCA and announced tender intention are not closing; minimum 50% plus one share, regulatory and shareholder-related conditions, expected mid-2027. QIAGEN suspended FY2026 outlook."
     },
     "CLOUDFLARE|PHP2SHELL_CVE_2026_109618_109619|OCT22_2026_MILLIONS_EXPLOIT_ATTEMPTS": {
-      "label": "Cloudflare observes millions of PHP2Shell exploit attempts after October 21 PHP emergency disclosure",
-      "primary_entity": "Cloudflare",
-      "underlying_actual_event": "Cloudflare CEO disclosed measured escalation to millions of exploit attempts following PHP2Shell disclosure, a new attack-activity phase distinct from the Oct21 patch release",
+      "label": "PHP2Shell: first published packet-to-process proof of 35 successful attacker RCE shell starts on three intentionally vulnerable public honeypots",
+      "primary_entity": "PHP runtime / CVE-2026-109618 / honeypot researcher 0x4D31",
+      "underlying_actual_event": "New evidence phase of the previously notified October 22 PHP2Shell scanning/attempts event: an October 24 primary forensic report with per-case evidence dataset released October 26 documents 35 complete attacker execution-stage requests each correlated to Apache-child /bin/sh execution across three disposable PHP 8.4.26 single-worker mod_php honeypots. It does NOT prove production victim compromise or broad exploit reliability.",
       "named_product": "PHP2Shell CVE-2026-109618/CVE-2026-109619 exploitation activity",
       "prior_event_key": "PHP|CVE_2026_109618_109619|OCT21_2026_SECURITY_PATCH_RELEASE",
-      "material_update_key": "OCT22_2026_CLOUDFLARE_CEO_REPORTED_MILLIONS_ATTEMPTS|PRE_DISCLOSURE_THOUSANDS|POST_45MIN_TENS_THOUSANDS|POST_2H_HUNDREDS_THOUSANDS|SUCCESSFUL_COMPROMISES_NOT_VERIFIED",
-      "last_verified_source_url": "https://www.reuters.com/world/asia-pacific/cloudflare-sees-millions-exploit-attempts-after-php-disclosure-2026-10-22/",
+      "material_update_key": "OCT26_2026_PUBLIC_FORENSIC_CONFIRMATION_OF_OCT24_35_PHP2SHELL_RCE_ON_THREE_HONEYPOTS|CVE_2026_109618_CONSISTENT|PACKET_TO_TETRAGON_APACHE_CHILD_SHELL_CORRELATION|2_SOURCE_ADDRESS_CLUSTERS|SINGLE_WORKER_MOD_PHP_8_4_26|NO_REAL_VICTIM_CONFIRMED",
+      "last_verified_source_url": "https://github.com/0x4D31/honeypot-data/blob/main/reports/php2shell/2026-10-24-confirmed-rce.md",
       "supporting_primary_source_url": "https://blog.cloudflare.com/php-vulnerabilities-waf-protection",
-      "source_event_date": "2026-10-22",
-      "source_event_time_vn": null,
-      "source_event_time_note": "Cloudflare CEO statement late Wednesday Oct21 US time (early Oct22 VN); exact post timestamp not independently established. Reuters published Oct22 04:08 UTC = 11:08 VN, not event clock time.",
-      "notified_at_vn": "2026-10-22T13:40:54.495+07:00",
-      "provenance": "Reuters_direct_reporting_of_Cloudflare_CEO_telemetry_plus_Cloudflare_primary_blog_confirms_attack_traffic_and_WAF_response",
+      "source_event_date": "2026-10-24",
+      "source_event_time_vn": "2026-10-24T22:35:38+07:00",
+      "source_event_time_note": "First verified honeypot shell 2026-10-24 15:35:38 UTC = 22:35:38 VN. Primary forensic report dated Oct24; per-case packet/process evidence published Oct26, independent SecurityWeek October 26 09:30 EDT = 20:30 VN. This is evidence of successful attacks on honeypots, not new real victim compromise.",
+      "notified_at_vn": "2026-10-27T04:12:26.205+07:00",
+      "provenance": "0x4D31_honeypot_operator_primary_packet_process_report_and_dataset_plus_SecurityWeek_BleepingComputer_independent_coverage",
       "status": "notification_precommitted",
-      "evidence_note": "Millions are attempted exploitation requests on Cloudflare network, not confirmed successful intrusions or unique affected sites. New measurable attack wave following previously reported patch release; no claim PHP patch failed."
+      "evidence_note": "8.7/10 material security progression from millions of unverified attempts to packet/process-correlated RCE on deliberately vulnerable honeypots. 35 shell executions from two source IP clusters on 3 decoys, no proven production victims, no malware second stage, single-worker mod_php configuration intentionally favorable, CVE-2026-109618 consistent but cannot infer CVE-2026-109619 exploitation. PHP patches released Oct21 8.2.35, 8.3.36, 8.4.27, 8.5.12. Earlier Unit42 government breach attribution retracted; CISA KEV not listed as of Oct26 source. No D1 state transition.",
+      "named_incident": "PHP2Shell CVE-2026-109618 and CVE-2026-109619; October 24 successful honeypot RCE",
+      "independent_reporting_url": "https://www.securityweek.com/php2shell-exploitation-moves-from-probes-to-working-shells/",
+      "secondary_independent_reporting_url": "https://www.bleepingcomputer.com/news/security/php2shell-security-flaws-now-sucessfully-exploited-in-the-wild/",
+      "source_event_date_vn": "2026-10-24",
+      "delivery_status": "pending_actual_delivery",
+      "verified_material_phase_history": [
+        {
+          "label": "Cloudflare observes millions of PHP2Shell exploit attempts after October 21 PHP emergency disclosure",
+          "material_update_key": "OCT22_2026_CLOUDFLARE_CEO_REPORTED_MILLIONS_ATTEMPTS|PRE_DISCLOSURE_THOUSANDS|POST_45MIN_TENS_THOUSANDS|POST_2H_HUNDREDS_THOUSANDS|SUCCESSFUL_COMPROMISES_NOT_VERIFIED",
+          "last_verified_source_url": "https://www.reuters.com/world/asia-pacific/cloudflare-sees-millions-exploit-attempts-after-php-disclosure-2026-10-22/",
+          "source_event_date": "2026-10-22",
+          "source_event_time_vn": null,
+          "notified_at_vn": "2026-10-22T13:40:54.495+07:00",
+          "provenance": "Reuters_direct_reporting_of_Cloudflare_CEO_telemetry_plus_Cloudflare_primary_blog_confirms_attack_traffic_and_WAF_response",
+          "status": "notification_precommitted"
+        }
+      ]
     },
     "GOOGLE_CLOUD_NVIDIA|A5X_VERA_RUBIN|OCT21_2026_SCALE_AND_NOV_GA_ANNOUNCEMENT": {
       "label": "Google Cloud and NVIDIA announce A5X Vera Rubin instances, up to 80k GPUs per site and 960k multi-site scale, GA planned November",
