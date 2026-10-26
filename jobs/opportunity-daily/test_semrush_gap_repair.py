@@ -59,6 +59,41 @@ class SafeBackfill(unittest.TestCase):
     def test_partial_provider_quota_must_not_replay(self):
         self.res.write_text(json.dumps({'status':'PARTIAL','items':[{'domain':'example.com','status':'FAIL','reason':"RuntimeError:BROKER_DPA:{'code': -32098, 'message': 'Limits exceeded'}"}]}))
         self.assertIsNone(m.eligible(self.day))
+    def test_rate_limit_requires_expired_trustworthy_cooldown(self):
+        self.res.write_text(json.dumps({'status':'BLOCKED','global_blocker':'RuntimeError:SEMRUSH_RATE_LIMIT:provider'}))
+        # Missing authoritative expiry is not permission to retry.
+        self.assertIsNone(m.eligible(self.day))
+        m.COOLDOWN.write_text(json.dumps({'until_epoch':time.time()+3600}))
+        self.assertIsNone(m.eligible(self.day))
+        m.COOLDOWN.write_text(json.dumps({'until_epoch':time.time()-30}))
+        v=m.eligible(self.day)
+        self.assertEqual(v['reason'],'RATE_LIMIT_EXPIRED')
+    def test_report_limit_is_not_a_rate_limit(self):
+        self.res.write_text(json.dumps({'status':'BLOCKED','global_blocker':'SEMRUSH_REPORT_LIMIT'}))
+        m.COOLDOWN.write_text(json.dumps({'until_epoch':time.time()-100}))
+        self.assertIsNone(m.eligible(self.day))
+    def test_interrupted_receipt_never_becomes_a_pass(self):
+        now=datetime.datetime.now(m.TZ)
+        entries={'2026-10-25':{'status':'ATTEMPT_STARTED','started_at':(now-datetime.timedelta(minutes=20)).isoformat(),'handoff_event':'ticket'},
+                 '2026-10-26':{'status':'ATTEMPT_STARTED','started_at':now.isoformat(),'handoff_event':'ticket'}}
+        self.assertTrue(m.reconcile_interrupted(entries,now))
+        self.assertEqual(entries['2026-10-25']['status'],'INTERRUPTED_UNVERIFIED')
+        self.assertEqual(entries['2026-10-25']['reason'],'NO_COMPLETION_RECEIPT')
+        self.assertEqual(entries['2026-10-25']['handoff_event'],'ticket')
+        self.assertEqual(entries['2026-10-26']['status'],'ATTEMPT_STARTED')
+    def test_rate_limit_one_retry_per_verified_handoff(self):
+        days=[{'day':'2026-10-26','reason':'RATE_LIMIT_EXPIRED','shortlist':17}]
+        recent={'2026-10-26':{'handoff_event':'ticket','status':'NOT_RECOVERED','retry_after_cooldown_used':False}}
+        first=m.choose_candidate(days,recent,'ticket')
+        self.assertTrue(first['retry_after_cooldown_used'])
+        recent['2026-10-26']['retry_after_cooldown_used']=True
+        self.assertIsNone(m.choose_candidate(days,recent,'ticket'))
+        # A newly confirmed user-authenticated handoff is a separate event.
+        self.assertEqual(m.choose_candidate(days,recent,'new-ticket')['day'],'2026-10-26')
+    def test_non_throttle_failure_requires_new_handoff(self):
+        days=[{'day':'2026-10-19','reason':'PARTIAL_TRANSIENT_ONLY'}]
+        prev={'2026-10-19':{'handoff_event':'ticket','status':'NOT_RECOVERED'}}
+        self.assertIsNone(m.choose_candidate(days,prev,'ticket'))
     def test_provider_pass_but_serp_pending(self):
         self.res.write_text(json.dumps({'status':'PASS'}))
         self.assertEqual(m.eligible(self.day)['mode'],'SERP_ONLY')
