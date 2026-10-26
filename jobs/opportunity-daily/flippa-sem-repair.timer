@@ -1,0 +1,9 @@
+[Unit]
+Description=Conditionally complete archived Flippa organic DD without scanning the past again
+[Timer]
+OnCalendar=*-*-* *:50:00
+RandomizedDelaySec=90
+Persistent=false
+Unit=flippa-sem-repair.service
+[Install]
+WantedBy=timers.target
