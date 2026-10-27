@@ -1,16 +1,16 @@
 {
   "schema_version": 2.0,
-  "generated_at": "2026-10-24T08:20:44.007771+07:00",
-  "source_session_date": "2026-10-23",
-  "expected_latest_completed_us_session": "2026-10-23",
+  "generated_at": "2026-10-27T08:38:12.228792+07:00",
+  "source_session_date": "2026-10-26",
+  "expected_latest_completed_us_session": "2026-10-26",
   "status": "COMPLETE",
   "reason_code": null,
   "complete": true,
   "signal_count": 80,
-  "prefilter_count": 2719,
+  "prefilter_count": 2689,
   "prefilter_schema": "opportunity-radar-market-prefilter-v1",
-  "prefilter_sha256": "aa8b89d159215b75261abbddae58cd81c099b326c1b9856c374d2e0138e69019",
-  "prefilter_built_utc": "2026-10-24T01:20:44.007771+00:00",
+  "prefilter_sha256": "d869b6f7ea7b39ba73d20112fc02b78851e65ac69f440e61504413193daccb70",
+  "prefilter_built_utc": "2026-10-27T01:38:12.228792+00:00",
   "prefilter_source": "data/opportunity-radar/market-prefilter.json",
   "scanner_version": "2.3-nasdaq-raw-review",
   "d1_checkpoint_binding": {
@@ -21,196 +21,22 @@
   "checkpoint_project": "opportunity-radar-v2",
   "checkpoint_scope": "market-pricing",
   "checkpoint_source": "opportunity-radar-market-v2",
-  "history_requested": 2734,
-  "history_returned": 2734,
+  "history_requested": 2705,
+  "history_returned": 2705,
   "history_coverage": 1.0,
-  "fresh_history_coverage": 0.9945135332845647,
-  "stale_history_suppressed": 15,
+  "fresh_history_coverage": 0.9940850277264325,
+  "stale_history_suppressed": 16,
   "freshness_recovery": {
-    "stale_before_retry": 1912,
-    "retry_attempted": 1912,
-    "retry_recovered": 1897,
+    "stale_before_retry": 16,
+    "retry_attempted": 16,
+    "retry_recovered": 0,
     "retry_errors": 0,
     "retry_unattempted": 0,
     "retry_source": "YAHOO_EXPLICIT_WINDOW_SERIAL",
     "independent_snapshot_shocks_unverified": [
       {
-        "symbol": "TTMI",
-        "pctchange": -27.665,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "KALU",
-        "pctchange": -25.307,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "BHVN",
-        "pctchange": 25.021,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "FPS",
-        "pctchange": -21.537,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "TRON",
-        "pctchange": 20.968,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "CRS",
-        "pctchange": -20.616,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "MRNA",
-        "pctchange": -17.566,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "COHU",
-        "pctchange": -16.332,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "MLTX",
-        "pctchange": 15.869,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "MTSI",
-        "pctchange": -15.865,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "SHAZ",
-        "pctchange": -15.75,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "VICR",
-        "pctchange": -15.664,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "EGBN",
-        "pctchange": 15.563,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "SIMO",
-        "pctchange": -15.448,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "GGG",
-        "pctchange": -15.316,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "FORM",
-        "pctchange": -15.288,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "UCTT",
-        "pctchange": -14.86,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "FCFS",
-        "pctchange": -14.75,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "ASIC",
-        "pctchange": -14.604,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "VIAV",
-        "pctchange": -14.383,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "POOL",
-        "pctchange": 14.364,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "HCSG",
-        "pctchange": 14.187,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "MXL",
-        "pctchange": -13.867,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "CNXC",
-        "pctchange": 13.768,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "BAND",
-        "pctchange": -13.499,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "BMI",
-        "pctchange": 13.484,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "AVEX",
-        "pctchange": 13.223,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "ENTG",
-        "pctchange": -13.122,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "AXTI",
-        "pctchange": -13.023,
-        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
-        "action": "NO_SIGNAL"
-      },
-      {
-        "symbol": "NBTX",
-        "pctchange": 13.008,
+        "symbol": "BUUU",
+        "pctchange": 12.526,
         "verification": "UNVERIFIED_SNAPSHOT_ONLY",
         "action": "NO_SIGNAL"
       }
@@ -224,10 +50,10 @@
   },
   "snapshot_ok": true,
   "snapshot_error": null,
-  "early_watch": 41,
+  "early_watch": 50,
   "early_watch_emitted": 24,
   "raw_anomaly_emitted": 56,
-  "continuation": 0,
+  "continuation": 2,
   "corporate_action_suppressed": 0,
   "corporate_action_unverified_suppressed": 0,
   "buy_gate_unchanged": true
