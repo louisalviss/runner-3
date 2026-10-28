@@ -2685,6 +2685,27 @@
       "detected_at_vn": "2026-10-28T05:44:52+07:00",
       "notified_at_vn": "2026-10-28T05:44:52+07:00",
       "notification_precommitted_at_vn": "2026-10-28T05:44:52+07:00"
+    },
+    "US_FEC|ELECTRONIC_CAMPAIGN_FINANCE_FILING_OUTAGE|OCT26_27_2026_SUSPECTED_INTRUSION_SHUTDOWN": {
+      "label": "FEC electronic campaign-finance filing system disabled amid reported hacking attempts one week before US midterms, disrupting last-minute spending disclosures",
+      "primary_entity": "United States Federal Election Commission (FEC)",
+      "underlying_actual_event": "FEC electronic filing incident opened October 26 2026 at 22:15 EDT (October 27 09:15 VN), disabling electronic campaign-finance submission and online forms during the final pre-midterm disclosure window. FEC officially confirms outage and continued investigation; Reuters independently reviewed a FEC electronic filing officer email describing an attempted breach and precautionary web-facing shutdown. No successful intrusion or data theft has been verified.",
+      "named_paper_protocol_incident": "FEC.gov electronic filing system outage and suspected intrusion, October 26–27 2026",
+      "material_update_key": "OCT26_2026_FEC_EFILING_OFFICIAL_MAJOR_OUTAGE_STARTED_2215_EDT|OCT27_FEC_HOMEPAGE_STILL_OFFLINE_AND_STATUS_INVESTIGATING|REUTERS_FEC_OFFICER_EMAIL_REPORTS_BAD_ACTOR_ATTEMPTED_BREACH|24H_48H_CAMPAIGN_EXPENDITURE_DISCLOSURES_BLOCKED_1_WEEK_BEFORE_NOV3_MIDTERMS|NO_CONFIRMED_SUCCESSFUL_BREACH_OR_VOTING_SYSTEM_IMPACT",
+      "last_verified_source_url": "https://fecgov.statuspage.io/incidents/1f16b9021jfx",
+      "primary_document_url": "https://www.fec.gov/",
+      "independent_reporting_url": "https://www.reuters.com/technology/hacker-trying-breach-us-federal-election-commission-system-email-shows-2026-10-27/",
+      "additional_independent_reporting_url": "https://www.washingtonpost.com/politics/2026/10/27/fecs-filing-system-is-down-week-before-election-agency-wont-say-why/",
+      "source_event_date": "2026-10-26 (US Eastern), 2026-10-27 (Vietnam)",
+      "source_event_time_vn": "2026-10-27T09:15:00+07:00",
+      "source_event_time_note": "FEC official statuspage first investigating entry Oct26 22:15 EDT = Oct27 09:15 VN; Reuters first published Oct27 18:44 UTC = Oct28 01:44 VN. Exact attacker attempt clock and intrusion method unknown.",
+      "detected_at_vn": "2026-10-28T07:08:25+07:00",
+      "notified_at_vn": "2026-10-28T07:08:25+07:00",
+      "notification_precommitted_at_vn": "2026-10-28T07:08:25+07:00",
+      "status": "notification_precommitted",
+      "delivery_status": "pending_actual_delivery",
+      "provenance": "FEC official incident status and live FEC.gov banner (service outage verified), Reuters independent reporting based on FEC filing officer email (attempted breach allegation), Washington Post independent confirmation of outage; no successful breach proven",
+      "evidence_note": "Tech/Internet major cybersecurity incident and Politics exceptional US federal midterm disclosure infrastructure, standalone 8.7/10. E-filing submission, online forms and vendor tools unavailable since Oct26 22:15 EDT; FEC official status investigating through Oct27 09:35 EDT, homepage still shows offline during Oct28 VN scan. The blackout blocks 24h/48h independent-expenditure and contribution filings during final week before Nov3 elections; Reuters cites AdImpact $11.21B spent/reserved election ads, but that is broad context not quantified outage losses. FEC does not administer voting, no proof of voter systems compromised or successful exfiltration; do not overstate attack attribution. 5 independent lanes scanned and mandatory macro sweep: FOMC Oct27–28 decision not yet released, official Treasury Oct27 2Y4.70/10Y4.99/30Y5.30 vs Oct26 4.68/5.00/5.31; HY OAS Oct26 3.30 IG 0.90, SOFR Oct26 3.93, ON RRP Oct27 $0.226B, no verified macro regime transition. D1 authoritative current/global HTTP200 version4 WATCH AMBER HAWKISH (Oct4 observation stale), no D1/Sheet writes. BTC quantum BIP360/361 Draft, Google/IonQ numbers resource estimates, no real secp256k1 break/onchain quantum theft/mainnet activation. X peek then one scan 12/12 verified, ok/scan.ok/saved/readback PASS; full 53 pending reviewed only whitelisted fields, 7 definitely nonmaterial acked readback PASS, remaining 46 preserved; X not factual proof. Feeder latest run 40567366448 success, artifact downloaded/read: 2/2 TopHub/NewsNow HTTP200, not proof of five-lane coverage."
     }
   }
 }
