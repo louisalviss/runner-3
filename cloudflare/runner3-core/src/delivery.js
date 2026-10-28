@@ -122,7 +122,7 @@ function objectHeaders(object, artifact) {
   if (Number.isFinite(object.size)) headers.set("content-length", String(object.size));
   headers.set("cache-control", "private, no-store, max-age=0");
   const contentType = String(headers.get("content-type") || "").toLowerCase();
-  const disposition = contentType.startsWith("video/") ? "inline" : "attachment";
+  const disposition = contentType.startsWith("video/") || contentType.startsWith("audio/") ? "inline" : "attachment";
   headers.set("content-disposition", `${disposition}; filename="${attachmentFilename(artifact.name)}"`);
   headers.set("x-content-type-options", "nosniff");
   headers.set("referrer-policy", "no-referrer");

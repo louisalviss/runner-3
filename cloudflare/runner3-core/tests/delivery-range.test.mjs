@@ -88,3 +88,65 @@ const untrusted = await handler(new Request(origin + '/delivery/video/pokemon-fi
 assert.equal(untrusted.status, 401);
 
 console.log('RANGE_DELIVERY_TESTS=PASS cases=14 signed-auth=PASS HEAD=PASS invalid-range=416');
+
+
+// Audio: browser/Safari should play rather than download, with byte ranges for seeking.
+// All other artifacts retain their attachment disposition.
+const audioObjects = {
+  'core/music/chords/preview.mp3': 'audio/mpeg',
+  'core/music/chords/notes.mid': 'audio/midi',
+  'core/docs/public/manual.pdf': 'application/pdf',
+};
+const modifiedEnv = {
+  ...env,
+  ARTIFACTS: {
+    async head(k) {
+      const contentType = audioObjects[k];
+      if (!contentType) return null;
+      return { ...metadata, writeHttpMetadata(h) { h.set('content-type', contentType); } };
+    },
+    async get(k, opt) {
+      const contentType = audioObjects[k];
+      if (!contentType) return null;
+      const offset = opt?.range?.offset ?? 0;
+      const length = opt?.range?.length ?? data.length;
+      return {
+        ...metadata,
+        writeHttpMetadata(h) { h.set('content-type', contentType); },
+        body: new Response(data.slice(offset, offset + length)).body,
+      };
+    },
+  },
+};
+async function newLink(project, scope, name) {
+  const result = await handleDelivery(
+    new Request(origin + '/delivery-links', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + env.RUNNER3_CORE_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, scope, name, ttl_seconds: 3600 }),
+    }), modifiedEnv, new URL(origin + '/delivery-links')
+  );
+  assert.equal(result.status, 200);
+  return (await result.json()).delivery.url;
+}
+for (const [project, scope, name, expectedType, expectedMode] of [
+  ['music','chords','preview.mp3','audio/mpeg','inline'],
+  ['music','chords','notes.mid','audio/midi','inline'],
+  ['docs','public','manual.pdf','application/pdf','attachment'],
+]) {
+  const audioLink = await newLink(project, scope, name);
+  for (const range of [null, 'bytes=100-199']) {
+    const request = new Request(audioLink, { headers: range ? {Range: range} : {} });
+    const result = await handleDelivery(request, modifiedEnv, new URL(audioLink));
+    assert.equal(result.status, range ? 206 : 200);
+    assert.equal(result.headers.get('content-type'), expectedType);
+    assert.match(result.headers.get('content-disposition'), new RegExp('^'+expectedMode+';'));
+    assert.equal(result.headers.get('accept-ranges'), 'bytes');
+    assert.equal((await result.arrayBuffer()).byteLength, range ? 100 : 4096);
+  }
+  const headRequest = new Request(audioLink, {method:'HEAD'});
+  const headResult = await handleDelivery(headRequest, modifiedEnv, new URL(audioLink));
+  assert.equal(headResult.status, 200);
+  assert.match(headResult.headers.get('content-disposition'), new RegExp('^'+expectedMode+';'));
+  assert.equal(headResult.headers.get('content-length'), '4096');
+}
+console.log('AUDIO_INLINE_DELIVERY_TESTS=PASS audio/mp3 audio/midi GET/HEAD/RANGE pdf-attachment');
