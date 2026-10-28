@@ -3005,6 +3005,27 @@
       "delivery_status": "pending_actual_delivery",
       "score": 8.8,
       "evidence_note": "Official CISA KEV direct JSON readback confirmed dateAdded Oct27 and Nov10 federal due date. Node.js official advisory confirms potential memory corruption and RCE if attacker-controlled Brotli input is decoded; upstream fixed Brotli versions 1.0.10,1.1.1,1.2.1 and Node 22.23.4/24.22.1/26.12.1. SecurityWeek independently reports two honeypot exploit attempts, not proof of successful compromise. No evidence all embedding products are exploitable by default. Distinct verified active-exploitation phase from existing Envoy product-specific remediation event. No D1 macro state transition; X feeder blocked by SentinelX command allowlist, not bypassed."
+    },
+    "FEDERAL_RESERVE|OCT28_2026_FOMC_HOLD_10_2_AND_2027_STRATEGIC_MEETING_REFORM": {
+      "label": "Fed holds 3.75–4.00% in 10–2 FOMC vote with two hike dissents; Warsh announces fewer rate-voting meetings from 2027",
+      "primary_entity": "Federal Reserve / FOMC and Chair Kevin Warsh",
+      "underlying_actual_event": "October 28 2026 FOMC official rate decision holds federal funds target at 3.75–4.00% by 10–2; Cook and Hammack favor +25bp, statement upgrades economic expansion to strong and emphasizes further information. In the same post-meeting press conference Warsh says one of eight 2027 meetings and two in 2028 will be dedicated to strategic discussion without a rate vote, independently reported by Reuters and NBC. 2027 meeting calendar publication is not itself verified updated; don't imply meetings eliminated.",
+      "named_paper_protocol_incident": "Federal Reserve FOMC statement and Warsh press conference, October 28 2026",
+      "material_update_key": "OCT28_2026_FOMC_OFFICIAL_HOLD_3_75_4_00_VOTE10_2|COOK_HAMMACK_PREFER_PLUS25BP|ECONOMY_STRONG_VS_SOLID|DATA_ACCUMULATION_STATEMENT|WARSH_2027_ONE_STRATEGIC_NONRATE_MEETING_2028_TWO_REPORTED|OCT28_TREASURY_2Y4_67_10Y5_05_30Y5_37_VS_OCT27_4_70_4_99_5_30",
+      "last_verified_source_url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20261028a.htm",
+      "independent_reporting_url": "https://www.reuters.com/business/view-fomc-holds-rates-steady-markets-mostly-follow-suit-2026-10-28/",
+      "additional_independent_reporting_url": "https://www.aol.com/articles/fed-plans-eliminate-rate-setting-185026000.html",
+      "primary_treasury_url": "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?field_tdr_date_value_month=202610&type=daily_treasury_yield_curve",
+      "source_event_date": "2026-10-28",
+      "source_event_time_vn": "2026-10-29T01:00:00+07:00",
+      "source_event_time_note": "FOMC statement release Oct28 14:00 EDT = Oct29 01:00 VN. Warsh press conference begins at 14:30 EDT = Oct29 01:30 VN. Treasury Oct28 official closing indicative par curve 2Y4.67%,10Y5.05%,30Y5.37%; Oct27 4.70%,4.99%,5.30%.",
+      "detected_at_vn": "2026-10-29T03:09:29+07:00",
+      "notified_at_vn": "2026-10-29T03:09:29+07:00",
+      "notification_precommitted_at_vn": "2026-10-29T03:09:29+07:00",
+      "status": "notification_precommitted",
+      "delivery_status": "pending_actual_delivery",
+      "provenance": "Primary Fed official Oct28 FOMC statement and US Treasury Oct28 yields, independent Reuters Oct28 press conference/market reaction, NBC report of Warsh strategic meeting policy; primary Fed website statement does not itself mention meeting-frequency change; future 2027 calendar details should be checked after official update.",
+      "evidence_note": "Macro standalone 8.5/10: official material FOMC communication and institutional meeting structure reform, not surprise rate hike. October hold priced around 90%, 2 dissenters Cook/Hammack favored hike, economy strong vs solid, data dependent no explicit December commitment. Treasury Oct28 2Y4.67 vs 4.70 prior (-3bp), 10Y5.05 vs4.99 (+6bp), 30Y5.37 vs5.30 (+7bp), 2s10s steepened from29bp to38bp; Reuters market snapshots 2Y4.7/10Y5.042/30Y5.367 and equity +0.2%, DXY -0.2%. Independent 5-lane discovery and full Fed macro sweep: Sep CPI3.7%, Aug PCE3.4/core3.0, Sep payroll+29k unemployment4.2, GDP Q2 2.2%, October Treasury issuance and energy Brent ~115, DXY/FX, SOFR/funding, IG/HY latest available not contemporaneous, VIX/cross-asset; no evidence for D1 regime transition. D1 direct approved VPS GET HTTP200 ok=true version4 WATCH AMBER MIXED_OR_UNCONFIRMED HAWKISH unchanged, no D1/Sheet write. BTC quantum BIP360/361 Draft, Core32.1 prior ledger, IonQ Sept resource estimate not actual attack, no new verified secp256k1 break or quantum theft or mainnet activation. GitHub feeder run40753529536 artifact manifest+text and job log read, TopHub+NewsNow 2/2 but only supplementary. X approved run-source.sh peek command blocked by SentinelX allowlist; no scan or ack, six existing pending inspected read-only via whitelisted fields, no X facts promoted."
     }
   }
 }
