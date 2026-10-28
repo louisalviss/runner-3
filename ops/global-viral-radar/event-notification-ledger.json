@@ -2981,6 +2981,30 @@
       "delivery_status": "pending_actual_delivery",
       "provenance": "NVIDIA_author_official_Hugging_Face_blog_and_model_card_plus_TechCrunch_and_The_Decoder_independent_reporting",
       "evidence_note": "AI standalone 8.4/10. Primary NVIDIA release confirms 40 transcription languages, 31 translated to/from English, speaker attribution 13 languages and up to eight speakers, 1-hour offline recordings; model card 34B total incl audio encoder, 4.3B active (product name 30B-A4B). NVIDIA blog says English Open ASR Leaderboard 5.33% WER and 2.8% Artificial Analysis WER; vendor reports not independently reproduced in this run. Granary v2 official public manifest 463,062 hours across 48 languages, not secondary article's 844,000 hours. Held-out medical adaptation WER 22.44% to 12.17%, vendor case study. Open weights actually live; optimized quantized local deployment and upstream speed optimizations pending, not real-time streaming. No stock price move claimed. D1 authoritative current/global HTTP200 version4 WATCH/AMBER/MIXED_OR_UNCONFIRMED/HAWKISH, no material regime change. X discovery post 2115459036594176363 remains pending until actual delivery verified."
+    },
+    "GOOGLE_BROTLI|CVE_2026_111497|CISA_KEV_ACTIVE_EXPLOITATION_CONFIRMED_OCT27_2026": {
+      "label": "CISA adds Google Brotli CVE-2026-111497 to Known Exploited Vulnerabilities after upstream fixes; newly confirmed in-the-wild exploitation across a widely embedded decompression library",
+      "primary_entity": "Google Brotli / CISA",
+      "underlying_actual_event": "CISA Oct27 confirms evidence of exploitation of CVE-2026-111497 in the wild, distinct material escalation from vendor's Oct21 patch and Envoy's Oct23 product advisory. Broad downstream runtime/library exposure; no confirmed victim count, exploitation outcome, or ransomware link.",
+      "named_security_incident": "CVE-2026-111497 (Node2Shell / Brotli decoder out-of-bounds write)",
+      "material_update_key": "OCT27_2026_CISA_KEV_ADDS_CVE_2026_111497_AFTER_OCT21_VENDOR_FIX|CONFIRMED_EXPLOITATION_IN_WILD|CISA_FEDERAL_REMEDIATION_DUE_NOV10|BROTLI_C_DECODER_CVSS4_9_2|NODEJS_22_24_26_AND_BUN_ENVOY_DOTNET_AFFECTED_DEPLOYMENT_SPECIFIC|NO_CONFIRMED_VICTIM_COUNT_OR_RANSOMWARE_LINK|MATERIAL_NEW_PHASE_AFTER_OCT23_ENVOY_PATCH_ADVISORY",
+      "last_verified_source_url": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+      "supporting_primary_vendor_url": "https://nodejs.org/en/blog/vulnerability/october-2026-security-releases",
+      "supporting_primary_upstream_url": "https://github.com/google/brotli/releases/tag/v1.2.1",
+      "supporting_independent_url": "https://www.securityweek.com/cisa-warns-of-node2shell-exploitation-as-honeypots-log-attack-attempts/",
+      "related_prior_phase_event_keys": [
+        "ENVOY_PROXY|BROTLI_CVE_2026_111497|OCT23_2026_CRITICAL_ADVISORY_AND_PATCHED_VERSIONS"
+      ],
+      "source_event_date": "2026-10-27",
+      "source_event_date_vn": "2026-10-28",
+      "source_event_time_vn": "2026-10-28T02:00:00+07:00",
+      "source_event_time_note": "CISA KEV dateAdded 2026-10-27 is authoritative; catalog 2026.10.27 release reported at 19:00 UTC Oct27 (02:00 VN Oct28) by independent catalog tracker, not a per-CVE precise timestamp.",
+      "notified_at_vn": "2026-10-29T01:49:46+07:00",
+      "provenance": "CISA_KEV_PRIMARY_FEED_DIRECT_GET_OCT28_2026_PLUS_NODEJS_GOOGLE_UPSTREAM_AND_SECURITYWEEK_INDEPENDENT",
+      "status": "notification_precommitted",
+      "delivery_status": "pending_actual_delivery",
+      "score": 8.8,
+      "evidence_note": "Official CISA KEV direct JSON readback confirmed dateAdded Oct27 and Nov10 federal due date. Node.js official advisory confirms potential memory corruption and RCE if attacker-controlled Brotli input is decoded; upstream fixed Brotli versions 1.0.10,1.1.1,1.2.1 and Node 22.23.4/24.22.1/26.12.1. SecurityWeek independently reports two honeypot exploit attempts, not proof of successful compromise. No evidence all embedding products are exploitable by default. Distinct verified active-exploitation phase from existing Envoy product-specific remediation event. No D1 macro state transition; X feeder blocked by SentinelX command allowlist, not bypassed."
     }
   }
 }
