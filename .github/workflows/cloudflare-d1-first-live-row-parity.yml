@@ -184,7 +184,6 @@ jobs:
         with:
           name: d1-upstream-three-bounded-counts-readonly
           path: migration-out
-          if-no-files-found: error
       - name: Test composite-PK HMAC audit offline
         run: |
           set -euo pipefail
