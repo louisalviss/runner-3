@@ -121,6 +121,31 @@ def capture(token,account,db,secret,reader=read,remaining=None):
         cursor=prev
     raise Hold("PAGE_CAP_EXCEEDED")
 
+def drift_summary(first, second):
+    """Aggregate HMAC-only key/payload drift; never serialize identities."""
+    old = set(first)
+    new = set(second)
+    return {
+        "keys_added": len(new - old),
+        "keys_removed": len(old - new),
+        "shared_payload_changed": sum(
+            first[k][0] != second[k][0] for k in old & new
+        ),
+    }
+
+def require_stable_snapshots(src1,src2,dst1,dst2):
+    if src1 == src2 and dst1 == dst2:
+        return
+    summaries = (("source",drift_summary(src1,src2)),
+                 ("target",drift_summary(dst1,dst2)))
+    # Error contains ONLY aggregate counts; never keys, values, HMACs or tokens.
+    detail = " ".join(
+        name + "_" + field + "=" + str(summary[field])
+        for name,summary in summaries
+        for field in ("keys_added","keys_removed","shared_payload_changed")
+    )
+    raise Hold("FEATURE_SNAPSHOTS_UNSTABLE " + detail)
+
 def audit(src_token,dst_token,counts,reader=read):
     need(type(src_token) is str and type(dst_token) is str and
          len(src_token)>=16 and len(dst_token)>=16 and src_token!=dst_token,
@@ -149,7 +174,7 @@ def audit(src_token,dst_token,counts,reader=read):
                      remaining=TOTAL_READ_CAP-tc1)
     need(sc1+sc2<=TOTAL_READ_CAP and tc1+tc2<=TOTAL_READ_CAP,
          "TWO_PASS_ACCOUNT_READ_BUDGET_EXCEEDED")
-    need(src1==src2 and dst1==dst2,"FEATURE_SNAPSHOTS_UNSTABLE")
+    require_stable_snapshots(src1,src2,dst1,dst2)
     for name,data in (("source",src2),("target",dst2)):
         exact=cf.get(name+"_count")
         need(len(data)>=cf[name+"_lower_bound"] and
