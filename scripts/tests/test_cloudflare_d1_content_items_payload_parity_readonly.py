@@ -62,7 +62,9 @@ class TestContentItemPayload(unittest.TestCase):
 
     def test_mismatched_preflight_counts_stop(self):
         c=counts();c["tables"]["content_items"]["source_count"]=4
-        with self.assertRaisesRegex(m.Hold,"COUNT_RECEIPT_STALE"):
+        # The earlier cross-checked key receipt must reject the stale count
+        # before even attempting any D1 payload reads.
+        with self.assertRaisesRegex(m.Hold,"KEYED_PK_RECEIPT_UNTRUSTED"):
             m.analyze(SOURCE_TOKEN,TARGET_TOKEN,c,pk(),reader)
 
     def test_mismatched_key_receipt_stops(self):
