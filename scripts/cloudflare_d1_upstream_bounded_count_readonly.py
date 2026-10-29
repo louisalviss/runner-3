@@ -127,9 +127,11 @@ def count(rows,name):
            type(rows[0]) is dict and set(rows[0])=={"n"} and
            type(rows[0]["n"]) is int and 0<=rows[0]["n"],
            "COUNT_RESPONSE_INVALID_"+name)
-    ensure(rows[0]["n"]<TABLES[name]["limit"],
-           "COUNT_CAP_REACHED_"+name)
-    return rows[0]["n"]
+    # Equal to LIMIT is a safe lower bound, not an exact count. Never
+    # extend the scan or infer row parity from a bounded aggregate.
+    ensure(rows[0]["n"]<=TABLES[name]["limit"],
+           "COUNT_EXCEEDS_ALLOWLIST_LIMIT_"+name)
+    return rows[0]["n"], rows[0]["n"]==TABLES[name]["limit"]
 
 def assess(source_token,target_token,reader=query):
     ensure(type(source_token) is str and type(target_token) is str and
@@ -137,6 +139,8 @@ def assess(source_token,target_token,reader=query):
            source_token!=target_token,"SEPARATE_READ_CREDENTIALS_REQUIRED")
     report={
         "status":"UPSTREAM_THREE_TABLES_BOUNDED_COUNTS_NOT_KEYED_PARITY",
+        "any_count_capped":False,
+        "capped_tables":[],
         "checked_utc":dt.datetime.now(dt.timezone.utc).isoformat(),
         "database":"runner3-content-intelligence",
         "tables":{},
@@ -163,7 +167,11 @@ def assess(source_token,target_token,reader=query):
                "SOURCE_TARGET_SCHEMA_DIFFERENCE")
         sc,scr=reader(source_token,SOURCE,SOURCE_D1,COUNT_SQL[name])
         tc,tcr=reader(target_token,TARGET,TARGET_D1,COUNT_SQL[name])
-        s,t=count(sc,name),count(tc,name)
+        s,s_capped=count(sc,name)
+        t,t_capped=count(tc,name)
+        if s_capped or t_capped:
+            report["any_count_capped"]=True
+            report["capped_tables"].append(name)
         for role,items in (("source",(sr,scr)),("target",(tr,tcr))):
             for v in items:
                 if v is not None:
@@ -171,15 +179,22 @@ def assess(source_token,target_token,reader=query):
             ensure(costs[role]<=MAX_METRIC_ROWS_READ,
                    "ACCOUNT_READ_BUDGET_EXCEEDED")
         report["tables"][name]={
-            "source_count":s,"target_count":t,
-            "source_minus_target":s-t,
+            "source_count":None if s_capped else s,
+            "target_count":None if t_capped else t,
+            "source_lower_bound":s,
+            "target_lower_bound":t,
+            "source_at_cap":s_capped,
+            "target_at_cap":t_capped,
+            "source_minus_target":None if s_capped or t_capped else s-t,
             "schema_columns_and_pk_equal":True,
-            "count_below_strict_cap":True,
+            "count_below_strict_cap":not (s_capped or t_capped),
             "max_limit_per_account":TABLES[name]["limit"],
             "source_only_keys_verified":False,
             "target_only_keys_verified":False,
             "matching_payloads_verified":False
         }
+    if report["any_count_capped"]:
+        report["status"]="UPSTREAM_PARTIAL_COUNTS_CAPPED_HOLD_NO_EXTRA_SCAN"
     return report
 
 def main():
@@ -194,7 +209,9 @@ def main():
         OUT.parent.mkdir(parents=True,exist_ok=True)
         OUT.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n",
                        encoding="utf8")
-        print("D1_UPSTREAM_COUNT_PREFLIGHT_PASS no_writes no_row_values")
+        print("D1_UPSTREAM_COUNT_PREFLIGHT",result["status"],
+              "capped_tables",len(result["capped_tables"]),
+              "no_writes no_row_values")
         return 0
     except Hold as err:
         # All Hold reasons are static identifiers authored here or numeric
