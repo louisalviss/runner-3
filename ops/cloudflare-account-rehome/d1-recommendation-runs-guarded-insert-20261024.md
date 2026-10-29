@@ -1,5 +1,14 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
+## Refreshed 2026-10-29 recommendation_runs source/target bounded dry-run (latest; NOT authorized to write)
+
+[Workflow #40867548676](https://github.com/louisalviss/runner-3/actions/runs/40867548676) completed PASS on the existing `cloudflare-d1-recommendation-runs-additive-dryrun.yml` read-only workflow. Re-read and compared small `runner3-content-intelligence.recommendation_runs` on both Cloudflare accounts twice, then simulated additive INSERT and row-safe reverse entirely in ephemeral local SQLite. Observed **47 source rows, 35 target rows, 35 existing matching rows, 12 missing target rows, 0 payload conflicts, 0 unexplained target-only rows**. Source and target each stable within the two reads; schema metadata equal. The local 12-row additive insertion and subsequent 12-row deletion simulation both PASS; scratch baseline restored exactly to the original 35 rows. This is one table only, not atomic cross-account snapshot or full-account row parity.
+
+As of 2026-10-29, the GitHub guarded production D1 INSERT workflow had **no prior runs** returned by run listing. Repo Secret metadata still lists `CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW` but **does not list `CLOUDFLARE_TARGET_PREAPPLY_BOOKMARK`**. Neither `target_writers_quiesced` nor `row_safe_recovery` is established, so **do not dispatch the real write job**, and do not set either safety confirmation to YES. No D1 write/restore, R2 request or Worker deploy occurred in this repeat dry-run. The target's production Time Travel API working is **not** a usable installed rollback bookmark.
+
+Evidence scope: current only for `recommendation_runs`, source production unchanged and remains authoritative. Next needed gates are secure authorized fresh bookmark/rollback verification, independent live writer ownership/quiescence, and safe bounded keyed row reconciliation of additional DBs/tables. R2 migration remains HOLD. Do not infer global data parity or production migration readiness from this PASS.
+
+
 ## Current target write analytics and Time Travel — 2026-10-29 (latest, no writes, HOLD)
 
 **Read-only evidence only; NOT proof of writer quiescence or rollback readiness.**
