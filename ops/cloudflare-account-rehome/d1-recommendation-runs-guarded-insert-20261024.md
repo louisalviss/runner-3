@@ -1,6 +1,19 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
 
+## Live content_features stability gate — run #40907537967 (2026-10-29)
+
+[Manual read-only workflow #40907537967](https://github.com/louisalviss/runner-3/actions/runs/40907537967) used HEAD `cc9c43a426a634e92251ba0397a3572430f552c8`. `recommendation-runs` completed **SUCCESS**; the opt-in `content-features` job was actually **RUN**, unlike #40905131992 where it had been skipped. Feature job **FAIL (exit 3)** with canonical script message **`D1_CONTENT_FEATURES_AUDIT_HOLD FEATURE_SNAPSHOTS_UNSTABLE NO_WRITES`**; the feature artifact was not emitted. The two bounded sequential snapshots `src1/src2` or `dst1/dst2` disagreed in keyed/HMAC payload state. The fail-closed routine does not disclose which account(s) drifted or whether keys vs payload changed. **Do not report missing/conflicting feature counts.** This is not the previous 8-minute timeout or missing manual input; the audit detected instability under the separate 12-minute budget.
+
+Other completed same-run read-only results:
+- `user_content_events`: SOURCE **6,925** (5,017 common matching plus 1,908 SOURCE-only), TARGET **5,017**, **0 TARGET-only**. SOURCE has grown +4 since #40905131992.
+- `content_items`: **2,853** common PKs, 2,768 shared payload matches, **85** payload conflicts.
+- No production D1 mutations, R2 requests, worker deploy, feature data export, restoration or cutover in this run.
+
+**Decision:** Keep **`content_features` = NOT AUDITED TO COMPLETION / HOLD**, D1 migration/cutover **HOLD**, R2 `COST_HOLD`, SOURCE authoritative, and preserve all preexisting TARGET rows. No repeated full-table scans on an actively changing dataset just to chase a transient stable interval; first establish owner-controlled SOURCE/TARGET writer inventory, a defensible temporary quiescence/fence or snapshot solution, deletion lineage, full row-safe rollback/recovery rehearsal and bounded delta catch-up. The other tables' prior parity results do not override this independent gate. Resume only with an approved read-only stability/consistency plan that retains strict caps and does not incur unapproved metered costs.
+
+
+
 ## Latest run #40905131992 — base PASS, optional features job SKIPPED (2026-10-29)
 
 [Actual manually triggered read-only workflow #40905131992](https://github.com/louisalviss/runner-3/actions/runs/40905131992) ran on `main` after [PR #506](https://github.com/louisalviss/runner-3/pull/506). The original `recommendation-runs` job **completed SUCCESS** with no failed steps. The distinct `content-features` job **completed SKIPPED** (not timeout, not an observed schema/cost failure). There is **no `d1-content-features-keyed-readonly` aggregate artifact**, and **no completed live keyed feature comparison**. The dependent job uses `if: ${{ inputs.audit_content_features }}` and its required predecessor succeeded, so the most likely issue is that this input evaluated false/unset at dispatch; exact GUI selection is not independently observed. Keep feature parity unproven.
