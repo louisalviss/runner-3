@@ -1,5 +1,29 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
+## Latest live content_items payload reconciliation — 2026-10-29 (HOLD, no production write)
+
+[Bounded two-pass read-only HMAC payload check #40876217743](https://github.com/louisalviss/runner-3/actions/runs/40876217743) after [PR #500](https://github.com/louisalviss/runner-3/pull/500) and test-only [PR #501](https://github.com/louisalviss/runner-3/pull/501) **PASS**. Existing row-parity workflow reused the source read secret and NEW scoped target audit token. PK-cursor pages of at most 100 rows, fixed 5k cap per account, source+target double read and count-to-key receipts verified stability in this run; no row/PK values, HMACs, URLs, titles or arbitrary metadata were saved in logs or artifacts. **Zero D1 writes, zero R2 requests, no Worker deploy.**
+
+| Field | Current source | Current target |
+| --- | ---: | ---: |
+| `content_items` rows | **4,674** | **2,853** |
+| PKs shared | **2,853** | **2,853** |
+| Shared PKs with whole typed row identical | **2,768** | **2,768** |
+| Shared PKs with some payload differences | **85** | **85** |
+| Source-only PKs | **1,821** | — |
+| Target-only PKs | — | **0** |
+
+Within the 2,853 shared PKs, differing column counts: `last_seen_at=85`, `metadata_json=82`, `published_at=2`. The following columns have **0 observed differences**: `canonical_url`, `title`, `content_hash`, `source_type`, `source_name`, `source_key`, `raw_ref`, `language`, `captured_at`, `first_seen_at`. The 85 conflicts overlap across columns, so sums exceed 85. **These are only snapshot-level counts, not approved field merge rules.** Observe SOURCE `content_items` increased by 5 PKs since prior [#40873720661](https://github.com/louisalviss/runner-3/actions/runs/40873720661) (4,669 → 4,674), confirming source can change. Two passes within one run were stable, but account reads are not atomic and no continuous writer quiescence is proven.
+
+**Decision for proposed migration (not authorization to execute):**
+1. Reconcile base dependencies with bounded row+key evidence: `content_features` (SOURCE >=19,000, exact count unknown) and `user_content_events` (DB-local AUTOINCREMENT `id` not cross-account global identity); never copy child rows without a source/target identity mapping, matching item parents and tombstone/deletion policy.
+2. For `content_items`, explicitly classify the **1,821 missing target PKs** as additive-only candidates, and **85 shared-PK metadata conflicts** as separate merge-policy decisions. Preserve all existing target PKs. Never assume last_seen_at, metadata_json or published_at should be overwritten without field ownership and writer quiescence proof.
+3. Before any production D1 apply, establish secure, **usable** pre-apply recovery bookmark, independently tested rollback, bounded target writer quiescence and separate explicit approval. The public source-only HMAC receipt and empty SQLite DDL replay do not replace those conditions.
+4. R2 migration remains under independent cost HOLD. Source remains production authority. Never set `target_writers_quiesced=YES`, `row_safe_recovery=YES` or `cutover_ready=true` on this evidence.
+
+Current status: `CONTENT_ITEMS_BOUNDED_PAYLOAD_PARITY_HOLD_NOT_CUTOVER` with `rollback_ready=false`, `target_writer_quiescence_verified=false`, `d1_write_requests=0`, `cutover_ready=false`.
+
+
 ## Upstream materialized-profile base tables: bounded counts + content_items PK-only HMAC census — 2026-10-29 (latest, migration HOLD)
 
 [Workflow #40873720661](https://github.com/louisalviss/runner-3/actions/runs/40873720661), after [PR #497](https://github.com/louisalviss/runner-3/pull/497) and [PR #498](https://github.com/louisalviss/runner-3/pull/498), completed all synthetic tests, three-table count/schema preflight, and additional **content_items PK-only** HMAC source/target comparison. It used SOURCE read credential and verified NEW TARGET Audit Secret only; no D1 WRITE credential passed. No raw item IDs, per-key HMACs, raw application payloads, or secrets were exported or logged. **No D1, Worker, R2 or restore mutations.**
