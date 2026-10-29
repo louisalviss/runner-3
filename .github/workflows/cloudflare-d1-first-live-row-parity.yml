@@ -71,3 +71,23 @@ jobs:
           path: migration-out/d1-derived-profile-reconcile-gate.json
           if-no-files-found: error
           retention-days: 2
+      - name: Test upstream three-table schema/count read bounds offline
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/cloudflare_d1_upstream_bounded_count_readonly.py
+          PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_upstream_bounded_count_readonly.py' -v
+      - name: Read source and target three-table capped counts, no row values
+        env:
+          CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW: ${{ secrets.CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: python3 scripts/cloudflare_d1_upstream_bounded_count_readonly.py
+      - name: Upload bounded source-target base counts only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-upstream-three-bounded-counts-readonly
+          path: migration-out/d1-upstream-three-bounded-counts-readonly.json
+          if-no-files-found: error
+          retention-days: 2
