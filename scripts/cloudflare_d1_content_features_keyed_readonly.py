@@ -95,7 +95,10 @@ def fingerprint(row,secret):
     cols={c:mac(b"col:v1:"+c.encode()+b":",(row[c],)) for c in PAYLOAD}
     return pk,identity,(value,cols)
 
-def capture(token,account,db,secret,reader=read):
+def capture(token,account,db,secret,reader=read,remaining=None):
+    if remaining is None: remaining=TOTAL_READ_CAP
+    need(type(remaining) is int and 0<=remaining<=TOTAL_READ_CAP,
+         "INVALID_REMAINING_READ_BUDGET")
     cursor=("","","")
     found={}
     cost=0
@@ -105,7 +108,7 @@ def capture(token,account,db,secret,reader=read):
              type(rows_read) is int and 0<=rows_read<=PAGE_READ_CAP,
              "PAGE_RESPONSE_OR_READ_METRIC_INVALID")
         cost+=rows_read
-        need(cost<=TOTAL_READ_CAP,"ACCOUNT_READ_BUDGET_EXCEEDED")
+        need(cost<=remaining,"ACCOUNT_READ_BUDGET_EXCEEDED")
         prev=cursor
         for row in rows:
             pk,identity,payload=fingerprint(row,secret)
@@ -140,8 +143,10 @@ def audit(src_token,dst_token,counts,reader=read):
     secret=secrets.token_bytes(32)
     src1,sc1=capture(src_token,SOURCE,SOURCE_D1,secret,reader)
     dst1,tc1=capture(dst_token,TARGET,TARGET_D1,secret,reader)
-    src2,sc2=capture(src_token,SOURCE,SOURCE_D1,secret,reader)
-    dst2,tc2=capture(dst_token,TARGET,TARGET_D1,secret,reader)
+    src2,sc2=capture(src_token,SOURCE,SOURCE_D1,secret,reader,
+                     remaining=TOTAL_READ_CAP-sc1)
+    dst2,tc2=capture(dst_token,TARGET,TARGET_D1,secret,reader,
+                     remaining=TOTAL_READ_CAP-tc1)
     need(sc1+sc2<=TOTAL_READ_CAP and tc1+tc2<=TOTAL_READ_CAP,
          "TWO_PASS_ACCOUNT_READ_BUDGET_EXCEEDED")
     need(src1==src2 and dst1==dst2,"FEATURE_SNAPSHOTS_UNSTABLE")
