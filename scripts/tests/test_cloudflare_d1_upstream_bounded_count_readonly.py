@@ -87,14 +87,55 @@ class TestBoundedCounts(unittest.TestCase):
             return rows,cost
         with self.assertRaises(m.Hold):m.assess(SOURCE,TARGET,drift)
 
-    def test_reject_count_at_hard_cap(self):
+    def test_count_at_hard_cap_is_lower_bound_not_exact(self):
         def cap(token,account,uid,sql):
             rows,cost=fake(token,account,uid,sql)
-            if sql==m.COUNT_SQL["content_items"]:
-                rows=[{"n":m.TABLES["content_items"]["limit"]}]
+            if account==m.SOURCE and sql==m.COUNT_SQL["content_features"]:
+                rows=[{"n":m.TABLES["content_features"]["limit"]}]
+                cost=m.TABLES["content_features"]["limit"]
             return rows,cost
-        with self.assertRaisesRegex(m.Hold,"COUNT_CAP"):
-            m.assess(SOURCE,TARGET,cap)
+        result=m.assess(SOURCE,TARGET,cap)
+        self.assertEqual(len(CALLS),12)
+        self.assertTrue(result["any_count_capped"])
+        self.assertEqual(result["capped_tables"],["content_features"])
+        self.assertEqual(result["status"],
+                         "UPSTREAM_PARTIAL_COUNTS_CAPPED_HOLD_NO_EXTRA_SCAN")
+        feature=result["tables"]["content_features"]
+        self.assertIsNone(feature["source_count"])
+        self.assertEqual(feature["source_lower_bound"],19000)
+        self.assertTrue(feature["source_at_cap"])
+        self.assertEqual(feature["target_count"],NUMBERS["content_features"][1])
+        self.assertIsNone(feature["source_minus_target"])
+        self.assertFalse(feature["count_below_strict_cap"])
+        self.assertFalse(result["keyed_row_parity_verified"])
+        self.assertFalse(result["cutover_ready"])
+        self.assertEqual(result["production_writes"],0)
+        # Other table counts are still precise under their static cap.
+        self.assertEqual(result["tables"]["content_items"]["source_count"],2900)
+        self.assertEqual(result["tables"]["user_content_events"]["source_count"],5055)
+
+    def test_reject_result_claiming_more_than_fixed_cap(self):
+        def above_cap(token,account,uid,sql):
+            rows,cost=fake(token,account,uid,sql)
+            if sql==m.COUNT_SQL["content_items"]:
+                rows=[{"n":m.TABLES["content_items"]["limit"]+1}]
+            return rows,cost
+        with self.assertRaisesRegex(m.Hold,"COUNT_EXCEEDS_ALLOWLIST_LIMIT"):
+            m.assess(SOURCE,TARGET,above_cap)
+
+    def test_target_cap_is_not_assumed_source_cap(self):
+        def cap(token,account,uid,sql):
+            rows,cost=fake(token,account,uid,sql)
+            if account==m.TARGET and sql==m.COUNT_SQL["content_features"]:
+                rows=[{"n":m.TABLES["content_features"]["limit"]}]
+                cost=m.TABLES["content_features"]["limit"]
+            return rows,cost
+        result=m.assess(SOURCE,TARGET,cap)
+        self.assertFalse(result["tables"]["content_features"]["source_at_cap"])
+        self.assertTrue(result["tables"]["content_features"]["target_at_cap"])
+        self.assertEqual(result["tables"]["content_features"]["source_count"],14531)
+        self.assertIsNone(result["tables"]["content_features"]["target_count"])
+        self.assertIsNone(result["tables"]["content_features"]["source_minus_target"])
 
     def test_reject_scan_exceeding_account_budget(self):
         def expensive(token,account,uid,sql):
