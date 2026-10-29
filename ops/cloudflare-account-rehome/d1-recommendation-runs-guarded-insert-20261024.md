@@ -1,5 +1,25 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
+## Live two interest profile tables keyed-parity & column attribution — 2026-10-29 (NEW, HOLD)
+
+[Two-profile first bounded live HMAC comparison #40868655035](https://github.com/louisalviss/runner-3/actions/runs/40868655035) and follow-up [column-level aggregate #40869143828](https://github.com/louisalviss/runner-3/actions/runs/40869143828), implemented in the **existing** read-only row-parity workflow through [PR #489](https://github.com/louisalviss/runner-3/pull/489) and [PR #490](https://github.com/louisalviss/runner-3/pull/490), all PASS operationally. Both runs used independently scoped source and target read credentials; validated exact source/target column metadata and declared PKs, read each table twice with a strict 100-row cap, and compared one-time in-memory HMACs for identity, complete typed payloads and non-PK column values. Sensitive row content, PKs, per-row HMACs, session secrets and profile names/values were never exported. D1 writes, R2 and Worker deploys = 0.
+
+**Detailed sanitized evidence (data equality did NOT pass):**
+
+| D1 table | Source | Target | Identical key+payload | Source-only PK | Target-only PK | Shared-PK payload mismatch |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `runner3-content-intelligence.interest_family_profile` | 13 | 13 | 1 | 0 | 0 | 12 |
+| `runner3-content-intelligence.interest_profile` | 28 | 26 | 4 | 3 | 1 | 21 |
+
+**Column-level counts among 13 shared family keys**: `weight` 12, `updated_at` 12, `evidence_count` 1, `positive_count` 1, `confidence` 1, `negative_count` 0. The counts are per-column: affected keys may overlap, and do not reveal values or change direction.
+
+**Column-level counts among 25 shared interest keys**: `weight` 21, `updated_at` 21; `evidence_count`, `positive_count`, `negative_count` and `confidence` **0**. The remaining four shared keys have identical payloads. There are **three source-only and one target-only** profile keys, so a blind source overwrite could discard target-only state. The source/target changes may reflect derived score and timestamp drift, but the root cause or authoritative latest state is **NOT verified**. Timestamp columns are not reliable substitute for sequence/deletion lineage and do not justify merging.
+
+**Action gate:** Do not auto-copy or overwrite profile tables. Determine authoritative owner and the recomputation model for `weight` and `updated_at`, compare source/target upstream `content_items`, `user_content_events`, `content_features`, `content_scores` and derived-profile lineage with bounded PK snapshots and a tombstone policy. An explicit resolution policy is needed for one target-only interest key and all shared-PK payload differences before any writer quiescence/cutover. The extant [recommendation_runs 47/35 read-only dry-run #40867548676](https://github.com/louisalviss/runner-3/actions/runs/40867548676) remains only one separate additive-table result (12 source-only, no conflicts).
+
+**Migration status:** D1 row/content parity **HOLD**; source production remains authoritative; current snapshots are not atomic across accounts, not proof of absence of external writers. `CLOUDFLARE_TARGET_PREAPPLY_BOOKMARK` remains absent at last verified metadata check, and real tested rollback remains unavailable. No production D1 writes/restores, no Worker changes, no R2 migration, no cutover.
+
+
 ## Refreshed 2026-10-29 recommendation_runs source/target bounded dry-run (latest; NOT authorized to write)
 
 [Workflow #40867548676](https://github.com/louisalviss/runner-3/actions/runs/40867548676) completed PASS on the existing `cloudflare-d1-recommendation-runs-additive-dryrun.yml` read-only workflow. Re-read and compared small `runner3-content-intelligence.recommendation_runs` on both Cloudflare accounts twice, then simulated additive INSERT and row-safe reverse entirely in ephemeral local SQLite. Observed **47 source rows, 35 target rows, 35 existing matching rows, 12 missing target rows, 0 payload conflicts, 0 unexplained target-only rows**. Source and target each stable within the two reads; schema metadata equal. The local 12-row additive insertion and subsequent 12-row deletion simulation both PASS; scratch baseline restored exactly to the original 35 rows. This is one table only, not atomic cross-account snapshot or full-account row parity.
