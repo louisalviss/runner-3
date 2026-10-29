@@ -1,6 +1,14 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
 
+## Latest run #40905131992 — base PASS, optional features job SKIPPED (2026-10-29)
+
+[Actual manually triggered read-only workflow #40905131992](https://github.com/louisalviss/runner-3/actions/runs/40905131992) ran on `main` after [PR #506](https://github.com/louisalviss/runner-3/pull/506). The original `recommendation-runs` job **completed SUCCESS** with no failed steps. The distinct `content-features` job **completed SKIPPED** (not timeout, not an observed schema/cost failure). There is **no `d1-content-features-keyed-readonly` aggregate artifact**, and **no completed live keyed feature comparison**. The dependent job uses `if: ${{ inputs.audit_content_features }}` and its required predecessor succeeded, so the most likely issue is that this input evaluated false/unset at dispatch; exact GUI selection is not independently observed. Keep feature parity unproven.
+
+Same run's audit logs provide updated SOURCE/TARGET event semantic multiset: SOURCE **6,921**, TARGET **5,017**, matching occurrences **5,017**, SOURCE-only **1,904**, TARGET-only **0**. This is +15 source-only events versus prior #40880438525 (6,906/5,017, 1,889 missing). `content_items` recheck: 2,853 shared primary keys, 2,768 matching payloads, **85 shared metadata conflicts**. Upstream `content_features` aggregate preflight still reports a capped source count, not exact keyed parity. No data D1 write, Worker deploy, R2 migration, feature replay or cutover was authorized.
+
+**Next action (only needed user UI step):** In the EXISTING [manual workflow](https://github.com/louisalviss/runner-3/actions/workflows/cloudflare-d1-first-live-row-parity.yml) choose `Run workflow` → `main` → check **Include bounded content_features keyed HMAC audit (read-only)** (`audit_content_features=true`) → launch. Verify the resulting `content-features` job is **RUNNING then SUCCESS** (not SKIPPED), and read the aggregate artifact. Preserve all production D1, source writers, target-only data, rollback and R2 **HOLD**. No new transport or bypass of earlier chat-tool invocation safety gate.
+
 ## Content Intelligence D1 upstream feature timeout recovery — 2026-10-29 (LATEST; no production writes)
 
 **Evidence:** [Existing read-only workflow #40880438525](https://github.com/louisalviss/runner-3/actions/runs/40880438525) was manually dispatched on `main` after [PR #505](https://github.com/louisalviss/runner-3/pull/505) merged. The single original `recommendation-runs` job was **cancelled** while running the new `content_features` production read-only audit: its old overall `timeout-minutes: 8` was exhausted after lengthy earlier serial audits. The feature-specific **10/10 offline synthetic tests PASS** but **NO complete feature parity receipt exists** from this run. Do not label feature keyed parity PASS.
