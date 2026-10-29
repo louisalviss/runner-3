@@ -1,5 +1,32 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
+## Upstream materialized-profile base tables: bounded counts + content_items PK-only HMAC census — 2026-10-29 (latest, migration HOLD)
+
+[Workflow #40873720661](https://github.com/louisalviss/runner-3/actions/runs/40873720661), after [PR #497](https://github.com/louisalviss/runner-3/pull/497) and [PR #498](https://github.com/louisalviss/runner-3/pull/498), completed all synthetic tests, three-table count/schema preflight, and additional **content_items PK-only** HMAC source/target comparison. It used SOURCE read credential and verified NEW TARGET Audit Secret only; no D1 WRITE credential passed. No raw item IDs, per-key HMACs, raw application payloads, or secrets were exported or logged. **No D1, Worker, R2 or restore mutations.**
+
+**Three upstream tables in `runner3-content-intelligence`** are required by canonical `profileProjectionCte` and `recomputeInterestProfile` before derived interest profiles can be safely rebuilt:
+
+| Table | SOURCE bounded count | TARGET bounded count | Source minus target aggregate | Count interpretation |
+| --- | ---: | ---: | ---: | --- |
+| `content_items` | **4,669** | **2,853** | **+1,816** | Exact count below fixed 6,000 cap on each account |
+| `content_features` | **≥19,000** | **14,328** | **≥4,672** | SOURCE hit 19,000 fixed cap; never claim exact count or exact delta |
+| `user_content_events` | **6,897** | **5,017** | **+1,880** | Exact count below fixed 9,000 cap on each account |
+
+Schema columns and declared PKs matched live between accounts for all three tables. The bounded `COUNT` reads are not keyed row/payload or deletion parity and are **not atomic snapshots**. We did **not** increase caps after the initial [HTTP-independent safety stop #40872610472](https://github.com/louisalviss/runner-3/actions/runs/40872610472) identified `COUNT_CAP_REACHED_content_features`. PR #497 instead reports capped counts as *lower bounds* and retains fixed aggregate read-budget 40,000 rows per account.
+
+**New content_items key identity result** (exact source+target counts consistent with same-run preflight):
+- SOURCE PK count 4,669; TARGET PK count 2,853.
+- Shared `item_id` PKs **2,853**, SOURCE-only **1,816**, TARGET-only **0**.
+- The `item_id` set was fetched once/account using fixed `SELECT item_id FROM content_items ORDER BY item_id LIMIT 5001`, checked against bounded counts, then compared with a fresh in-memory HMAC session key. The HMAC secret, raw item IDs and HMAC values were never serialized. **This is a single sequential account snapshot: no stability re-read, no cross-account atomicity.**
+- This proves only current **key presence** and that the target PK set was a subset of source at that read. **No payload comparisons** were done on the shared 2,853 rows; do not infer they are identical. **Do not automatically insert all 1,816 keys** until source/target content payload ownership, tombstones and source/target write quiescence plus recovery are independently established. Target-only absence at one snapshot does not authorize deletion logic elsewhere.
+
+**Next safe priorities, with no production write permission:**
+1. Verify complete, bounded *payload* parity of `content_items` common keys using ephemeral HMAC and explicit cost/privacy budget; preserve target-only records and deletions if any appear later.
+2. For `content_features`, use a separately budgeted PK-cursor/paginated comparison **without raising the established 19k count cap implicitly**. Current actual source row count is unknown. Index/metadata should be checked before a larger read.
+3. `user_content_events.id` is `INTEGER PRIMARY KEY AUTOINCREMENT` **scoped to each database**. Do NOT treat equal numeric ID across source/target as proof of identical semantic events; inspect original event identity/deduplication lineage and deletion policy before HMAC keyed parity or replication.
+4. Maintain `DERIVED_PROFILE_RECOMPUTE_BLOCKED_UPSTREAM_PARITY_AND_RECOVERY` as established by [PR #492](https://github.com/louisalviss/runner-3/pull/492); no direct profile `weight` overwrite, no deletion of one target-only interest-profile key. Fresh recovery bookmark remains uninstalled and writer quiescence unproven. R2 cost HOLD, production INSERT and cutover HOLD.
+
+
 ## FIXED: derived interest profiles require upstream parity before recomputation — 2026-10-29
 
 [PR #492](https://github.com/louisalviss/runner-3/pull/492) added a **fail-closed, no-write derived-profile reconciliation gate** to the **existing** manually dispatched `cloudflare-d1-first-live-row-parity.yml`; eight new offline synthetic tests PASS. [Real Cloudflare read-only workflow #40870331372](https://github.com/louisalviss/runner-3/actions/runs/40870331372) PASS, including the gate receipt `d1-derived-profile-reconciliation-hold`, with zero D1 writes, R2 requests or Worker deployments.
