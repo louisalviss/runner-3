@@ -1,6 +1,24 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
-## Live source/target user_content_events semantic multiset — 2026-10-29 (latest, no writes)
+
+## Content Intelligence D1 upstream feature timeout recovery — 2026-10-29 (LATEST; no production writes)
+
+**Evidence:** [Existing read-only workflow #40880438525](https://github.com/louisalviss/runner-3/actions/runs/40880438525) was manually dispatched on `main` after [PR #505](https://github.com/louisalviss/runner-3/pull/505) merged. The single original `recommendation-runs` job was **cancelled** while running the new `content_features` production read-only audit: its old overall `timeout-minutes: 8` was exhausted after lengthy earlier serial audits. The feature-specific **10/10 offline synthetic tests PASS** but **NO complete feature parity receipt exists** from this run. Do not label feature keyed parity PASS.
+
+Completed earlier read-only steps in that run included:
+- `content_items`: 2,853 common PKs; 2,768 exact shared rows, 85 shared metadata payload differences, no newly approved merge rule.
+- `user_content_events`: 5,017 semantic occurrence matches; SOURCE 6,906, TARGET 5,017, SOURCE-only **1,889**, TARGET-only **0**. These are database-ID-independent HMAC occurrence counts, not permission to insert; source grew three events since prior 6,903/1,886 audit.
+- `content_features`: old schema/count receipt remains lower-bounded SOURCE >=19,000 versus target 14,328; current exact shared/missing/changed feature key counts **unknown**.
+- No INSERT, UPDATE, DELETE, Worker deployment, rollback, R2 operation or cutover was performed.
+
+**Engineering fix:** [PR #506](https://github.com/louisalviss/runner-3/pull/506) merged into `main` at `d3dc1279b7aab656a8361eb1b795dff38331db28`; its offline CI PASS. Keep **same** manually dispatched workflow and default-OFF `audit_content_features` flag. Legacy `recommendation-runs` now has a 10-minute budget. An optional dependent `content-features` job has its **own 12-minute budget**, consumes the sanitized `d1-upstream-three-bounded-counts-readonly` receipt from the **same workflow run** via artifact download (no repeat preflight scan), executes the same two-pass bounded HMAC-keyed read-only script, and emits only aggregate counts if fully successful. Existing `content_features` SQL/row-cost/privacy caps remain unchanged.
+
+**New-run status:** A post-merge attempt to trigger the existing manual audit was refused by the chat-side tool safety gate **before SentinelX/VPS execution**. This is *not* a D1/schema/credential failure and does *not* prove a new workflow was dispatched. The latest verified production run remains #40880438525 (cancelled); no post-fix feature results have been observed. Do not work around the refusal by alternate transports.
+
+**NEXT GATE:** An authorized operator must run the *existing* [Cloudflare D1 First Live Row Parity (Read Only) workflow](https://github.com/louisalviss/runner-3/actions/workflows/cloudflare-d1-first-live-row-parity.yml) with branch `main` and `audit_content_features=true`, within the established cost budget. Read the terminal run status **and** `d1-content-features-keyed-readonly` aggregate artifact before deciding any reconciliation. If scan caps, drift or credentials fail, keep HOLD and investigate separately. Even a complete audit PASS does **not** authorize replay, profile recompute, target writes or cutover. Keep SOURCE authoritative, preserve target-only rows, and require a tested exact row-safe rollback, writer quiescence/fence, deletion lineage and independently approved migration plan. R2 remains independent `COST_HOLD`.
+
+
+## Prior live source/target user_content_events semantic multiset — 2026-10-29 (historical, no writes)
 
 [Existing D1 read-only row-parity workflow #40877737399](https://github.com/louisalviss/runner-3/actions/runs/40877737399) completed **PASS** after [PR #503](https://github.com/louisalviss/runner-3/pull/503). Source and target D1 `runner3-content-intelligence` were each scanned twice with a strict primary-key cursor (100-row pages, hard 9,000-row cap per account). Rows were compared as an **occurrence multiset** using session-random HMACs over all semantic columns **except** the database-local `id`; no integer IDs were joined across accounts and no raw event contents, PK values or HMACs were exported.
 
