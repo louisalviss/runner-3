@@ -3771,6 +3771,29 @@
       "score": 8.3,
       "provenance": "Official Yandex Q3 release in Russian, independently reported by Reuters; older October data-center attacks already separately ledgered.",
       "evidence_note": "Yandex confirms October drone damage did not affect Q3 financials, services key functions restored but still assessing effects; withdraws FY2026 revenue/adjusted EBITDA guidance, prior ~20% revenue growth and ~350bn RUB EBITDA. Q3 411bn RUB revenue +12%, EBITDA 88bn RUB +12%. New verified business decision phase, not a new physical attack. No verified new strike on Oct29. Independent five-lane and macro sweep, D1 current/global WATCH AMBER v4 unchanged, no write. Quantum BIPs Draft, no actual ECC break/theft. X peek blocked by allowlist, 14 pending read-only reviewed, no scan/ack; GitHub feeder 2/2 artifact/log inspected."
+    },
+    "BINANCE|OCT29_2026_SUSPECTED_HOT_WALLET_EIP7702_EXPLOIT|MULTIBILLION_TRANSFERS_AND_STABLECOIN_FREEZES": {
+      "label": "Binance investigates possible hot-wallet security incident after EIP-7702 delegation and multibillion-dollar on-chain transfers; Tether/Circle reportedly freeze stablecoins; crypto leveraged liquidation spike",
+      "primary_entity": "Binance exchange",
+      "underlying_actual_event": "On October 29 2026 20:20 UTC an Ethereum EIP-7702 type-0x4 transaction containing 50 authorizations delegated a Binance-labelled hot-wallet address; at 20:24:23 UTC a separate transaction from the same initiating address succeeded (64 event logs) and multiple assets moved from Binance-labelled wallets. Binance stated it is investigating a potential security issue but had not confirmed a hack or impact on user funds. Independent crypto outlets report multi-billion-dollar suspicious transfers, Circle/Tether stablecoin freezes and an extreme one-hour leveraged liquidation wave. The nature of authorization compromise and ultimate loss amount remain unverified. This is not a quantum incident.",
+      "named_paper_protocol_incident": "Binance October 29 2026 suspected EIP-7702 hot-wallet exploit and stablecoin freezes",
+      "material_update_key": "BINANCE_OCT29_2026_EIP7702_DELEGATION_50_AUTHORIZATIONS|ETH_TX_0x53bd38b816c23e74134786c29a8c18d792777998a3b9326047b583100e88e2f3|MULTIBILLION_SUSPICIOUS_WALLET_TRANSFERS|ISSUER_FREEZES|BINANCE_INVESTIGATING_NOT_CONFIRMED_HACK",
+      "primary_source_url": "https://etherscan.io/tx/0x53bd38b816c23e74134786c29a8c18d792777998a3b9326047b583100e88e2f3",
+      "primary_source_secondary_url": "https://etherscan.io/tx/0xad99264d5532ae0dd04b2004eebda05f25657e70dacb764f7ac8d4ccd051298b",
+      "issuer_statement_url": "https://x.com/binance/status/2115915708504900039",
+      "independent_reporting_url": "https://decrypt.co/382191/binance-suspected-hack-5-billion-tether-circle-freeze-crypto",
+      "second_independent_reporting_url": "https://financefeeds.com/binance-hack-3-3b-hot-wallets-drained-tether-circle-freeze/",
+      "source_event_date": "2026-10-30",
+      "source_event_time_vn": "2026-10-30T03:24:23+07:00",
+      "source_event_time_note": "Primary Ethereum block 0x1915162 timestamp 2026-10-29T20:24:23Z = 2026-10-30T03:24:23+07; first issuer public investigation statement reported 21:24 UTC = 04:24 VN; exact original Binance post accessible by its X status link but direct web fetch blocked.",
+      "detected_at_vn": "2026-10-30T06:07:54+07:00",
+      "notification_precommitted_at_vn": "2026-10-30T06:07:54+07:00",
+      "notified_at_vn": "2026-10-30T06:07:54+07:00",
+      "status": "notification_precommitted",
+      "delivery_status": "pending_actual_delivery",
+      "score": 9.6,
+      "provenance": "Primary public Ethereum RPC eth_getTransactionByHash, eth_getTransactionReceipt and eth_getBlockByNumber independently read for exact EIP-7702 and sweep hashes; issuer investigation statement quoted with exact status link by Decrypt; independent Decrypt/FinanceFeeds/CryptoTicker/BeInCrypto reporting. X feeder not used as factual proof.",
+      "evidence_note": "Ethereum RPC directly confirms delegation tx 0xad99264d5532ae0dd04b2004eebda05f25657e70dacb764f7ac8d4ccd051298b type 0x4 with 50 authorizations, and later tx 0x53bd38b816c23e74134786c29a8c18d792777998a3b9326047b583100e88e2f3 success status 0x1 with 64 logs at 03:24:23 VN. News sources estimate ~2.8-5.57bn USD across different scopes; amounts inconsistent and not confirmed by Binance, so do not call it verified stolen amount. Decrypt reports at least ~1.8bn stablecoins frozen, BeInCrypto citing CoinGlass reports ~627.7m USD liquidations in one hour (unverified against raw Coinglass). Binance says potential security issue under investigation, user-fund impact unconfirmed; do not call quantum. Five independent lanes + macro sweep checked; Fed Oct28 held 3.75-4.00 with two hawkish dissents, Oct29 PCE 3.6/core3.1, GDP Q3 3.4 already in ledger, Treasury yields lower after data, latest FRED Oct28 HY OAS 3.14 and IG OAS 0.86, no verified new material regime transition. D1 GET HTTP200 version4 WATCH/AMBER old as-of Oct4, no write. Quantum BIP360/361 Draft, Alice & Bob IACR paper already ledgered WATCH; no ECC256 break/theft. GitHub feeder run 40940034438 success 2/2 TopHub/NewsNow artifact+log read, not independent five-lane proof. X runner peek denied by SentinelX allowlist; 14 pending reviewed via read-only projection, no scan or ack. No trades/custody actions."
     }
   }
 }
