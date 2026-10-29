@@ -52,3 +52,22 @@ jobs:
           path: migration-out/d1-two-interest-profiles-keyed-parity.json
           if-no-files-found: error
           retention-days: 1
+      - name: Validate derived profile reconcile gate with synthetic contracts
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/cloudflare_d1_derived_profile_reconcile_gate.py
+          PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_derived_profile_reconcile_gate.py' -v
+      - name: Build no-write derived profile reconciliation HOLD
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: python3 scripts/cloudflare_d1_derived_profile_reconcile_gate.py
+      - name: Upload sanitized derived profile reconciliation gate
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-derived-profile-reconciliation-hold
+          path: migration-out/d1-derived-profile-reconcile-gate.json
+          if-no-files-found: error
+          retention-days: 2
