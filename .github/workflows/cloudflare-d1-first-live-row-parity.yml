@@ -36,3 +36,19 @@ jobs:
           path: migration-out/d1-first-live-table-parity-summary.json
           if-no-files-found: error
           retention-days: 1
+      - name: Verify two-profile HMAC parity offline tests
+        run: |
+          python3 -m py_compile scripts/cloudflare_d1_two_profile_parity_readonly.py
+          PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_two_profile_parity_readonly.py' -v
+      - name: Compare two small profile tables with NEW target read-only audit token
+        env:
+          CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW: ${{ secrets.CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW }}
+        run: python3 scripts/cloudflare_d1_two_profile_parity_readonly.py
+      - name: Upload sanitized two-profile aggregate status
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-two-interest-profiles-hmac-parity-readonly
+          path: migration-out/d1-two-interest-profiles-keyed-parity.json
+          if-no-files-found: error
+          retention-days: 1
