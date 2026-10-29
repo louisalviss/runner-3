@@ -116,7 +116,15 @@ def fingerprint(rows,table,key):
   idh=hmac.new(key,b"pk:v1:"+prefix+key_bytes,hashlib.sha256).digest()
   rowh=hmac.new(key,b"row:v1:"+prefix+value_bytes,hashlib.sha256).digest()
   require(idh not in out,"DUPLICATE_PK")
-  out[idh]=rowh
+  colh={
+   name:hmac.new(
+    key,b"column:v1:"+prefix+name.encode()+b":"+
+    json.dumps(typed(r[name]),separators=(",",":"),ensure_ascii=False).encode(),
+    hashlib.sha256
+   ).digest()
+   for name in cols if name not in pk
+  }
+  out[idh]={"row":rowh,"columns":colh}
  return out
 
 def compare(source_token,target_token,reader=remote):
@@ -135,15 +143,26 @@ def compare(source_token,target_token,reader=remote):
   t2=fingerprint(reader(target_token,TARGET,TARGET_D1,DATA_SQL[table]),table,session)
   require(s1==s2 and t1==t2,"SNAPSHOT_UNSTABLE")
   shared=s2.keys() & t2.keys()
-  changed=sum(s2[k]!=t2[k] for k in shared)
+  changed=sum(s2[k]["row"]!=t2[k]["row"] for k in shared)
   matching=len(shared)-changed
   source_only=len(s2.keys()-t2.keys())
   target_only=len(t2.keys()-s2.keys())
+  col_names=tuple(c for c in TABLES[table][0] if c not in TABLES[table][1])
+  column_differences={
+   name:sum(s2[k]["columns"][name]!=t2[k]["columns"][name] for k in shared)
+   for name in col_names
+  }
+  require(all(type(v) is int and 0<=v<=len(shared)
+              for v in column_differences.values())
+          and (changed==0 or sum(column_differences.values())>=changed),
+          "COLUMN_DIFF_ACCOUNTING_FAILED")
   results[table]={
    "source_rows_observed":len(s2),"target_rows_observed":len(t2),
    "matching_key_payload_pairs":matching,
    "source_only_keys":source_only,"target_only_keys":target_only,
    "changed_payloads":changed,
+   "common_pk_column_difference_counts":column_differences,
+   "common_keys_compared":len(shared),
    "schema_equal":True,"snapshot_stable_during_probe":True,
    "bounded_complete_table":True,
    "status":"EQUAL_SNAPSHOT_NOT_CUTOVER" if not(
