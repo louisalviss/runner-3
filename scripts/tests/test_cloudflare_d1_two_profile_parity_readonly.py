@@ -41,6 +41,8 @@ class TestTwoProfiles(unittest.TestCase):
    self.assertEqual(data["matching_key_payload_pairs"],1)
    self.assertEqual(data["source_only_keys"],0)
    self.assertEqual(data["changed_payloads"],0)
+   self.assertTrue(all(count==0 for count in
+                       data["common_pk_column_difference_counts"].values()))
    self.assertEqual(data["status"],"EQUAL_SNAPSHOT_NOT_CUTOVER")
   self.assertFalse(out["accountwide_row_parity_verified"])
   self.assertFalse(out["cutover_ready"])
@@ -57,8 +59,23 @@ class TestTwoProfiles(unittest.TestCase):
   out=m.compare(SRC,DST,different)
   for data in out["databases"]["runner3-content-intelligence"].values():
    self.assertEqual(data["changed_payloads"],1)
+   self.assertEqual(data["common_pk_column_difference_counts"]["weight"],1)
+   self.assertEqual(sum(data["common_pk_column_difference_counts"].values()),1)
    self.assertEqual(data["status"],"DIFFERENT_SNAPSHOT_HOLD")
   self.assertNotIn("0.8",str(out))
+
+ def test_only_timestamp_delta_is_attributed_without_value(self):
+  def different(t,a,u,sql):
+   rows=reader(t,a,u,sql)
+   if t==DST and sql in m.DATA_SQL.values():
+    rows[0]["updated_at"]="2026-10-29T02:30Z"
+   return rows
+  out=m.compare(SRC,DST,different)
+  for data in out["databases"]["runner3-content-intelligence"].values():
+   self.assertEqual(data["changed_payloads"],1)
+   self.assertEqual(data["common_pk_column_difference_counts"]["updated_at"],1)
+   self.assertEqual(data["common_pk_column_difference_counts"]["weight"],0)
+  self.assertNotIn("02:30",str(out))
 
  def test_target_only_source_only(self):
   def other_key(t,a,u,sql):
