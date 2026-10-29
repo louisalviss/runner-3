@@ -123,11 +123,12 @@ def metadata(rows,name):
          ensure_ascii=False,separators=(",",":")).encode()).digest()
 
 def count(rows,name):
-    ensure(type(rows) is list and len(rows)==1 and
+    ensure(name in TABLES and type(rows) is list and len(rows)==1 and
            type(rows[0]) is dict and set(rows[0])=={"n"} and
-           type(rows[0]["n"]) is int and
-           0<=rows[0]["n"]<TABLES[name]["limit"],
-           "COUNT_CAP_REACHED_OR_RESPONSE_INVALID")
+           type(rows[0]["n"]) is int and 0<=rows[0]["n"],
+           "COUNT_RESPONSE_INVALID_"+name)
+    ensure(rows[0]["n"]<TABLES[name]["limit"],
+           "COUNT_CAP_REACHED_"+name)
     return rows[0]["n"]
 
 def assess(source_token,target_token,reader=query):
