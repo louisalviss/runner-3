@@ -1,6 +1,20 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
 
+## Live target D1 query-write analytics — two actual read-only runs (2026-10-29 UTC)
+
+**Latest user-triggered read-only run** [#40929887617](https://github.com/louisalviss/runner-3/actions/runs/40929887617), 2026-10-29 18:20:34Z, main HEAD `086788b7af6fcedb9001520a5e1e7dd0a045a9e4`: GitHub job `recent-write-metrics` **SUCCESS**, all 6 offline tests PASS, GraphQL step PASS, sanitized artifact ID `12921128485` uploaded. ZIP SHA256 `feba0c052c9d3ae0638f9da3729958eeff1c366b9d6c6bfc467bcbc753b763d8` was independently checked against the GitHub API artifact digest after download. Internal JSON:
+- `calendar_window_utc`: **2026-10-26 through 2026-10-29** (four calendar dates inclusive).
+- TARGET `runner3-content-intelligence`: returned **two groups only**, 2026-10-26 `write_queries=0`, 2026-10-29 `write_queries=0`. **2026-10-27 and 2026-10-28 NOT RETURNED** (missing, **NOT zero**); `write_queries_in_returned_groups=0`, `write_activity_detected=false`.
+- TARGET `runner3-core`: returned **one group only**, 2026-10-26 `write_queries=0`. **2026-10-27, -28, -29 NOT RETURNED** (missing, **NOT zero**); `write_queries_in_returned_groups=0`, `write_activity_detected=false`.
+- Explicit sanitized artifact flags: `analytics_api_available=true`, `live_writer_identity_verified=false`, `writer_quiescence_proven=false`, `queries_reflect_ongoing_inflight_requests=false`, `data_row_parity_verified=false`, `cutover_ready=false`, `d1_sql_requests=0`, `d1_writes=0`, `r2_requests=0`, `worker_deploys=0`.
+
+**Prior independent existing run** [#40866816956](https://github.com/louisalviss/runner-3/actions/runs/40866816956) also completed SUCCESS; artifact ID `12893547943` downloaded and ZIP SHA256 `d0875094630142bee18a829d325d704f401aa28ef1d1175e31f422be94d5cd2d` checked. For the *same* 2026-10-26..29 UTC window it returned only **2026-10-26** at `write_queries=0` for EACH of the two target databases. The newer source returned an additional 2026-10-29 ZERO group for `content-intelligence`, but **no complete four-day coverage in either run**. Do not fill gaps with zero or extrapolate that the target had no historical writes.
+
+**Inference:** Returned-group write query counts were zero. This is useful bounded negative evidence, **not** evidence of complete temporal coverage, non-Worker writer absence, in-flight drain or quiescence. The earlier complete target Worker binding census [#40377262061](https://github.com/louisalviss/runner-3/actions/runs/40377262061) remains valid for its observation timestamp only (6 Workers, only `volamidle-rogue` D1 binding; no target Content DB bindings). No new full-table D1 scan, no migration write, Worker deploy, R2 requests or stop/fence. Next step: independent approval/design for owner-scoped writer/in-flight fence, deletion lineage, target-only preservation, safe bookmark recovery/rollback, then consistent keyed reconciliations. **D1 migration HOLD; R2 COST_HOLD**.
+
+
+
 ## Target non-Worker write activity gate — existing read-only workflow, offline tests PASS (2026-10-30)
 
 **Avoid duplicate work:** Read-back of this checkpoint reconfirmed that target Worker-to-D1 binding attestation was already completed in [#40377262061](https://github.com/louisalviss/runner-3/actions/runs/40377262061) on 2026-10-27. Six mutually consistent target Workers, zero cron schedules, only `volamidle-rogue` binds `volamidle-rogue-data`; remaining five have no D1 bindings. Thus **NO target deployed Worker then had a D1 binding to `runner3-content-intelligence`**. Do not rescan target Worker inventory just for the same fact, and do not extrapolate this to all non-Worker writers or Oct30 freshness.
