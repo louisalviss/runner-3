@@ -63,6 +63,50 @@ class TestContentFeaturesKeyed(unittest.TestCase):
             return rows,cost
         with self.assertRaisesRegex(m.Hold,"FEATURE_SNAPSHOTS_UNSTABLE"):
             m.audit(SRC_TOKEN,TGT_TOKEN,receipt(),changing)
+    def test_source_drift_diagnostic_only_aggregate_counts(self):
+        calls={m.SOURCE:0,m.TARGET:0}
+        def changing(token,account,db,cursor):
+            rows,cost=reader(token,account,db,cursor)
+            calls[account]+=1
+            if account==m.SOURCE and calls[account]==2:
+                rows.append(feature("z",val="secret-data"))
+            return rows,len(rows)
+        with self.assertRaises(m.Hold) as ctx:
+            m.audit(SRC_TOKEN,TGT_TOKEN,receipt(),changing)
+        reason=str(ctx.exception)
+        self.assertIn("FEATURE_SNAPSHOTS_UNSTABLE",reason)
+        self.assertIn("source_keys_added=1",reason)
+        self.assertIn("source_keys_removed=0",reason)
+        self.assertIn("source_shared_payload_changed=0",reason)
+        self.assertIn("target_keys_added=0",reason)
+        self.assertNotIn("secret-data",reason)
+        self.assertNotIn(SRC_TOKEN,reason)
+        self.assertEqual(calls[m.SOURCE],2)
+        self.assertEqual(calls[m.TARGET],2)
+
+    def test_target_payload_drift_distinguished_from_key_drift(self):
+        calls={m.SOURCE:0,m.TARGET:0}
+        def changing(token,account,db,cursor):
+            rows,cost=reader(token,account,db,cursor)
+            calls[account]+=1
+            if account==m.TARGET and calls[account]==2:
+                rows[0]["feature_value"]="private-modified-payload"
+            return rows,cost
+        with self.assertRaises(m.Hold) as ctx:
+            m.audit(SRC_TOKEN,TGT_TOKEN,receipt(),changing)
+        reason=str(ctx.exception)
+        self.assertIn("source_keys_added=0",reason)
+        self.assertIn("target_keys_added=0",reason)
+        self.assertIn("target_keys_removed=0",reason)
+        self.assertIn("target_shared_payload_changed=1",reason)
+        self.assertNotIn("private-modified-payload",reason)
+
+    def test_stable_snapshots_have_no_drift_output(self):
+        self.assertIsNone(m.require_stable_snapshots({}, {}, {}, {}))
+        self.assertEqual(m.drift_summary({}, {}),{
+            "keys_added":0,"keys_removed":0,"shared_payload_changed":0
+        })
+
     def test_count_receipt_must_still_match(self):
         with self.assertRaisesRegex(m.Hold,"BOUNDED_COUNT_RECEIPT_CHANGED"):
             m.audit(SRC_TOKEN,TGT_TOKEN,receipt(target=100),reader)
