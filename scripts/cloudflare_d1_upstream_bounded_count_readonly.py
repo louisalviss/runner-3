@@ -195,8 +195,15 @@ def main():
                        encoding="utf8")
         print("D1_UPSTREAM_COUNT_PREFLIGHT_PASS no_writes no_row_values")
         return 0
-    except (Hold,TypeError,ValueError,OSError,UnicodeError):
-        print("D1_UPSTREAM_COUNT_PREFLIGHT_HOLD no_writes no_row_values")
+    except Hold as err:
+        # All Hold reasons are static identifiers authored here or numeric
+        # Cloudflare HTTP codes. No upstream response or exception text.
+        print("D1_UPSTREAM_COUNT_PREFLIGHT_HOLD",str(err),
+              "no_writes no_row_values")
+        return 3
+    except (TypeError,ValueError,OSError,UnicodeError):
+        print("D1_UPSTREAM_COUNT_PREFLIGHT_HOLD INTERNAL_FAILURE"
+              " no_writes no_row_values")
         return 3
 
 if __name__=="__main__":
