@@ -2,6 +2,12 @@ name: Cloudflare D1 First Live Row Parity (Read Only)
 
 on:
   workflow_dispatch:
+    inputs:
+      audit_content_features:
+        description: 'Include bounded content_features keyed HMAC audit (read-only)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -151,3 +157,25 @@ jobs:
           path: migration-out/d1-event-semantic-multiset-parity-readonly.json
           retention-days: 2
           if-no-files-found: error
+      - name: Test opt-in content_features composite-PK HMAC audit offline
+        if: ${{ inputs.audit_content_features }}
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/cloudflare_d1_content_features_keyed_readonly.py
+          PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_content_features_keyed_readonly.py' -v
+      - name: Compare content_features keyed payloads bounded and read-only
+        if: ${{ inputs.audit_content_features }}
+        env:
+          CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW: ${{ secrets.CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: python3 scripts/cloudflare_d1_content_features_keyed_readonly.py
+      - name: Upload aggregate-only feature key and payload counts
+        if: ${{ inputs.audit_content_features && success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-content-features-keyed-readonly
+          path: migration-out/d1-content-features-keyed-parity-readonly.json
+          if-no-files-found: error
+          retention-days: 2
