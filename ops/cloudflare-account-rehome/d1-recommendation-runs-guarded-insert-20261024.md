@@ -1,5 +1,25 @@
 # D1 recommendation_runs — one-person, two-step guarded migration (2026-10-24)
 
+## Live source/target user_content_events semantic multiset — 2026-10-29 (latest, no writes)
+
+[Existing D1 read-only row-parity workflow #40877737399](https://github.com/louisalviss/runner-3/actions/runs/40877737399) completed **PASS** after [PR #503](https://github.com/louisalviss/runner-3/pull/503). Source and target D1 `runner3-content-intelligence` were each scanned twice with a strict primary-key cursor (100-row pages, hard 9,000-row cap per account). Rows were compared as an **occurrence multiset** using session-random HMACs over all semantic columns **except** the database-local `id`; no integer IDs were joined across accounts and no raw event contents, PK values or HMACs were exported.
+
+| Observation | Count |
+| --- | ---: |
+| SOURCE event occurrences | **6,903** |
+| TARGET event occurrences | **5,017** |
+| Semantically matching occurrences across both | **5,017** |
+| Source-only semantic occurrences | **1,886** |
+| Target-only semantic occurrences | **0** |
+| Exact duplicate semantic occurrences (both individually) | **0** |
+
+Each account's two sequential reads were stable within this run. Cloudflare source increased by six occurrences compared to the older count (6,897 → 6,903), so this is **not** proof of writer quiescence or atomic cross-account snapshot. An occurrence match does not demonstrate that the accounts' auto-increment IDs are the same, does not establish real-world event identity beyond full stored field equality, and is not permission to replay any event.
+
+**Migration implication:** The 5,017 target events are preserved. 1,886 source-only semantic occurrences are *potential* catch-up candidates, subject to preserving existing target data, checking exact referenced `content_items.item_id`, establishing safe idempotent event provenance/deduplication and local ID remapping (and any other dependent foreign keys), bounded quiescence and tested row-safe recovery. Never directly copy source `id` values into the independently auto-incrementing target. A one-pass replay while source is active can miss later events; require delta catch-up and fresh verification at approved cutover.
+
+Prior [content_items row payload check #40876217743](https://github.com/louisalviss/runner-3/actions/runs/40876217743) showed 4,674 source, 2,853 target, 1,821 source-only, zero target-only, 85 shared metadata conflicts; the source had already grown since initial count. `content_features` remains SOURCE **≥19,000** versus TARGET 14,328 (only bounded aggregate counts; not keyed/payload parity). The production profile tables must not be recomputed before their base tables are complete. R2 cost gate, production D1 apply, Worker deploy, and cutover stay **HOLD** until recovery and writer quiescence are proven. No D1 write, R2 request, restore, worker deploy or cutover in the audit.
+
+
 ## Latest live content_items payload reconciliation — 2026-10-29 (HOLD, no production write)
 
 [Bounded two-pass read-only HMAC payload check #40876217743](https://github.com/louisalviss/runner-3/actions/runs/40876217743) after [PR #500](https://github.com/louisalviss/runner-3/pull/500) and test-only [PR #501](https://github.com/louisalviss/runner-3/pull/501) **PASS**. Existing row-parity workflow reused the source read secret and NEW scoped target audit token. PK-cursor pages of at most 100 rows, fixed 5k cap per account, source+target double read and count-to-key receipts verified stability in this run; no row/PK values, HMACs, URLs, titles or arbitrary metadata were saved in logs or artifacts. **Zero D1 writes, zero R2 requests, no Worker deploy.**
