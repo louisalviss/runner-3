@@ -131,3 +131,23 @@ jobs:
           path: migration-out/d1-content-items-payload-parity-readonly.json
           if-no-files-found: error
           retention-days: 2
+      - name: Verify DB-local event-ID independence and multiset contract offline
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/cloudflare_d1_event_semantic_multiset_readonly.py
+          PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_cloudflare_d1_event_semantic_multiset_readonly.py' -v
+      - name: Compare source-target event semantic occurrence multiset, no ID joins
+        env:
+          CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW: ${{ secrets.CLOUDFLARE_TARGET_AUDIT_TOKEN_NEW }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: python3 scripts/cloudflare_d1_event_semantic_multiset_readonly.py
+      - name: Upload event multiset aggregate counts without rows or fingerprints
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-event-semantic-multiset-readonly
+          path: migration-out/d1-event-semantic-multiset-parity-readonly.json
+          retention-days: 2
+          if-no-files-found: error
