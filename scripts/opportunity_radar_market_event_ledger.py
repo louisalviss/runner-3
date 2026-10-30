@@ -151,6 +151,57 @@ def append_unseen(original: str, new_events: list[dict]) -> tuple[str, dict]:
     }
 
 
+def rolling_severe_backlog(raw_text: str, source_session: str, max_sessions: int = 10) -> dict:
+    """Diagnostics only: aggregate severe historical price events by ticker.
+
+    Ticker grouping is not economic-event deduplication or an investment decision.
+    """
+    if max_sessions < 1:
+        raise ValueError("INVALID_ROLLING_WINDOW")
+    events = [json.loads(line) for line in raw_text.splitlines() if line.strip()]
+    dates = sorted({x["source_session_date"] for x in events if x["source_session_date"] <= source_session})
+    selected_dates = dates[-max_sessions:]
+    grouped = {}
+    severe_rows = 0
+    for event in events:
+        if event.get("schema") != SCHEMA or event["source_session_date"] > source_session:
+            raise ValueError("INVALID_ROLLING_SOURCE")
+        if event["source_session_date"] not in selected_dates:
+            continue
+        predicate = event.get("predicate")
+        field = ("adjusted_return_1d_pct_first_seen" if predicate == "1D_SHOCK"
+                 else "adjusted_return_5d_pct_first_seen" if predicate == "5D_SHOCK" else None)
+        change = finite_or_none(event.get(field)) if field else None
+        if change is None or change > -15.0:
+            continue
+        severe_rows += 1
+        symbol = event["symbol"]
+        item = grouped.setdefault(symbol, {
+            "symbol": symbol, "sessions": [], "worst_severe_return_pct": change,
+            "outside_top80_seen": False, "raw_predicate_count": 0,
+            "triage": "PENDING_ECONOMIC_CAUSAL_RECONCILIATION", "actionable": False,
+        })
+        if event["source_session_date"] not in item["sessions"]:
+            item["sessions"].append(event["source_session_date"])
+        item["worst_severe_return_pct"] = min(item["worst_severe_return_pct"], change)
+        item["outside_top80_seen"] |= event.get("baseline_emitted") is not True
+        item["raw_predicate_count"] += 1
+    queue = sorted(grouped.values(), key=lambda x: (x["worst_severe_return_pct"], x["symbol"]))
+    for row in queue:
+        row["sessions"].sort()
+    return {
+        "status": "RESEARCH_ONLY_PENDING_RECONCILIATION",
+        "source_session_date": source_session,
+        "observed_sessions": selected_dates,
+        "coverage": "OBSERVED_LEDGER_SESSIONS_ONLY_NOT_ALL_LISTINGS",
+        "severe_predicate_rows": severe_rows,
+        "severe_unique_symbols": len(queue),
+        "ever_outside_top80": sum(x["outside_top80_seen"] for x in queue),
+        "multi_session_symbols": sum(len(x["sessions"]) > 1 for x in queue),
+        "no_automatic_signals_or_trades": True, "queue": queue,
+    }
+
+
 def main() -> None:
     health = json.loads(HEALTH_PATH.read_text())
     if health.get("status") != "COMPLETE" or health.get("complete") is not True:
@@ -161,6 +212,11 @@ def main() -> None:
     events = source_events(shadow, health, timestamp)
     old = LEDGER_PATH.read_text(encoding="utf-8") if LEDGER_PATH.exists() else ""
     output, stats = append_unseen(old, events)
+    rolling = rolling_severe_backlog(output, health["source_session_date"])
+    shadow["rolling_severe_backlog"] = rolling
+    shadow_tmp = SHADOW_PATH.with_suffix(".json.tmp")
+    shadow_tmp.write_text(json.dumps(shadow, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    shadow_tmp.replace(SHADOW_PATH)
     if output != old:
         tmp = LEDGER_PATH.with_suffix(".jsonl.tmp")
         tmp.write_text(output, encoding="utf-8")
@@ -170,6 +226,7 @@ def main() -> None:
         "raw_1d_5d_predicates": stats["source_events"],
         "new_events": stats["new"], "cumulative_events": stats["total"],
         "baseline_selection_unchanged": True, "d1_unchanged": True,
+        "rolling_severe_symbols": rolling["severe_unique_symbols"],
     }))
 
 
