@@ -3902,6 +3902,33 @@
       "score": 8.8,
       "provenance": "Primary Polymarket incident status page records timeline and restoration; independent Reuters and AP verify third-party compromise and reimbursement; BleepingComputer independently inspected malicious JavaScript and blockchain transfers, Hudson Rock provided suspected wallet; avoid attributing all wallet transfers to verified user losses.",
       "evidence_note": "Polymarket official status confirms third-party compromise and ~1h trading halt/resolution; BleepingComputer forensic analysis identifies DebugBear RUM script injection and suspected attacker wallet flow 28.6m POL (~$2.57m), which is NOT verified final stolen total. Provider attribution is independent security reporting, not explicit vendor name in Polymarket initial statement. Material web-supply-chain/crypto security event distinct from Binance EIP-7702 suspected hot-wallet incident; no verified quantum link. All five lanes and macro sweep completed; D1 current/global version4 WATCH/AMBER unchanged, no D1/Sheet write; X launcher blocked, 14 pending read-only reviewed, no scan/ack; GitHub feeder 2/2 source artifact/log checked."
+    },
+    "KOREA_EXCHANGE|OCT30_2026_KOSPI_SELL_SIDECAR_AFTER_US_AI_EARNINGS|FIVE_MIN_PROGRAM_ORDER_PAUSE": {
+      "label": "Korea Exchange triggers October 30 sell-side sidecar as KOSPI falls more than 5% on fresh US AI capex earnings concerns",
+      "primary_entity": "Korea Exchange (KRX) / KOSPI 200",
+      "underlying_actual_event": "On 30 October 2026 at 10:04:55 KST, Korea Exchange suspended the validity of program-trading sell orders for five minutes after KOSPI 200 futures fell 5.12% for over one minute; this was a sell-side sidecar, NOT a full market-wide circuit breaker. At 10:25 KST the KOSPI was down 5.13% intraday; chip shares led the move. This is a new actual market-stabilization trigger following US Alphabet, Amazon and Intel earnings and separate from the October 13/15 Korean selloff events.",
+      "named_paper_protocol_incident": "KRX KOSPI sell-side sidecar (five-minute program sell-order suspension), 30 October 2026",
+      "material_update_key": "KOSPI_OCT30_2026_KRX_SELL_SIDECAR_100455_KST|KOSPI200_FUTURES_MINUS5_12PCT|PROGRAM_SELL_ORDER_VALIDITY_SUSPENDED_5_MINUTES_NOT_FULL_MARKET_HALT|KOSPI_MINUS5_13PCT_1025_KST|SAMSUNG_MINUS5_06PCT_SK_HYNIX_MINUS8_45PCT_AT_TRIGGER|ALPHABET_AMAZON_INTEL_AI_CAPEX_EARNINGS_CATALYST",
+      "primary_source_url": "https://www.mt.co.kr/index.php/en/stock/2026/10/30/2026103010085715254",
+      "independent_reporting_url": "https://biz.heraldcorp.com/article/10920263",
+      "additional_independent_reporting_url": "https://www.reuters.com/legal/transactional/global-markets-global-markets-2026-10-30/",
+      "secondary_independent_reporting_url": "https://apnews.com/article/16c266731fdf64178f38070af2b42497",
+      "source_event_date": "2026-10-30",
+      "source_event_time_vn": "2026-10-30T08:04:55+07:00",
+      "source_event_time_note": "Korea Exchange 10:04:55 KST = 08:04:55 Vietnam; market level 5.13% is an intraday 10:25 KST observation, not closing return.",
+      "detected_at_vn": "2026-10-30T10:12:53+07:00",
+      "notification_precommitted_at_vn": "2026-10-30T10:12:53+07:00",
+      "notified_at_vn": "2026-10-30T10:12:53+07:00",
+      "status": "notification_precommitted",
+      "delivery_status": "pending_actual_delivery",
+      "score": 9,
+      "prior_related_event_keys": [
+        "KOREA_EXCHANGE|KOSPI_CHIP_SELLOFF|20261013",
+        "KOREA_EXCHANGE|KOSPI_CHIP_SELLOFF|OCT15_2026_CIRCUIT_BREAKER_NEW_PHASE",
+        "ALPHABET|Q3_2026_RESULTS|GOOGLE_CLOUD_103PCT_CAPEX_FCF_OCT28_2026"
+      ],
+      "provenance": "Korea Exchange sidecar details directly attributed by independent Chosun and Korea Herald/MoneyToday; Reuters/AP independently corroborate KOSPI 5%-5.4% and cross-border AI capex selloff. Primary official KRX standalone event notice not retrieved.",
+      "evidence_note": "New 5-minute sell-side program-order pause is not a full trading halt. KOSPI 200 futures -5.12% at trigger, KOSPI -5.13% as of 10:25 KST, Samsung -5.06%, SK Hynix -8.45% at trigger. US Alphabet/Intel/Amazon results are preexisting triggers, but October 30 Korea Exchange sidecar is a separately verified material Asian market phase; Nikkei ~-3% and US 10Y yield down ~7bp to 4.91% per Reuters show cross-asset risk-off. Counterpoint: Korean sidecars have been frequent (55 total in 2026) and underlying AI hardware earnings/demand remain strong, so not a verified systemic credit/funding crisis. Mandatory 5-lane scan, Fed Oct28 3.75-4.00 hold 10-2, Oct29 BEA PCE3.6/core3.1 GDP3.4, Treasury 2Y4.61 10Y4.98 30Y5.32 Oct29 and Oct30 intraday 2Y4.57 10Y4.91, latest FRED HY OAS3.14 Oct28, VIX17.20 Oct29, DXY/funding/issuance/energy/geopolitics/cross-assets reviewed. D1 GET HTTP200 current/global version4 WATCH AMBER unchanged; no D1/Sheet write. Quantum Alice&Bob IACR paper previously WATCH; BIP360/361 Draft and Core32.1 no PQ activation, no verified ECC256 quantum theft/break. GitHub feeder run40940034438 2/2 TopHub/NewsNow success, artifact/log read, not five-lane proof. X run-source.sh peek blocked by SentinelX allowlist; 14 pending read-only sanitized inspected, no scan/ack. No trades or custody actions."
     }
   }
 }
