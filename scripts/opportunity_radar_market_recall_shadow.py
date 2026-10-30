@@ -352,6 +352,7 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
             or upstream_reasons.get("ELIGIBLE_FRESH", 0) != audit_rows_count
         ):
             raise ValueError("UPSTREAM_STAGE_COVERAGE_MISMATCH")
+    severe_queue = severe_shock_triage(rows, session)
     return {
         "schema": "opportunity-radar-market-recall-shadow-v1",
         "status": "SHADOW_AUDIT_ONLY",
@@ -381,6 +382,9 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
         },
         "counts": {
             "baseline_emitted": len(selected_set),
+            "severe_shock_total": severe_queue["total"],
+            "severe_shock_outside_top80": severe_queue["outside_capped_top80"],
+            "severe_shock_inside_top80": severe_queue["inside_capped_top80"],
             "baseline_reason": dict(sorted(baseline_counts.items())),
             "qualified_price_moves": dict(sorted(hit_counts.items())),
             "intraday_daily_ohlc_extreme_moves": dict(sorted(intraday_hit_counts.items())),
@@ -407,6 +411,7 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
         ),
         "records": rows,
         "universe_dispositions": upstream_rows,
+        "severe_shock_triage": severe_queue,
         "protected_review_queue": {
             "added": [
                 {
@@ -432,6 +437,58 @@ def audit(health: dict, prefilter: dict, signals: dict, upstream: dict | None = 
                 } for row in rows if row["symbol"] in protected_removed
             ],
         },
+    }
+
+
+def severe_shock_triage(rows: list[dict], session: str) -> dict:
+    """Read-only full-prefilter queue; Top-80 exclusion must not hide severe moves.
+
+    A raw move is never a verified catalyst, mispricing, candidate or trade.
+    Reconcile these identities with curated Signals before marking them reviewed.
+    """
+    entries = []
+    for row in rows:
+        d1 = number(row.get("ret_1d_pct"))
+        d5 = number(row.get("ret_5d_pct"))
+        if not ((d1 is not None and d1 <= -15.0) or (d5 is not None and d5 <= -15.0)):
+            continue
+        emitted = row.get("baseline_emitted") is True
+        entries.append({
+            "event_id": f"{session}|{row['symbol']}|SEVERE_SHOCK_TRIAGE",
+            "source_session_date": session,
+            "symbol": row["symbol"],
+            "adjusted_return_1d_pct": d1,
+            "adjusted_return_5d_pct": d5,
+            "volume_ratio_20d": number(row.get("volume_ratio")),
+            "in_capped_top80": emitted,
+            "baseline_exclusion_reason": row.get("baseline_explanation"),
+            "price_triggers": [
+                t for t in row.get("shadow_triggers", [])
+                if t in ("1D_SHOCK", "5D_SHOCK")
+            ],
+            "triage_disposition": "PENDING_CAUSAL_REVIEW",
+            "catalyst_verified": False,
+            "actionable": False,
+        })
+    entries.sort(key=lambda x: (
+        x["in_capped_top80"],
+        -max(
+            abs(min(x["adjusted_return_1d_pct"] or 0.0, 0.0)),
+            abs(min(x["adjusted_return_5d_pct"] or 0.0, 0.0)),
+        ),
+        x["symbol"],
+    ))
+    excluded = sum(not x["in_capped_top80"] for x in entries)
+    return {
+        "status": "DIAGNOSTIC_PENDING_CAUSAL_REVIEW",
+        "thresholds": {"1d_pct_lte": -15.0, "5d_pct_lte": -15.0},
+        "source_session_date": session,
+        "total": len(entries),
+        "outside_capped_top80": excluded,
+        "inside_capped_top80": len(entries) - excluded,
+        "universe_scope": "FRESH_ELIGIBLE_PREFILTER_ONLY",
+        "policy": "SHADOW_ONLY_NO_AUTOMATIC_SIGNALS_OR_ENTRY",
+        "queue": entries,
     }
 
 
