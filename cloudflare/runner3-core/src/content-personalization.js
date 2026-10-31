@@ -591,14 +591,34 @@ export async function recomputePersonalization(env, modelVersion = PERSONAL_MODE
   };
 }
 
+// A successful recompute commits its model and policy identity alongside the clean
+// workflow_state row. Reuse that indexed proof instead of scanning content_scores
+// once per hour. Legacy, incomplete, dirty, or malformed state takes the old path.
+export function hasCommittedProfileMaterializationProof(state, modelVersion = PERSONAL_MODEL_VERSION) {
+  if (state?.status !== "clean") return false;
+  let detail;
+  try { detail = JSON.parse(state.detail || "{}"); } catch { return false; }
+  return detail?.model === modelVersion
+    && detail.contract_version === CONTENT_INTELLIGENCE_CONTRACT_VERSION
+    && detail.policy_version === PERSONAL_POLICY_VERSION
+    && detail.ontology_version === INTEREST_ONTOLOGY_VERSION
+    && typeof detail.recomputed_at === "string"
+    && Number.isFinite(Date.parse(detail.recomputed_at));
+}
+
 export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODEL_VERSION, priorityExplicit = false } = {}) {
   if (!env?.DB) return { ok: false, recomputed: false };
   const before = await profileState(env);
   if (!before) return { ok: true, recomputed: false, status: "missing" };
 
-  const materialized = await env.DB.prepare(
-    "SELECT 1 AS ok FROM content_scores WHERE score_type='personal_relevance' AND model_version=? AND json_extract(reason_json,'$.contract_version')=? AND json_extract(reason_json,'$.profile_policy')=? AND json_extract(reason_json,'$.ontology_version')=? LIMIT 1"
-  ).bind(modelVersion, CONTENT_INTELLIGENCE_CONTRACT_VERSION, PERSONAL_POLICY_VERSION, INTEREST_ONTOLOGY_VERSION).first();
+  // For a clean state with a valid completion receipt, the state row already
+  // proves this materialization was committed. Keep the exact old verification
+  // query for every other state, including mismatches and legacy receipts.
+  const materialized = hasCommittedProfileMaterializationProof(before, modelVersion)
+    ? { ok: 1 }
+    : await env.DB.prepare(
+        "SELECT 1 AS ok FROM content_scores WHERE score_type='personal_relevance' AND model_version=? AND json_extract(reason_json,'$.contract_version')=? AND json_extract(reason_json,'$.profile_policy')=? AND json_extract(reason_json,'$.ontology_version')=? LIMIT 1"
+      ).bind(modelVersion, CONTENT_INTELLIGENCE_CONTRACT_VERSION, PERSONAL_POLICY_VERSION, INTEREST_ONTOLOGY_VERSION).first();
   const materializationMismatch = !materialized?.ok;
   let dirtyReason = "";
   if (before.status === "dirty") {
