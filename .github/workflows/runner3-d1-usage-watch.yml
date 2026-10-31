@@ -27,6 +27,10 @@ jobs:
       ALERT_ROWS: '70000'
       EMERGENCY_ROWS: '90000'
     steps:
+      - name: Checkout diagnostics source for manual and PR runs
+        if: github.event_name != 'schedule'
+        uses: actions/checkout@v4
+
       - name: Check account-wide D1 daily row writes
         shell: bash
         run: |
@@ -125,3 +129,48 @@ jobs:
           print(f'D1_ACCOUNT_USAGE_WATCH_PASS rowsWritten={written} projected={projected}')
           PY
 
+      - name: Validate D1 Insights sanitizer offline
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          path=Path('scripts/d1_insights_sanitize.py')
+          spec=importlib.util.spec_from_file_location('d1_san',path)
+          module=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          rows=module.sanitize([{'query': 'SELECT * FROM content_features WHERE item_id = ?', 'totalRowsRead': 200, 'totalRowsWritten': 0, 'numberOfTimesRun': 10}])
+          assert len(rows)==1 and rows[0]['operation']=='SELECT'
+          assert rows[0]['tables']==['content_features']
+          assert rows[0]['totalRowsRead']==200 and 'query' not in rows[0]
+          assert module.sanitize([])==[]
+          for invalid in ({'results': []},[{}],[{'query':'SELECT 1'}]*21):
+              try: module.sanitize(invalid)
+              except ValueError: pass
+              else: raise AssertionError('must reject invalid insights shape')
+          print('D1_INSIGHTS_SANITIZER_OFFLINE_PASS')
+          PY
+
+      - name: Read-only D1 query hotspots (manual only, redacted)
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # Analytics-only query patterns; do not execute SQL against D1.
+          # Neither raw queries nor CLI error output may enter workflow logs.
+          umask 077
+          trap 'rm -f /tmp/d1-insights-reads.json /tmp/d1-insights-writes.json /tmp/d1-insights-reads.err /tmp/d1-insights-writes.err' EXIT
+          for kind in reads writes; do
+            if ! timeout 80s npx --yes wrangler@4.137.0 d1 insights runner3-content-intelligence \
+              --time-period=1d --sort-type=sum --sort-by="$kind" --limit=20 --json \
+              > "/tmp/d1-insights-${kind}.json" 2> "/tmp/d1-insights-${kind}.err"; then
+              echo "D1_INSIGHTS_ANALYTICS_UNAVAILABLE_${kind}" >&2
+              exit 1
+            fi
+            python3 scripts/d1_insights_sanitize.py --input "/tmp/d1-insights-${kind}.json" --kind "$kind"
+          done
