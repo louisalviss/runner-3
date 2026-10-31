@@ -26,11 +26,11 @@ function checkSelect(sql) {
       /(;|--|\/\*|\*\/|\0)/.test(sql)) deny();
 }
 
-function statementFacade(inner) {
+function statementFacade(inner, owner) {
   if (!inner || typeof inner.bind !== "function") deny();
   const result = {
     bind(...values) {
-      return statementFacade(inner.bind(...values));
+      return statementFacade(inner.bind(...values), owner);
     },
     first(...args) {
       if (typeof inner.first !== "function") deny();
@@ -50,22 +50,23 @@ function statementFacade(inner) {
     }
   };
   const facade = Object.freeze(result);
-  SAFE_STATEMENTS.set(facade, inner);
+  SAFE_STATEMENTS.set(facade, {inner, owner});
   return facade;
 }
 
 export function readOnlyD1Facade(db) {
   if (!db || typeof db.prepare !== "function" ||
       typeof db.batch !== "function") deny();
+  const owner = Symbol("readonly-binding-owner");
   return Object.freeze({
     prepare(sql) {
       checkSelect(sql);
-      return statementFacade(db.prepare(sql));
+      return statementFacade(db.prepare(sql), owner);
     },
     batch(statements) {
       if (!Array.isArray(statements) || statements.length > 250 ||
-          statements.some(s => !s || !SAFE_STATEMENTS.has(s))) deny();
-      return db.batch(statements.map(s => SAFE_STATEMENTS.get(s)));
+          statements.some(s => !s || SAFE_STATEMENTS.get(s)?.owner !== owner)) deny();
+      return db.batch(statements.map(s => SAFE_STATEMENTS.get(s).inner));
     },
     withSession(bookmark) {
       if (typeof db.withSession !== "function") deny();
