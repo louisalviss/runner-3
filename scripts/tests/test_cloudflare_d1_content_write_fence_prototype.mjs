@@ -72,6 +72,14 @@ test("read-only batch rejects raw and unknown statements", () => {
   assert.throws(()=>fenced.batch(Array.from({length:251},()=>fenced.prepare("SELECT 1"))),/D1_CONTENT_WRITE_FENCE_BLOCKED/);
 });
 
+test("cross-binding statement reuse is blocked", () => {
+  const db1=fakeDb(), db2=fakeDb();
+  const left=readOnlyD1Facade(db1), right=readOnlyD1Facade(db2);
+  const foreign=right.prepare("SELECT 1");
+  assert.throws(()=>left.batch([foreign]),/D1_CONTENT_WRITE_FENCE_BLOCKED/);
+  assert.equal(db1.executed.length,0);
+});
+
 test("exec/dump cannot be used through fenced interface", () => {
   const db=fakeDb(), fenced=readOnlyD1Facade(db);
   assert.equal(typeof fenced.exec,"undefined");
@@ -113,6 +121,7 @@ test("no raw bindings exposed through facade", () => {
   assert.equal(fenced.inner,undefined);
   assert.equal(fenced._db,undefined);
   assert.equal(fenced.prepare("SELECT 1").inner,undefined);
+  assert.equal(Object.getOwnPropertySymbols(fenced.prepare("SELECT 1")).length,0);
 });
 
 process.stdout.write("D1_CONTENT_FENCE_OFFLINE_TESTS " + passes + " PASS NO_NETWORK NO_DEPLOY\n");
