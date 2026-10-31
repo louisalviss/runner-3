@@ -125,3 +125,46 @@ jobs:
           print(f'D1_ACCOUNT_USAGE_WATCH_PASS rowsWritten={written} projected={projected}')
           PY
 
+      - name: Read-only D1 query hotspots (manual only, redacted)
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # Insights calls use Analytics only. Do NOT execute SQL against D1.
+          timeout 80s npx --yes wrangler@4.137.0 d1 insights runner3-content-intelligence --time-period=1d --sort-type=sum --sort-by=reads --limit=20 --json > /tmp/d1-insights-reads.json
+          timeout 80s npx --yes wrangler@4.137.0 d1 insights runner3-content-intelligence --time-period=1d --sort-type=sum --sort-by=writes --limit=20 --json > /tmp/d1-insights-writes.json
+          python3 - <<'PY'
+          import hashlib, json, re
+          def load(path):
+              text=open(path, encoding="utf-8").read().strip()
+              try:
+                  result=json.loads(text)
+              except ValueError:
+                  start=text.find("[")
+                  if start<0:
+                      raise RuntimeError("insights_json_missing")
+                  result=json.loads(text[start:])
+              if not isinstance(result,list):
+                  raise RuntimeError("unexpected_insights_shape")
+              return result[:20]
+          def summary(row):
+              sql=str(row.get("query") or "")
+              # Bound values and raw SQL never leave the runner.
+              tables=sorted(set(re.findall(r'\b(?:FROM|JOIN|UPDATE|INTO)\s+["]?([a-zA-Z_][a-zA-Z0-9_]*)',sql,re.I)))
+              return {
+                  "query_sha16": hashlib.sha256(sql.encode("utf-8")).hexdigest()[:16],
+                  "operation": (re.match(r'\s*([a-zA-Z]+)',sql) or ["UNKNOWN"])[1].upper(),
+                  "tables": tables,
+                  "times": row.get("numberOfTimesRun"),
+                  "rowsRead": row.get("totalRowsRead"),
+                  "rowsWritten": row.get("totalRowsWritten"),
+                  "avgRowsRead": row.get("avgRowsRead"),
+                  "avgDurationMs": row.get("avgDurationMs"),
+              }
+          for kind in ("reads","writes"):
+              rows=load("/tmp/d1-insights-"+kind+".json")
+              print("D1_INSIGHTS_SANITIZED_"+kind.upper()+" "+json.dumps([summary(x) for x in rows],separators=(",",":")))
+          PY
