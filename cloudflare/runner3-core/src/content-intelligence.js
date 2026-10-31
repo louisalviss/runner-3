@@ -91,7 +91,8 @@ async function handleItems(request,env){
     for(const row of incoming) list.push(await resolveCanonicalItemIdentity(env,row));
     const itemResults=await env.DB.batch(list.map(r=>itemStatement(env,r)));
     const itemChanges=itemResults.reduce((n,r)=>n+Number(r.meta?.changes||0),0);
-    const heartbeatResults=await env.DB.batch(list.map(r=>heartbeatStatement(env,r)));
+    const heartbeatCandidates=list.filter((_,i)=>Number(itemResults[i]?.meta?.changes||0)===0);
+    const heartbeatResults=heartbeatCandidates.length ? await env.DB.batch(heartbeatCandidates.map(r=>heartbeatStatement(env,r))) : [];
     const heartbeatChanges=heartbeatResults.reduce((n,r)=>n+Number(r.meta?.changes||0),0);
     let semanticFeatures=0; const semanticChangedIds=[];
     for(const r of list){ const semantic=await enrichItem(env,r); semanticFeatures+=semantic.applied; if(semantic.applied>0)semanticChangedIds.push(r.item_id); }
