@@ -76,6 +76,7 @@ jobs:
           python3 -m unittest discover -s tests -p test_content_v4_guarded_materialize.py
           node scripts/verify_runner3_d1_quota_guards.mjs
           node scripts/verify_recommendation_chunking.mjs
+          node scripts/verify_d1_clean_profile_fastpath.mjs
           node scripts/verify_personal_score_sql_size.mjs
           node scripts/verify_interest_profile_promotion.mjs
           node scripts/verify_interest_evidence_projection.mjs
