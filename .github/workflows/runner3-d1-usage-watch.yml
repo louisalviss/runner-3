@@ -156,7 +156,7 @@ jobs:
               tables=sorted(set(re.findall(r'\b(?:FROM|JOIN|UPDATE|INTO)\s+["]?([a-zA-Z_][a-zA-Z0-9_]*)',sql,re.I)))
               return {
                   "query_sha16": hashlib.sha256(sql.encode("utf-8")).hexdigest()[:16],
-                  "operation": (re.match(r'\s*([a-zA-Z]+)',sql) or ["UNKNOWN"])[1].upper(),
+                  "operation": (re.match(r'\s*([a-zA-Z]+)',sql).group(1).upper() if re.match(r'\s*([a-zA-Z]+)',sql) else "UNKNOWN"),
                   "tables": tables,
                   "times": row.get("numberOfTimesRun"),
                   "rowsRead": row.get("totalRowsRead"),
