@@ -27,6 +27,10 @@ jobs:
       ALERT_ROWS: '70000'
       EMERGENCY_ROWS: '90000'
     steps:
+      - name: Checkout diagnostics source for manual and PR runs
+        if: github.event_name != 'schedule'
+        uses: actions/checkout@v4
+
       - name: Check account-wide D1 daily row writes
         shell: bash
         run: |
