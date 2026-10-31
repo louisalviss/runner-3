@@ -106,16 +106,33 @@ def assess(token,now=None,reader=read):
         day_metrics=reader(token,name,start,end)
         require(type(day_metrics) is list and len(day_metrics)<=4,
                 "BAD_READER_RESULT")
+        expected=[(start+dt.timedelta(days=n)).isoformat() for n in range(4)]
+        seen=set()
+        for row in day_metrics:
+            require(type(row) is dict and
+                    type(row.get("date_utc")) is str and
+                    row["date_utc"] in expected and row["date_utc"] not in seen and
+                    type(row.get("write_queries")) is int and
+                    row["write_queries"]>=0,"METRIC_DAY_COVERAGE_INVALID")
+            seen.add(row["date_utc"])
+        missing=[day for day in expected if day not in seen]
         total=sum(x["write_queries"] for x in day_metrics)
         reports[name]={"days_returned":len(day_metrics),
+                       "calendar_window_coverage_complete":not missing,
+                       "missing_days_utc":missing,
                        "write_queries_in_returned_groups":total,
                        "days":day_metrics,
-                       "write_activity_detected":total>0}
+                       # None means UNKNOWN when all observed groups were zero
+                       # but some days were not returned. No unobserved zero fill.
+                       "write_activity_detected":(True if total>0 else
+                                                  None if missing else False)}
     return {
         "status":"D1_TARGET_HISTORICAL_WRITE_QUERY_METRICS_ONLY",
         "calendar_window_utc":{"from":start.isoformat(),"to":end.isoformat()},
         "databases":reports,
         "analytics_api_available":True,
+        "all_target_databases_date_coverage_complete":all(
+            x["calendar_window_coverage_complete"] for x in reports.values()),
         "live_writer_identity_verified":False,
         "writer_quiescence_proven":False,
         "queries_reflect_ongoing_inflight_requests":False,
