@@ -9,7 +9,8 @@
  * application-level fence design. Never use this alone as quiescence proof.
  */
 
-const SAFE_STATEMENT = Symbol("content-write-fence-readonly-prepared");
+// Keep raw prepared statement handles private: no enumerable or symbolic escape.
+const SAFE_STATEMENTS = new WeakMap();
 const FAILURE = "D1_CONTENT_WRITE_FENCE_BLOCKED";
 
 function deny() {
@@ -28,7 +29,6 @@ function checkSelect(sql) {
 function statementFacade(inner) {
   if (!inner || typeof inner.bind !== "function") deny();
   const result = {
-    [SAFE_STATEMENT]: inner,
     bind(...values) {
       return statementFacade(inner.bind(...values));
     },
@@ -49,7 +49,9 @@ function statementFacade(inner) {
       return inner.run(...args);
     }
   };
-  return Object.freeze(result);
+  const facade = Object.freeze(result);
+  SAFE_STATEMENTS.set(facade, inner);
+  return facade;
 }
 
 export function readOnlyD1Facade(db) {
@@ -62,8 +64,8 @@ export function readOnlyD1Facade(db) {
     },
     batch(statements) {
       if (!Array.isArray(statements) || statements.length > 250 ||
-          statements.some(s => !s || !s[SAFE_STATEMENT])) deny();
-      return db.batch(statements.map(s => s[SAFE_STATEMENT]));
+          statements.some(s => !s || !SAFE_STATEMENTS.has(s))) deny();
+      return db.batch(statements.map(s => SAFE_STATEMENTS.get(s)));
     },
     withSession(bookmark) {
       if (typeof db.withSession !== "function") deny();
