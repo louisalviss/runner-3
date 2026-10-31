@@ -110,7 +110,8 @@ def manifest_rows(obj: dict[str, Any], source_type: str) -> tuple[list[dict[str,
             "published_at": item.get("publishedAt"),
             "language": item.get("language"),
             "raw_ref": item.get("rawRef"),
-            "metadata": {"render_number": item.get("number"), "summary_evidence_status": item.get("summaryEvidenceStatus")},
+            # Display position belongs to the shown event, not stable item metadata.
+            "metadata": {"summary_evidence_status": item.get("summaryEvidenceStatus")},
         })
         feature_rows.extend(infer_features(item))
         shown_rows.append({"item_id": iid, "event_type": "shown", "render_id": str(render_id), "context": {"source_type": source_type, "number": item.get("number")}})
