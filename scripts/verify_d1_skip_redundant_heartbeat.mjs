@@ -1,6 +1,6 @@
 import { handleContentIntelligence } from '../cloudflare/runner3-core/src/content-intelligence.js';
 
-const URL = 'https://example.test/content-intelligence/items';
+const TEST_URL = 'https://example.test/content-intelligence/items';
 
 async function runCase(changed) {
   const heartbeatIds = [];
@@ -37,12 +37,12 @@ async function runCase(changed) {
     source_type: 'web',
     title: 'Example item',
   }));
-  const request = new Request(URL, {
+  const request = new Request(TEST_URL, {
     method: 'POST',
     headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
     body: JSON.stringify({ rows }),
   });
-  const response = await handleContentIntelligence(request, { DB, RUNNER3_CORE_TOKEN: 'test-token' }, new URL(URL));
+  const response = await handleContentIntelligence(request, { DB, RUNNER3_CORE_TOKEN: 'test-token' }, new URL(TEST_URL));
   if (response?.status !== 200) throw new Error('unexpected HTTP status ' + response?.status);
   return { result: await response.json(), heartbeatIds, queryCount };
 }
