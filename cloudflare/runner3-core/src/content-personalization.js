@@ -4,7 +4,7 @@ export const PERSONAL_MODEL_VERSION = "personal-v4";
 export const CONTENT_INTELLIGENCE_CONTRACT_VERSION = "content-intelligence-v4";
 export const PROFILE_STATE_KEY = "content-intelligence-profile";
 export const PROFILE_RECOMPUTE_CLOCK_KEY = "content-intelligence-profile-last-recompute";
-export const RECOMPUTE_DEBOUNCE_MS = 4 * 60 * 60 * 1000;
+export const RECOMPUTE_DEBOUNCE_MS = 6 * 60 * 60 * 1000;
 export const RECOMPUTE_LEASE_MS = 15 * 60 * 1000;
 export const RECOMPUTE_RETRY_MS = 60 * 60 * 1000;
 export const PERSONAL_POLICY_VERSION = "canonical-interest-ontology-v7-family-aware";
@@ -60,25 +60,27 @@ function agoModifier(ms) {
   return `-${Math.max(0, Math.floor(ms / 1000))} seconds`;
 }
 
-async function acquireRecomputeLease(env, modelVersion, priorityExplicit = false) {
+async function acquireRecomputeLease(env, modelVersion) {
   const token = leaseToken();
   const detail = JSON.stringify({ model: modelVersion, contract_version: CONTENT_INTELLIGENCE_CONTRACT_VERSION, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION, lease_acquired_at: new Date().toISOString() });
   const result = await env.DB.prepare(`
     UPDATE workflow_state
     SET status='recomputing', run_id=?, detail=?, updated_at=CURRENT_TIMESTAMP
     WHERE source=? AND (
-      (status='dirty' AND (
-        ?=1
-        OR NOT EXISTS(SELECT 1 FROM workflow_state WHERE source=?)
-        OR EXISTS(SELECT 1 FROM workflow_state WHERE source=? AND updated_at <= datetime('now',?))
-        OR NOT EXISTS(SELECT 1 FROM content_scores WHERE score_type='personal_relevance' AND model_version=?)
-      ))
-      OR (status='recomputing' AND updated_at <= datetime('now',?))
+      (status='dirty' AND
+        (json_extract(detail,'$.retryable_error') IS NULL OR updated_at <= datetime('now',?))
+        AND (NOT EXISTS(SELECT 1 FROM workflow_state WHERE source=?)
+             OR EXISTS(SELECT 1 FROM workflow_state WHERE source=? AND updated_at <= datetime('now',?)))
+      )
+      OR (status='recomputing' AND updated_at <= datetime('now',?)
+        AND (NOT EXISTS(SELECT 1 FROM workflow_state WHERE source=?)
+             OR EXISTS(SELECT 1 FROM workflow_state WHERE source=? AND updated_at <= datetime('now',?))))
     )
   `).bind(
-    token, detail, PROFILE_STATE_KEY, priorityExplicit ? 1 : 0,
-    PROFILE_RECOMPUTE_CLOCK_KEY, PROFILE_RECOMPUTE_CLOCK_KEY, agoModifier(RECOMPUTE_DEBOUNCE_MS), modelVersion,
+    token, detail, PROFILE_STATE_KEY, agoModifier(RECOMPUTE_RETRY_MS),
+    PROFILE_RECOMPUTE_CLOCK_KEY, PROFILE_RECOMPUTE_CLOCK_KEY, agoModifier(RECOMPUTE_DEBOUNCE_MS),
     agoModifier(RECOMPUTE_LEASE_MS),
+    PROFILE_RECOMPUTE_CLOCK_KEY, PROFILE_RECOMPUTE_CLOCK_KEY, agoModifier(RECOMPUTE_DEBOUNCE_MS),
   ).run();
   return Number(result.meta?.changes || 0) === 1 ? token : null;
 }
@@ -105,11 +107,10 @@ async function finishRecomputeLease(env, token, modelVersion) {
 async function failRecomputeLease(env, token, error) {
   await env.DB.prepare(`
     UPDATE workflow_state
-    SET status='dirty', run_id=NULL, detail=?, updated_at=datetime('now',?)
+    SET status='dirty', run_id=NULL, detail=?, updated_at=CURRENT_TIMESTAMP
     WHERE source=? AND status='recomputing' AND run_id=?
   `).bind(
     JSON.stringify({ retryable_error: String(error?.message || error) }),
-    agoModifier(RECOMPUTE_DEBOUNCE_MS - RECOMPUTE_RETRY_MS),
     PROFILE_STATE_KEY,
     token,
   ).run();
@@ -667,8 +668,10 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
     `).bind(JSON.stringify({ reason: "materialization_identity_mismatch", model: modelVersion, contract_version: CONTENT_INTELLIGENCE_CONTRACT_VERSION, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION }), PROFILE_STATE_KEY).run();
   }
 
-  const semanticDirtyPriority = before.status === "dirty" && dirtyReasonAllowsPriorityMaterialization(dirtyReason);
-  const token = await acquireRecomputeLease(env, modelVersion, priorityExplicit || materializationMismatch || semanticDirtyPriority);
+  // Explicit feedback is already durable in user_content_events. Do not let
+  // priority, semantic changes or materialization mismatch bypass the 6h
+  // account-wide D1 read/write budget. Dirty state is retained until refresh.
+  const token = await acquireRecomputeLease(env, modelVersion);
   if (!token) {
     const current = await profileState(env);
     if (current?.status === "dirty") return { ok: true, recomputed: false, status: "dirty_debounced" };

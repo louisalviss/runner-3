@@ -18,6 +18,7 @@ concurrency:
 
 jobs:
   watch:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -26,6 +27,9 @@ jobs:
       WARN_ROWS: '50000'
       ALERT_ROWS: '70000'
       EMERGENCY_ROWS: '90000'
+      WARN_READ_ROWS: '3000000'
+      ALERT_READ_ROWS: '3800000'
+      EMERGENCY_READ_ROWS: '4500000'
     steps:
       - name: Check account-wide D1 daily row writes
         shell: bash
@@ -39,6 +43,9 @@ jobs:
           warn_rows=int(os.environ['WARN_ROWS'])
           alert_rows=int(os.environ['ALERT_ROWS'])
           emergency_rows=int(os.environ['EMERGENCY_ROWS'])
+          warn_reads=int(os.environ['WARN_READ_ROWS'])
+          alert_reads=int(os.environ['ALERT_READ_ROWS'])
+          emergency_reads=int(os.environ['EMERGENCY_READ_ROWS'])
           base='https://api.cloudflare.com/client/v4'
           headers={'Authorization':'Bearer '+token,'Content-Type':'application/json','Accept':'application/json'}
 
@@ -90,12 +97,15 @@ jobs:
           totals={k:sum(x[k] for x in databases) for k in ('readQueries','writeQueries','rowsRead','rowsWritten')}
           elapsed=max((now-midnight).total_seconds()/3600.0,0.01)
           projected=round(totals['rowsWritten']*24.0/elapsed)
+          projected_reads=round(totals['rowsRead']*24.0/elapsed)
           result={
               'checkedAt':now.isoformat().replace('+00:00','Z'),'dateUtc':today,
               'accountTotals':totals,'projectedRowsWrittenAtCurrentPace':projected,
+              'projectedRowsReadAtCurrentPace':projected_reads,
               'inventoryCount':len(inventory),
               'databases':databases,
-              'thresholds':{'warn':warn_rows,'alert':alert_rows,'emergency':emergency_rows,'freeTierHardLimit':100000}
+              'thresholds':{'warn':warn_rows,'alert':alert_rows,'emergency':emergency_rows,'freeTierHardLimit':100000,
+                            'readWarn':warn_reads,'readAlert':alert_reads,'readEmergency':emergency_reads,'readFreeTierHardLimit':5000000}
           }
           print(json.dumps(result,indent=2))
 
@@ -105,13 +115,26 @@ jobs:
                   h.write('## D1 account usage watch\n\n')
                   h.write(f"- UTC date: `{today}`\n")
                   h.write(f"- Account rows written: **{totals['rowsWritten']:,}** / 100,000\n")
-                  h.write(f"- Current-pace projection: {projected:,} rows/day\n")
+                  h.write(f"- Account rows read: **{totals['rowsRead']:,}** / 5,000,000\n")
+                  h.write(f"- Write projection: {projected:,} rows/day\n")
+                  h.write(f"- Read projection: {projected_reads:,} rows/day\n")
                   h.write(f"- D1 databases: {len(inventory)}\n\n")
-                  h.write('| Database | Rows written | Write queries |\n|---|---:|---:|\n')
+                  h.write('| Database | Rows read | Rows written | Write queries |\n|---|---:|---:|---:|\n')
                   for x in databases:
-                      h.write(f"| {x['database']} | {x['rowsWritten']:,} | {x['writeQueries']:,} |\n")
+                      h.write(f"| {x['database']} | {x['rowsRead']:,} | {x['rowsWritten']:,} | {x['writeQueries']:,} |\n")
 
+          read=totals['rowsRead']
           written=totals['rowsWritten']
+          if read >= emergency_reads:
+              print(f'::error::D1 ACCOUNT READ EMERGENCY: {read:,} rows read today.')
+              raise SystemExit(2)
+          if read >= alert_reads:
+              print(f'::error::D1 ACCOUNT READ ALERT: {read:,} rows read today.')
+              raise SystemExit(1)
+          if read >= warn_reads:
+              print(f'::warning::D1 ACCOUNT READ WARN: {read:,} rows read today.')
+          if elapsed >= 4 and projected_reads >= alert_reads:
+              print(f'::warning::D1 ACCOUNT READ PACE WARN: projected {projected_reads:,} rows/day.')
           if written >= emergency_rows:
               print(f'::error::D1 ACCOUNT EMERGENCY: {written:,} rows written today.')
               raise SystemExit(2)
@@ -122,6 +145,6 @@ jobs:
               print(f'::warning::D1 ACCOUNT WARN: {written:,} rows written today.')
           if elapsed >= 4 and projected >= alert_rows:
               print(f'::warning::D1 ACCOUNT PACE WARN: projected {projected:,} rows/day.')
-          print(f'D1_ACCOUNT_USAGE_WATCH_PASS rowsWritten={written} projected={projected}')
+          print(f'D1_ACCOUNT_USAGE_WATCH_PASS rowsWritten={written} projected={projected} rowsRead={read} readProjected={projected_reads}')
           PY
 
