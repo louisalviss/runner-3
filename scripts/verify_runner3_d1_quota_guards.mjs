@@ -15,17 +15,20 @@ const fail = (message) => { throw new Error(`D1_QUOTA_GUARD_FAILED: ${message}`)
 const requireText = (text, needle, message) => { if (!text.includes(needle)) fail(message); };
 const forbidText = (text, needle, message) => { if (text.includes(needle)) fail(message); };
 
-requireText(personalization, "RECOMPUTE_DEBOUNCE_MS = 4 * 60 * 60 * 1000", "4h debounce missing");
+requireText(personalization, "RECOMPUTE_DEBOUNCE_MS = 6 * 60 * 60 * 1000", "6h recompute cooldown missing");
 requireText(personalization, "RECOMMENDATION_ID_CHUNK = 50", "recommendation D1-safe chunk size missing");
 requireText(personalization, "for(const batch of idChunks(ids))", "recommendation shown IDs are not chunked");
-requireText(personalization, "priorityExplicit", "bounded explicit-feedback priority recompute missing");
+requireText(personalization, "priorityExplicit", "explicit-feedback call-site must remain guarded");
 requireText(personalization, "familyDiminishingWeight", "family diminishing-return scoring missing");
 requireText(personalization, "interestFamilySql", "family-aware materialized scoring missing");
 requireText(personalization, "materialization_identity_mismatch", "model/policy/ontology materialization identity guard missing");
 requireText(personalization, "json_extract(reason_json,'$.profile_policy')", "profile policy materialization proof check missing");
 requireText(personalization, "json_extract(reason_json,'$.ontology_version')", "ontology materialization proof check missing");
 requireText(personalization, "const materializationMismatch = !materialized?.ok", "dirty-state materialization mismatch detection missing");
-requireText(personalization, "priorityExplicit || materializationMismatch", "materialization repair must bypass debounce");
+requireText(personalization, "const token = await acquireRecomputeLease(env, modelVersion)", "all priority paths must respect cooldown");
+requireText(personalization, "json_extract(detail,'$.retryable_error')", "recompute failures must use retry backoff");
+forbidText(personalization, "priorityExplicit ? 1 : 0", "priority feedback bypasses D1 cooldown");
+forbidText(personalization, "priorityExplicit || materializationMismatch", "materialization mismatch bypasses D1 cooldown");
 requireText(personalization, "status='recomputing'", "recompute lease state missing");
 requireText(personalization, "run_id=?", "lease token missing");
 requireText(personalization, "status='recomputing' AND run_id=?", "CAS lease completion missing");
@@ -35,7 +38,7 @@ forbidText(personalization, 'prepare("DELETE FROM content_scores WHERE score_typ
 
 requireText(intelligence, "handleGuardedRecompute", "direct recompute guard missing");
 requireText(intelligence, "explicit_feedback_batch", "explicit feedback batch result marker missing");
-requireText(intelligence, "priorityExplicit:true", "explicit feedback must trigger one priority recompute");
+requireText(intelligence, "priorityExplicit:true", "explicit feedback may request a budget-guarded recompute");
 requireText(intelligence, "PERSONAL_MODEL_VERSION_MISMATCH", "non-canonical recompute model rejection missing");
 forbidText(intelligence, "recomputeInterestProfile,", "raw profile recompute import reintroduced");
 forbidText(intelligence, "recomputePersonalScores,", "raw score recompute import reintroduced");

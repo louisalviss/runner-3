@@ -19,6 +19,9 @@ on:
       - 'tests/test_content_v4_guarded_materialize.py'
       - '.github/workflows/content-intelligence-v4-guarded-materialize.yml'
       - 'scripts/verify_runner3_d1_quota_guards.mjs'
+      - 'scripts/test_d1_recompute_lease.py'
+      - 'scripts/test_d1_usage_watch.py'
+      - '.github/workflows/runner3-d1-usage-watch.yml'
       - 'scripts/verify_recommendation_chunking.mjs'
       - 'scripts/verify_interest_profile_promotion.mjs'
       - 'scripts/verify_interest_ontology.mjs'
@@ -41,6 +44,9 @@ on:
       - 'tests/test_content_v4_guarded_materialize.py'
       - '.github/workflows/content-intelligence-v4-guarded-materialize.yml'
       - 'scripts/verify_runner3_d1_quota_guards.mjs'
+      - 'scripts/test_d1_recompute_lease.py'
+      - 'scripts/test_d1_usage_watch.py'
+      - '.github/workflows/runner3-d1-usage-watch.yml'
       - 'scripts/verify_interest_profile_promotion.mjs'
       - '.github/workflows/content-intelligence-v2-test.yml'
 
@@ -76,6 +82,8 @@ jobs:
           python3 -m unittest discover -s tests -p test_content_v4_guarded_materialize.py
           node scripts/verify_d1_skip_redundant_heartbeat.mjs
           node scripts/verify_runner3_d1_quota_guards.mjs
+          python3 scripts/test_d1_recompute_lease.py
+          python3 scripts/test_d1_usage_watch.py
           node scripts/verify_recommendation_chunking.mjs
           node scripts/verify_d1_clean_profile_fastpath.mjs
           node scripts/verify_personal_score_sql_size.mjs
@@ -99,7 +107,6 @@ jobs:
           grep -q 'content-intelligence-v4' cloudflare/runner3-core/src/content-personalization.js
           grep -q "json_extract(reason_json,'$.contract_version')" cloudflare/runner3-core/src/content-personalization.js
           grep -q 'PROFILE_RECOMPUTE_CLOCK_KEY' cloudflare/runner3-core/src/content-personalization.js
-          grep -q "NOT EXISTS(SELECT 1 FROM content_scores WHERE score_type='personal_relevance' AND model_version=?)" cloudflare/runner3-core/src/content-personalization.js
           ! grep -q "status='dirty' AND updated_at <= datetime('now',?)" cloudflare/runner3-core/src/content-personalization.js
           grep -q 'result\["materialization"\] = materialization' scripts/content_intelligence_client.py
           grep -q 'DEFAULT_PERSONAL_MODEL = "personal-v4"' scripts/content_intelligence_client.py
