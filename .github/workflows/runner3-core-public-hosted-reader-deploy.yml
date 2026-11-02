@@ -383,8 +383,15 @@ jobs:
               return {x['scope']:(x.get('key'),x.get('title'),x.get('creator'),x.get('cover_key')) for x in rows}
           assert norm(a)==norm(b), 'refresh/index metadata mismatch'
           assert all(str(x.get('title') or '').strip() for x in a), 'missing title'
-          assert all(str(x.get('creator') or '').strip() for x in a), 'missing creator'
-          print('EBOOK_V72_LIST=PASS books=%d covers=%d source=%s' % (len(a),sum(bool(x.get('cover_key')) for x in a),index.get('source')))
+          # The one legacy 2026-10-10 auto-smoke EPUB is a synthetic fixture,
+          # not a real book. It intentionally has no author metadata.
+          def is_legacy_smoke(x):
+              return (x.get('scope') == 'ebook-auto-smoke-43165a728859ffba'
+                      and x.get('key') == 'core/ebook/ebook-auto-smoke-43165a728859ffba/final/ebook-auto-smoke.verified.v1.epub')
+          real_books=[x for x in a if not is_legacy_smoke(x)]
+          assert real_books, 'no real books in Library'
+          assert all(str(x.get('creator') or '').strip() for x in real_books), 'missing creator in real book'
+          print('EBOOK_V72_LIST=PASS books=%d real=%d covers=%d source=%s' % (len(a),len(real_books),sum(bool(x.get('cover_key')) for x in a),index.get('source')))
           PY
 
           ecode="$(curl -sS -X POST -H 'x-runner3-library: 1' -o /tmp/enrich-auth.json -w '%{http_code}' "$core/artifact-library/api/enrich-upload")"
