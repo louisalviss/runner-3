@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.2",
+  "target_date": "2026-11-03",
+  "timezone": "Asia/Ho_Chi_Minh",
+  "selection_policy": "latest_valid_snapshot_semantically_belonging_to_target_date",
+  "recovery_policy": "current_pointer_plus_pointer_and_dated_git_history",
+  "close_policy": {
+    "trends_min_local_hour": 20,
+    "f33_min_local_hour": 19,
+    "f33_after_midnight_grace_hours": 3,
+    "forum_min_local_hour": 20
+  },
+  "status": "READY",
+  "render_allowed": true,
+  "full_quality": true,
+  "close_quality": false,
+  "blocking_reasons": [],
+  "inputs": {
+    "trends": {
+      "path": "trends_vn_history/2026-11-03.json",
+      "present": true,
+      "sha256": "422058165d0effb3abe8d0eca60fb71f739d2d87c350d4ff7b884d14a3e488db",
+      "status": "HEALTHY",
+      "vietnam_date": "2026-11-03",
+      "captured_at": "2026-11-02T20:30:46.568172+00:00",
+      "top10_count": 10
+    },
+    "f33": {
+      "path": "voz_f33_history/2026-11-03.json",
+      "present": true,
+      "sha256": "8a54fac48a9bfaa0d3c79c0a4a2b2dbe720dbc2dc5d24da17c2f4a340b5acf19",
+      "status": "HEALTHY",
+      "vietnam_date": "2026-11-03",
+      "generated_at": "2026-11-02T23:21:06.083Z",
+      "run_id": 41543585238,
+      "artifact_id": 13188036874,
+      "threads_discovered": 19,
+      "expected_pages_total": 388,
+      "fetched_pages_total": 388,
+      "missing_pages_total": 0,
+      "posts_total": 6812,
+      "target_date_source": "workflow_dispatch_input"
+    },
+    "forum_signal": {
+      "path": "forum_signal_history/2026-11-03.json",
+      "present": true,
+      "sha256": "3263196ae6f3360619261375ff7b9cd5a21100b84a9da9201981272eb66314a2",
+      "status": "DEGRADED",
+      "vietnam_date": "2026-11-03",
+      "generated_at": "2026-11-02T20:33:41.803Z",
+      "run_id": 41519499176,
+      "artifact_id": 13176033614,
+      "posts_total": 558,
+      "crawl_outcome": "success"
+    }
+  }
+}

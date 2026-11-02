@@ -15,14 +15,17 @@
   "full_quality": false,
   "close_quality": false,
   "blocking_reasons": [
-    "trends_history_missing",
-    "f33_history_missing",
-    "forum_history_missing"
+    "f33_history_missing"
   ],
   "inputs": {
     "trends": {
       "path": "trends_vn_history/2026-11-02.json",
-      "present": false
+      "present": true,
+      "sha256": "2a23684c4d5762b960b76dc15b843892ccb00f741f2d7d3d42de8f26944669fb",
+      "status": "HEALTHY",
+      "vietnam_date": "2026-11-02",
+      "captured_at": "2026-11-02T08:20:26.186011+00:00",
+      "top10_count": 10
     },
     "f33": {
       "path": "voz_f33_history/2026-11-02.json",
@@ -30,7 +33,15 @@
     },
     "forum_signal": {
       "path": "forum_signal_history/2026-11-02.json",
-      "present": false
+      "present": true,
+      "sha256": "721fcc0baa8aea4f94e59466e4010eff8f7db5ec78f06514ad68aef4e8f79d24",
+      "status": "DEGRADED",
+      "vietnam_date": "2026-11-02",
+      "generated_at": "2026-11-02T08:14:18.160Z",
+      "run_id": 41410593211,
+      "artifact_id": 13125977079,
+      "posts_total": 487,
+      "crawl_outcome": "success"
     }
   }
 }
