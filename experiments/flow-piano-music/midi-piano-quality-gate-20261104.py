@@ -3,7 +3,7 @@
 from pathlib import Path
 
 
-def analyze_midi(path, min_seconds=7.5, max_seconds=10.0, min_piano_notes=12):
+def analyze_midi(path, min_seconds=7.0, max_seconds=8.3, min_piano_notes=12):
     from symusic import Score
 
     path = Path(path)
@@ -55,3 +55,62 @@ def analyze_midi(path, min_seconds=7.5, max_seconds=10.0, min_piano_notes=12):
         "reasons": reasons,
         "note": "Structural acceptance only. Human listening decides musical quality.",
     }
+
+
+def compare_novelty(reference_path, candidate_path, *,
+                    reference_window=(0.0, 7.5), candidate_window=(7.5, 15.0),
+                    max_duplicate_ratio=0.85):
+    """Check for direct note-event repetition in corresponding windows.
+
+    Works only with single, constant tempos. A changed tempo-map or very few
+    notes means UNVERIFIED, never a claimed original composition.
+    Designed for the user's original 4-bar hook vs its next 4 bars, and
+    for middle-bar infill using matching windows.
+    """
+    from symusic import Score
+    if not 0 < max_duplicate_ratio < 1:
+        raise ValueError("Bad duplication threshold")
+
+    def extract(path, window):
+        score = Score.from_midi(Path(path).read_bytes())
+        if len(score.tempos) != 1 or score.tempos[0].time != 0:
+            return None
+        ppq = score.ticks_per_quarter
+        bpm = float(score.tempos[0].qpm)
+        if not 20 < bpm < 300 or ppq <= 0:
+            return None
+        a, b = window
+        if not 0 <= a < b:
+            raise ValueError("Bad comparison window")
+        rows = []
+        for track in score.tracks:
+            if track.is_drum or not 0 <= track.program <= 7:
+                continue
+            for note in track.notes:
+                onset = note.time * 60 / (ppq * bpm)
+                duration = note.duration * 60 / (ppq * bpm)
+                if a <= onset < b:
+                    rows.append((onset - a, duration, note.pitch))
+        return sorted(rows)
+
+    ref = extract(reference_path, reference_window)
+    candidate = extract(candidate_path, candidate_window)
+    if ref is None or candidate is None or len(candidate) < 12 or len(ref) < 12:
+        return {"status": "NOVELTY_UNVERIFIED", "reason": "TEMPO_OR_NOTE_COUNT",
+                "matched": None, "candidate_count": None, "duplicate_ratio": None}
+    used = set()
+    matched = 0
+    for onset, duration, pitch in candidate:
+        options = [(abs(onset - ro) + 0.2 * abs(duration - rd), i)
+                   for i, (ro, rd, rp) in enumerate(ref)
+                   if i not in used and pitch == rp and abs(onset - ro) <= 0.14
+                   and abs(duration - rd) <= 0.30]
+        if options:
+            _, index = min(options)
+            used.add(index)
+            matched += 1
+    ratio = matched / len(candidate)
+    return {"status": "NEAR_COPY_REJECT" if ratio >= max_duplicate_ratio else "NOVELTY_CANDIDATE",
+            "matched": matched, "candidate_count": len(candidate),
+            "duplicate_ratio": round(ratio, 4),
+            "note": "Novelty candidate is not a human quality or copyright clearance."}
