@@ -103,8 +103,16 @@ def main():
     with midi.open("rb") as file:
         if file.read(4) != b"MThd":
             raise RuntimeError("output is not a standard MIDI file")
+    # An MThd header does not prove an 8-second solo-piano phrase.
+    import importlib.util
+    gate_path = Path(__file__).with_name("midi-piano-quality-gate-20261104.py")
+    spec = importlib.util.spec_from_file_location("midi_piano_gate", gate_path)
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    structural_qa = gate.analyze_midi(midi)
     result = {
-        "status": "MODEL_GENERATED_MIDI_TECHNICAL_ONLY",
+        "status": "AUDITION_PENDING" if structural_qa["status"] == "STRUCTURAL_PASS" else "STRUCTURAL_REJECT",
+        "midi_structural_qa": structural_qa,
         "musical_approval": "NOT_TESTED",
         "model": "amaai-lab/text2midi",
         "checkpoint_sha256": args.checkpoint_sha256,
@@ -120,6 +128,8 @@ def main():
     }
     (out / "trial-manifest.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result))
+    if structural_qa["status"] != "STRUCTURAL_PASS":
+        raise SystemExit(3)
 
 
 if __name__ == "__main__":
