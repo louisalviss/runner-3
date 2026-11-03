@@ -60,3 +60,16 @@ Verified on `runner-vps1` with two *synthetic sine-wave* audio clips: pair prepa
 ## Automated regression evidence (2026-11-03)
 
 Three executable tests on runner-vps1 PASS (2.186 seconds): rejects one candidate; rejects unknown rights; prepares a real A/B pair from synthetic test WAVs, hides candidate labels, counts the winner, rejects duplicate ratings, and forbids reusing a nonempty output directory. This validates test mechanics only, not composition quality.
+
+<!-- TEXT2MIDI_CPU_CANARY_20261104 -->
+## 2026-11-04 — First real Text2MIDI CPU trial: STRUCTURAL FAIL
+
+- Upstream GitHub commit pinned: `AMAAI-Lab/Text2midi@f3245ee402b29ba00b86c6eb9813032f3f05954f`. HF model revision `9bc91479c4a9b08a9a28a7dcfb3f1a56ee2ded36`.
+- Pinned official weight SHA256 `d94e8d7dda9207ed734268933629d4a4b7a1a6ce84c77299f610d3470448bfc1` (901867614 bytes); REMI vocabulary SHA256 `877d4511d6b9d5eea1c706199fe13a0de3d984c8f5d09c75d727ffe7f6f54ee6` (27256 bytes). Both source-verified.
+- Isolated Python CPU environment staged only under `/tmp/music-midi-direct-20261104` on `runner-vps1` (NOT production Python). 2 inference threads, 180 output tokens, seed `20261104`, temperature `0.9`. Inference 66.36 seconds; no resource guard triggered.
+- Generated standard MIDI `text2midi-original-candidate.mid`: **430 bytes**, SHA256 `5f88f5eed3219dd8f099fd6ff8b928489b96b453eced94e45878efc5edec83aa`. It is **NOT a successful 8-second solo-piano composition**.
+- Independent `symusic` inspection: duration **1.773 seconds** at 121.29 BPM; 4 piano notes, 35 drum notes and 2 unrelated instrument notes (pan flute and steel guitar), across 4 populated tracks. Output fails all four explicit structural checks. Do not render/publish or ask for a subjective audition of this sample.
+- Fixed the *research-only* source script to require and record an explicit structural MIDI gate (duration, >=12 piano notes, no drums/non-piano). Added 5 automated synthetic MIDI tests; **5/5 PASS** on `runner-vps1`. Structural PASS alone never establishes musical quality.
+- Existing multi-account GitHub-hosted pool registry lists **no music/MIDI inference flow**, so do NOT mislabel a job under a different allowlisted flow. The single CPU canary ran on VPS with bounded threads/time/memory guard. Afterward VPS swap was ~7.7/8 GiB used; no further heavy inference was launched.
+- **No R2 artifact/D1 success checkpoint:** rejected experimental MIDI was not promoted, delivered, or published. Existing Concert A+ masters and Flow Piano Music v1.2 remain unchanged. PR #517 remains DRAFT/NOT MERGED.
+- Next research gate: use permitted isolated compute if available, prove 8-second solo-piano MIDI with structural QA, then render/verify R2 + D1 and obtain user listening feedback. One truncated 180-token trial does not establish that every Text2MIDI output fails.
