@@ -81,7 +81,10 @@ export default {
       const content = contentEnv(env);
       const recompute = await learning.maybeRecomputePersonal(content);
       if (dailyWindow && !recompute?.recomputed) {
-        await learning.refreshPersonalScoresDaily(content);
+        const daily = await learning.refreshPersonalScoresDaily(content);
+        if (daily?.status === "daily_score_cache_seed_required") {
+          console.warn("content intelligence daily cache seeding required; unbudgeted feature scan skipped");
+        }
       }
     })().catch((error) => {
       console.warn("content intelligence scheduled refresh failed", String(error?.message || error));
