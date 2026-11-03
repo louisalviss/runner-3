@@ -27,7 +27,7 @@ jobs:
       D1_PLANNED_ROWS: '25000'
       D1_READ_SAFE_CEILING: '4000000'
       D1_PLANNED_READ_ROWS: '500000'
-      D1_PREFLIGHT_RECEIPT_FILE: ${{ runner.temp }}/d1-cache-seed-preflight.json
+      D1_PREFLIGHT_RECEIPT_FILE: '/tmp/runner3-d1-cache-seed-preflight.json'
     steps:
       - uses: actions/checkout@v4
         with:

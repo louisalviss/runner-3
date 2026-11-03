@@ -127,7 +127,7 @@ def main():
             raise SystemExit("D1_PREFLIGHT_GITHUB_RUN_IDENTITY_REQUIRED")
         path = Path(receipt_file)
         tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(result, sort_keys=True) + "\\n", encoding="utf-8")
+        tmp.write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
         os.replace(tmp, path)
     print(f"D1_BUDGET_PASS write={projected}/{ceiling} read={projected_reads}/{read_ceiling}")
 
