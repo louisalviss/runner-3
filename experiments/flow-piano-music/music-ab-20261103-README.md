@@ -56,3 +56,7 @@ A/B files are approximately LUFS-normalized using a single-pass filter; playback
 Verified on `runner-vps1` with two *synthetic sine-wave* audio clips: pair preparation PASS; two MP3s distinct; sealed labels hidden from ratings template; a recorded choice correctly counted one win and one loss. Synthetic QA is **not** an artistic listening test.
 
 **Next gate:** obtain actual generated piano audio from an accessible, approved music model without impacting VPS production; archive binary only through private R2 with hash/byte readback and D1 checkpoint; then make 8-second A/B clips, ask user to rate; stop if nothing is compelling. Do not call any study "learned" until it predicts new unseen user choices more accurately than chance.
+
+## Automated regression evidence (2026-11-03)
+
+Three executable tests on runner-vps1 PASS (2.186 seconds): rejects one candidate; rejects unknown rights; prepares a real A/B pair from synthetic test WAVs, hides candidate labels, counts the winner, rejects duplicate ratings, and forbids reusing a nonempty output directory. This validates test mechanics only, not composition quality.
