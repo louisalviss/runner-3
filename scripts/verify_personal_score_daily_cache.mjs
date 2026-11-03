@@ -10,7 +10,7 @@ const settings={
 };
 const inputs=[
   {item_id:'a',published_at:'a',r:0.8,n:0.17,oldFresh:5,newFresh:1.5},
-  {item_id:'b',published_at:'b',r:2.12,n:0.1,oldFresh:3.5,newFresh:3.5},
+  {item_id:'b',published_at:'b',r:2.12,n:0.1,oldFresh:5,newFresh:3.5},
   {item_id:'c',published_at:'c',r:-0.5,n:0,oldFresh:0,newFresh:0},
 ];
 const rawBase=(x,f)=>50+(38*x.r/(6+Math.abs(x.r)))+f+x.n;
