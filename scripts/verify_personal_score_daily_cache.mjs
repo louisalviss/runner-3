@@ -1,4 +1,5 @@
 import { DAILY_SCORE_CACHE_VERSION, refreshCachedPersonalScores } from '../cloudflare/runner3-core/src/personal-score-daily-cache.js';
+import { refreshPersonalScoresDaily, PERSONAL_MODEL_VERSION } from '../cloudflare/runner3-core/src/content-personalization.js';
 
 const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
 const settings={
@@ -97,4 +98,22 @@ if(overflowResult.status!=='daily_score_cache_row_cap'||overflow.writes())throw 
 const writeCap=fakeDB(fixture);
 const capped=await withOpts(writeCap,{maxWrites:1});
 if(capped.status!=='daily_score_write_cap'||writeCap.writes())throw Error('write cap did not fail before mutation');
-console.log('D1_DAILY_SCORE_FRESHNESS_CACHE_PASS',{cases:5,read_queries:db.queries.length,written:db.writes(),max_batch:Math.max(...db.batches)});
+// Integration: a clean legacy score must not enter the expensive feature-join
+// scorer from the unbudgeted 03:17 UTC Worker cron.
+const legacyFixture=fakeDB(fixture.map((x,i)=>i===0?{...x,reason_json:JSON.stringify({model:'personal-v4'})}:x));
+const legacyWorkerDB={
+  prepare(sql){
+    if(sql.includes('FROM workflow_state')){
+      return {bind(){return this;},async first(){return {status:'clean',detail:'{}'};}};
+    }
+    return legacyFixture.DB.prepare(sql);
+  },
+  async batch(stmts){return legacyFixture.DB.batch(stmts);},
+};
+const workerResult=await refreshPersonalScoresDaily({DB:legacyWorkerDB},{modelVersion:PERSONAL_MODEL_VERSION});
+if(workerResult.status!=='daily_score_cache_seed_required'||workerResult.refreshed||
+    workerResult.ok!==false||legacyFixture.writes()||
+    legacyFixture.queries.some(q=>q.includes('FROM content_features'))) {
+  throw Error('legacy cron must fail closed, never rescan content features');
+}
+console.log('D1_DAILY_SCORE_FRESHNESS_CACHE_PASS',{cases:6,read_queries:db.queries.length,written:db.writes(),max_batch:Math.max(...db.batches)});
