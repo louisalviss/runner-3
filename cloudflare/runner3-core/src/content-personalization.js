@@ -716,7 +716,8 @@ export async function refreshPersonalScoresDaily(env, { modelVersion = PERSONAL_
     maxRows:15000,maxWrites:10000,
   });
   if (cached) return cached;
-  // Legacy rows lack exact ranking inputs. Seed the cache with one full pass.
-  const result = await recomputePersonalScores(env, modelVersion);
-  return { ...result, refreshed: true, status: "daily_score_cache_seeded" };
+  // Old score rows do not carry exact ranking inputs. Never perform an
+  // unbudgeted feature-join recompute from the daily Worker cron. The existing
+  // guarded materialization path can seed the cache on its next eligible run.
+  return { ok:false,refreshed:false,status:"daily_score_cache_seed_required" };
 }
