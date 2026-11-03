@@ -66,6 +66,11 @@ if (written.size !== 3) throw new Error(`expected 3 score rows, got ${written.si
 const i1 = written.get('i1');
 const reason = JSON.parse(i1[3]);
 if (reason.profile_policy !== PERSONAL_POLICY_VERSION) throw new Error('profile policy proof missing');
+if (reason.ranking_cache_version !== 'v1-exact-ranking-inputs' ||
+    typeof reason.relevance_signal_exact !== 'number' ||
+    typeof reason.novelty_bonus_exact !== 'number') {
+  throw new Error('unrounded ranking cache evidence missing from full scorer');
+}
 if (reason.ontology_version !== INTEREST_ONTOLOGY_VERSION) throw new Error('ontology proof missing');
 if (reason.matched_families !== 1) throw new Error(`family rollup mismatch: ${reason.matched_families}`);
 if (!(reason.relevance_signal > 3 && reason.relevance_signal < 3.1)) {
