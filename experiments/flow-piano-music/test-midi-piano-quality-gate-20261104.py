@@ -67,5 +67,41 @@ class StructuralGateTests(unittest.TestCase):
         self.assertIn("TOO_FEW_PIANO_NOTES", info["reasons"])
 
 
+    def test_short_sounding_tail_of_approved_style_is_not_rejected(self):
+        # Original C ends its last note before the 8.0s audio tail.
+        synth(self.path, duration_ticks=250, tick_step=450)
+        info = gate.analyze_midi(self.path)
+        self.assertEqual(info["status"], "STRUCTURAL_PASS", info)
+        self.assertGreaterEqual(info["duration_seconds"], 7.0)
+        self.assertLess(info["duration_seconds"], 7.5)
+
+    def test_exact_repetition_rejected_and_changed_melody_candidate(self):
+        ref = Path(self.tmp.name) / "ref.mid"
+        full = Path(self.tmp.name) / "repeated.mid"
+        synth(ref, duration_ticks=250, tick_step=450)
+        s = Score.from_midi(ref.read_bytes())
+        for note in list(s.tracks[0].notes):
+            echo = note.copy()
+            echo.time += 7200  # 7.5 seconds at 120BPM and 480TPQ.
+            s.tracks[0].notes.append(echo)
+        s.dump_midi(str(full))
+        first = gate.compare_novelty(ref, full)
+        self.assertEqual(first["status"], "NEAR_COPY_REJECT", first)
+        self.assertEqual(first["duplicate_ratio"], 1.0)
+        s = Score.from_midi(full.read_bytes())
+        for note in s.tracks[0].notes:
+            if note.time >= 7200:
+                note.pitch += 7
+        s.dump_midi(str(full))
+        changed = gate.compare_novelty(ref, full)
+        self.assertEqual(changed["status"], "NOVELTY_CANDIDATE", changed)
+        self.assertLess(changed["duplicate_ratio"], 0.85)
+
+    def test_too_few_events_novelty_unverified(self):
+        synth(self.path)
+        outcome = gate.compare_novelty(self.path, self.path)
+        self.assertEqual(outcome["status"], "NOVELTY_UNVERIFIED")
+
+
 if __name__ == "__main__":
     unittest.main()
