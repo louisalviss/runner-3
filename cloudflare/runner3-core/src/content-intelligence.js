@@ -252,7 +252,7 @@ async function handleGuardedRecompute(request,env){
     return Response.json({ok:false,error:"PERSONAL_MODEL_VERSION_MISMATCH",requested_model:requestedModel,model_version:PERSONAL_MODEL_VERSION,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION},{status:409});
   }
   const modelVersion=PERSONAL_MODEL_VERSION;
-  const recompute=await maybeRecomputePersonal(env,{modelVersion});
+  const recompute=await maybeRecomputePersonal(env,{modelVersion,seedScoreCacheIfMissing:body.seed_score_cache_if_missing===true});
   return Response.json({
     ...recompute,
     ok:recompute.ok!==false,

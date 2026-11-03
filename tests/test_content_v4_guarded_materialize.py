@@ -27,6 +27,18 @@ class GuardedV4MaterializationTest(unittest.TestCase):
                 self.assertEqual(ci.cmd_guarded_recompute(self.args), 0)
         self.assertEqual(seen, [("POST", "/content-intelligence/profile/recompute", {"model_version": "personal-v4"})])
 
+    def test_explicit_seed_opt_in_only(self):
+        self.args.seed_score_cache_if_missing = True
+        seen = []
+        def request(method, path, payload, **kwargs):
+            seen.append(payload)
+            return {"ok": True, "guarded": True, "model_version": "personal-v4",
+                    "status": "score_cache_seed_debounced", "recomputed": False}
+        with patch.object(ci, "request_json", side_effect=request):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(ci.cmd_guarded_recompute(self.args), 0)
+        self.assertEqual(seen, [{"model_version":"personal-v4","seed_score_cache_if_missing":True}])
+
     def test_failed_materializer_fails_closed(self):
         with patch.object(ci, "request_json", return_value={"ok": False, "guarded": True, "model_version": "personal-v4"}):
             with contextlib.redirect_stdout(io.StringIO()):

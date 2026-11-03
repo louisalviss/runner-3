@@ -35,4 +35,4 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN missing'; exit 2; }
-          python3 scripts/content_intelligence_client.py guarded-recompute --model-version personal-v4
+          python3 scripts/content_intelligence_client.py guarded-recompute --model-version personal-v4 --seed-score-cache-if-missing

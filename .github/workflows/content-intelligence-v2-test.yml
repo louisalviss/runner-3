@@ -22,6 +22,8 @@ on:
       - '.github/workflows/content-intelligence-v4-guarded-materialize.yml'
       - 'scripts/verify_runner3_d1_quota_guards.mjs'
       - 'scripts/test_d1_recompute_lease.py'
+      - 'scripts/test_d1_score_cache_seed_lease.py'
+      - 'scripts/verify_d1_score_cache_seed.mjs'
       - 'scripts/test_d1_usage_watch.py'
       - '.github/workflows/runner3-d1-usage-watch.yml'
       - 'scripts/verify_recommendation_chunking.mjs'
@@ -49,6 +51,8 @@ on:
       - '.github/workflows/content-intelligence-v4-guarded-materialize.yml'
       - 'scripts/verify_runner3_d1_quota_guards.mjs'
       - 'scripts/test_d1_recompute_lease.py'
+      - 'scripts/test_d1_score_cache_seed_lease.py'
+      - 'scripts/verify_d1_score_cache_seed.mjs'
       - 'scripts/test_d1_usage_watch.py'
       - '.github/workflows/runner3-d1-usage-watch.yml'
       - 'scripts/verify_interest_profile_promotion.mjs'
@@ -87,6 +91,8 @@ jobs:
           node scripts/verify_d1_skip_redundant_heartbeat.mjs
           node scripts/verify_runner3_d1_quota_guards.mjs
           python3 scripts/test_d1_recompute_lease.py
+          python3 scripts/test_d1_score_cache_seed_lease.py
+          node scripts/verify_d1_score_cache_seed.mjs
           python3 scripts/test_d1_usage_watch.py
           node scripts/verify_recommendation_chunking.mjs
           node scripts/verify_d1_clean_profile_fastpath.mjs

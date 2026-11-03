@@ -200,8 +200,11 @@ def cmd_guarded_recompute(args: argparse.Namespace) -> int:
     """
     if args.model_version != DEFAULT_PERSONAL_MODEL:
         raise SystemExit("personal-v4 model required")
+    payload = {"model_version": args.model_version}
+    if getattr(args, "seed_score_cache_if_missing", False):
+        payload["seed_score_cache_if_missing"] = True
     result = request_json("POST", "/content-intelligence/profile/recompute",
-                          {"model_version": args.model_version}, core_url=args.core_url)
+                          payload, core_url=args.core_url)
     if result.get("model_version") != DEFAULT_PERSONAL_MODEL or result.get("guarded") is not True:
         raise RuntimeError("canonical v4 guarded recompute response required")
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
@@ -284,6 +287,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.set_defaults(func=cmd_recompute)
     gguard = sub.add_parser("guarded-recompute")
     gguard.add_argument("--model-version", default=DEFAULT_PERSONAL_MODEL)
+    gguard.add_argument("--seed-score-cache-if-missing", action="store_true",
+                        help="Opt-in legacy cache seeding only after account-wide D1 quota preflight")
     gguard.set_defaults(func=cmd_guarded_recompute)
 
     g = sub.add_parser("profile")
