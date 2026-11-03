@@ -1,4 +1,5 @@
 import { canonicalInterestKey, canonicalInterestKeySql, familyDiminishingWeight, familySignalCap, interestFamily, interestFamilySql, INTEREST_ONTOLOGY_VERSION } from "./content-interest-ontology.js";
+import { refreshCachedPersonalScores } from "./personal-score-daily-cache.js";
 
 export const PERSONAL_MODEL_VERSION = "personal-v4";
 export const CONTENT_INTELLIGENCE_CONTRACT_VERSION = "content-intelligence-v4";
@@ -474,6 +475,9 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
       const confidence = clamp(Math.max(row.profile_confidence,row.semantic_matches>0 ? 0.30 : 0),0,1);
       const reason = JSON.stringify({
         relevance_signal:Number(row.relevance_signal.toFixed(4)),base_score:Number(row.base_score.toFixed(3)),
+        // Exact inputs allow future daily freshness ranking without rejoining all features.
+        ranking_cache_version:"v1-exact-ranking-inputs",relevance_signal_exact:row.relevance_signal,
+        novelty_bonus_exact:row.novelty_bonus,
         rank_percentile:Number(row.rank_percentile.toFixed(4)),matched_features:row.matched_features,
         semantic_matches:row.semantic_matches,matched_families:row.matched_families,
         freshness_bonus:row.freshness_bonus,novelty_bonus:Number(row.novelty_bonus.toFixed(3)),
@@ -701,6 +705,18 @@ export async function refreshPersonalScoresDaily(env, { modelVersion = PERSONAL_
   if (state.status === "dirty" || state.status === "recomputing") {
     return { ok: true, refreshed: false, status: `profile_${state.status}` };
   }
+  const cached = await refreshCachedPersonalScores(env, {
+    modelVersion,
+    contractVersion:CONTENT_INTELLIGENCE_CONTRACT_VERSION,
+    policyVersion:PERSONAL_POLICY_VERSION,
+    ontologyVersion:INTEREST_ONTOLOGY_VERSION,
+    freshnessBonus,clamp,
+    readPage:PERSONAL_SCORE_READ_PAGE,
+    writeBatch:PERSONAL_SCORE_WRITE_BATCH,
+    maxRows:15000,maxWrites:10000,
+  });
+  if (cached) return cached;
+  // Legacy rows lack exact ranking inputs. Seed the cache with one full pass.
   const result = await recomputePersonalScores(env, modelVersion);
-  return { ...result, refreshed: true, status: "score_refreshed" };
+  return { ...result, refreshed: true, status: "daily_score_cache_seeded" };
 }
