@@ -13,6 +13,7 @@ import {
   maybeRecomputePersonal,
 } from "./content-personalization.js";
 import { INTEREST_ONTOLOGY_VERSION } from "./content-interest-ontology.js";
+import { authorizeScoreCacheSeed } from "./score-cache-seed-authorization.js";
 import { buildInterestEvidenceSnapshot } from "./content-interest-evidence.js";
 
 const MAX_ROWS = 100;
@@ -252,6 +253,14 @@ async function handleGuardedRecompute(request,env){
     return Response.json({ok:false,error:"PERSONAL_MODEL_VERSION_MISMATCH",requested_model:requestedModel,model_version:PERSONAL_MODEL_VERSION,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION},{status:409});
   }
   const modelVersion=PERSONAL_MODEL_VERSION;
+  // The regular bearer token authorizes ordinary recompute but NOT cache seeding.
+  // Only the signed GitHub workflow can attest a successful recent D1 preflight.
+  if (body.seed_score_cache_if_missing === true) {
+    const guard = await authorizeScoreCacheSeed(request, body);
+    if (!guard.ok) return Response.json(
+      {ok:false,error:"SCORE_CACHE_SEED_PREFLIGHT_UNAUTHORIZED",reason:guard.reason},
+      {status:403});
+  }
   const recompute=await maybeRecomputePersonal(env,{modelVersion,seedScoreCacheIfMissing:body.seed_score_cache_if_missing===true});
   return Response.json({
     ...recompute,

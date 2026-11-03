@@ -29,15 +29,37 @@ class GuardedV4MaterializationTest(unittest.TestCase):
 
     def test_explicit_seed_opt_in_only(self):
         self.args.seed_score_cache_if_missing = True
+        self.args.preflight_receipt_file = "verified-preflight.json"
         seen = []
+        receipt={"ok":True,"runId":"42","runAttempt":"1"}
         def request(method, path, payload, **kwargs):
-            seen.append(payload)
+            seen.append((payload,kwargs.get("extra_headers")))
             return {"ok": True, "guarded": True, "model_version": "personal-v4",
                     "status": "score_cache_seed_debounced", "recomputed": False}
-        with patch.object(ci, "request_json", side_effect=request):
+        with patch.object(ci, "load_seed_preflight_receipt",return_value=receipt), (
+             patch.object(ci, "github_seed_oidc_token",return_value="signed.jwt.token")), (
+             patch.object(ci, "request_json",side_effect=request)):
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(ci.cmd_guarded_recompute(self.args), 0)
-        self.assertEqual(seen, [{"model_version":"personal-v4","seed_score_cache_if_missing":True}])
+        self.assertEqual(seen, [({"model_version":"personal-v4","preflight_receipt":receipt,
+                                  "seed_score_cache_if_missing":True},
+                                 {"X-Runner3-Seed-OIDC":"signed.jwt.token"})])
+
+    def test_seed_without_preflight_fails_before_post(self):
+        self.args.seed_score_cache_if_missing=True
+        with patch.object(ci,"request_json") as call:
+            with self.assertRaises(RuntimeError):
+                ci.cmd_guarded_recompute(self.args)
+            call.assert_not_called()
+
+    def test_preflight_receipt_run_must_match(self):
+        import json, tempfile, os
+        with tempfile.NamedTemporaryFile(mode="w+",encoding="utf-8") as tmp:
+            json.dump({"ok":True,"runId":"different","runAttempt":"1"},tmp)
+            tmp.flush()
+            with patch.dict(os.environ,{"GITHUB_RUN_ID":"42","GITHUB_RUN_ATTEMPT":"1"}):
+                with self.assertRaisesRegex(RuntimeError,"RUN_MISMATCH"):
+                    ci.load_seed_preflight_receipt(tmp.name)
 
     def test_failed_materializer_fails_closed(self):
         with patch.object(ci, "request_json", return_value={"ok": False, "guarded": True, "model_version": "personal-v4"}):

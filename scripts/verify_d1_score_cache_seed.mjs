@@ -74,6 +74,7 @@ assert(failedResult.status==="score_cache_seed_failed_requires_review","failed s
 assert(failed.queries.length===1,"failed seed caused extra queries");
 const job=fs.readFileSync(".github/workflows/content-intelligence-v4-guarded-materialize.yml","utf8");
 assert(job.indexOf("d1_account_quota_preflight.py")>0 && job.indexOf("--seed-score-cache-if-missing")>job.indexOf("d1_account_quota_preflight.py"),"seed bypasses quota preflight");
+assert(job.includes("id-token: write") && job.includes("--preflight-receipt-file"),"signed preflight workflow wiring missing");
 assert(job.includes("D1_READ_SAFE_CEILING: '4000000'") && job.includes("D1_SAFE_CEILING: '70000'"),"preflight ceilings changed");
 const audio=fs.readFileSync("cloudflare/runner3-core/audio-entry.js","utf8");
 assert(!audio.includes("seedScoreCacheIfMissing:true"),"daily worker may seed");

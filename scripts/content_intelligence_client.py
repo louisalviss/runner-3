@@ -13,6 +13,8 @@ import os
 import re
 import urllib.error
 import urllib.request
+import urllib.parse
+from pathlib import Path
 from typing import Any
 
 DEFAULT_CORE_URL = "https://runner3-core.ducduy2411.workers.dev"
@@ -37,12 +39,14 @@ MECHANISM_RULES: dict[str, tuple[str, ...]] = {
 }
 
 
-def request_json(method: str, path: str, payload: dict[str, Any] | None = None, *, core_url: str | None = None) -> dict[str, Any]:
+def request_json(method: str, path: str, payload: dict[str, Any] | None = None, *, core_url: str | None = None, extra_headers: dict[str, str] | None = None) -> dict[str, Any]:
     base = (core_url or os.environ.get("RUNNER3_CORE_URL") or DEFAULT_CORE_URL).rstrip("/")
     headers = {"Accept": "application/json", "User-Agent": "runner3-content-intelligence/1.3"}
     token = os.environ.get("RUNNER3_CORE_TOKEN", "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    if extra_headers:
+        headers.update(extra_headers)
     data = None
     if payload is not None:
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -192,6 +196,36 @@ def cmd_recompute(args: argparse.Namespace) -> int:
     return 0
 
 
+
+SCORE_CACHE_SEED_OIDC_AUDIENCE = "runner3-d1-score-cache-seed-v1"
+
+def github_seed_oidc_token() -> str:
+    """Mint a fresh job OIDC token, only from the trusted GitHub Actions runner."""
+    endpoint = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+    bearer = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
+    if not endpoint.startswith("https://") or not bearer:
+        raise RuntimeError("SCORE_CACHE_SEED_OIDC_RUNNER_REQUIRED")
+    url = endpoint + ("&" if "?" in endpoint else "?") + urllib.parse.urlencode(
+        {"audience": SCORE_CACHE_SEED_OIDC_AUDIENCE})
+    req = urllib.request.Request(url, headers={"Authorization":"Bearer "+bearer,
+                                                 "Accept":"application/json"})
+    with urllib.request.urlopen(req,timeout=15) as response:
+        value = json.load(response).get("value")
+    if not isinstance(value,str) or value.count(".")!=2:
+        raise RuntimeError("SCORE_CACHE_SEED_OIDC_INVALID")
+    return value
+
+def load_seed_preflight_receipt(path: str | None) -> dict[str, Any]:
+    if not path:
+        raise RuntimeError("SCORE_CACHE_SEED_PREFLIGHT_FILE_REQUIRED")
+    receipt = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(receipt,dict) or receipt.get("ok") is not True:
+        raise RuntimeError("SCORE_CACHE_SEED_PREFLIGHT_NOT_PASS")
+    if str(receipt.get("runId"))!=str(os.environ.get("GITHUB_RUN_ID")) or (
+        str(receipt.get("runAttempt"))!=str(os.environ.get("GITHUB_RUN_ATTEMPT"))):
+        raise RuntimeError("SCORE_CACHE_SEED_PREFLIGHT_RUN_MISMATCH")
+    return receipt
+
 def cmd_guarded_recompute(args: argparse.Namespace) -> int:
     """Use the canonical v4 dirty/debounce/lease materializer only.
 
@@ -201,10 +235,15 @@ def cmd_guarded_recompute(args: argparse.Namespace) -> int:
     if args.model_version != DEFAULT_PERSONAL_MODEL:
         raise SystemExit("personal-v4 model required")
     payload = {"model_version": args.model_version}
+    extra_headers = None
     if getattr(args, "seed_score_cache_if_missing", False):
+        payload["preflight_receipt"] = load_seed_preflight_receipt(
+            getattr(args, "preflight_receipt_file", None))
         payload["seed_score_cache_if_missing"] = True
+        extra_headers = {"X-Runner3-Seed-OIDC": github_seed_oidc_token()}
     result = request_json("POST", "/content-intelligence/profile/recompute",
-                          payload, core_url=args.core_url)
+                          payload, core_url=args.core_url,
+                          **({"extra_headers":extra_headers} if extra_headers else {}))
     if result.get("model_version") != DEFAULT_PERSONAL_MODEL or result.get("guarded") is not True:
         raise RuntimeError("canonical v4 guarded recompute response required")
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
@@ -289,6 +328,8 @@ def build_parser() -> argparse.ArgumentParser:
     gguard.add_argument("--model-version", default=DEFAULT_PERSONAL_MODEL)
     gguard.add_argument("--seed-score-cache-if-missing", action="store_true",
                         help="Opt-in legacy cache seeding only after account-wide D1 quota preflight")
+    gguard.add_argument("--preflight-receipt-file",
+                        help="Successful same-run D1 account quota preflight JSON, required for seed")
     gguard.set_defaults(func=cmd_guarded_recompute)
 
     g = sub.add_parser("profile")
