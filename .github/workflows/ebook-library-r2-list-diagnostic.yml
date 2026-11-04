@@ -1,0 +1,72 @@
+name: Ebook R2 Library List Diagnostic (Read Only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.repository == 'louisalviss/runner-3' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Compare sanitized metadata shape for authenticated refresh/index
+        shell: bash
+        env:
+          RUNNER3_CORE_TOKEN: \${{ secrets.RUNNER3_CORE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import urllib.request
+
+          token = os.environ.get('RUNNER3_CORE_TOKEN', '')
+          if len(token) < 16:
+              raise SystemExit('READ_ONLY_DIAG_TOKEN_NOT_CONFIGURED')
+          cookie = hashlib.sha256(('runner3-artifact-library-v1:'+token).encode()).hexdigest()
+          root = 'https://runner3-core.ducduy2411.workers.dev'
+          def get(suffix):
+              req = urllib.request.Request(
+                  root+'/artifact-library/api/list'+suffix,
+                  headers={'cookie':'r3_artifact_library='+cookie,
+                           'accept':'application/json',
+                           'user-agent':'Runner3-LibraryContractDiag/1'})
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  if r.status!=200: raise RuntimeError('BAD_LIST_STATUS')
+                  content=r.read(5000000)
+                  if len(content)>4000000: raise RuntimeError('LIST_TOO_LARGE')
+                  data=json.loads(content)
+              if data.get('ok') is not True or not isinstance(data.get('objects'),list):
+                  raise RuntimeError('BAD_LIST_PAYLOAD')
+              return data
+          a,b=get('?refresh=1'),get('')
+          allowed=('key','size','uploaded','title','creator','display_title','metadata_source')
+          def collect(x):
+              rows=x['objects']
+              if len(rows)>25000: raise RuntimeError('UNBOUNDED_LIBRARY_ROWS')
+              ids=[str(r.get('scope') or '') for r in rows]
+              if any(not z for z in ids):raise RuntimeError('MISSING_SCOPE')
+              if len(ids)!=len(set(ids)):raise RuntimeError('DUPLICATE_SCOPE')
+              return {str(r['scope']):r for r in rows}
+          x,y=collect(a),collect(b)
+          common=set(x)&set(y)
+          counts={field:sum(x[k].get(field)!=y[k].get(field) for k in common) for field in allowed}
+          print('R2_READONLY_DIAG_RESPONSE_OK')
+          print('object_counts',len(x),len(y))
+          print('scope_only_in_refresh',len(set(x)-set(y)))
+          print('scope_only_in_index',len(set(y)-set(x)))
+          print('field_mismatches',json.dumps(counts,sort_keys=True))
+          print('missing_source_title_count',sum(not r.get('title') for r in y.values()))
+          print('missing_source_creator_count',sum(not r.get('creator') for r in y.values()))
+          print('index_flag_refresh',a.get('canonical_latest_per_scope'))
+          print('index_flag_index',b.get('canonical_latest_per_scope'))
+          if x==y:
+              print('R2_READONLY_DIAG_MATCH')
+          else:
+              print('R2_READONLY_DIAG_MISMATCH')
+          # Never print cookie, token, object keys, scopes, titles or raw response.
+          PY
