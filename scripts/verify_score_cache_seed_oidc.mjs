@@ -7,8 +7,11 @@ const {publicKey,privateKey}=await crypto.subtle.generateKey(
   true,["sign","verify"]);
 const publicJwk=await crypto.subtle.exportKey("jwk",publicKey);
 const jwks={keys:[{...publicJwk,kid:"testkid",alg:"RS256",use:"sig"}]};
-const fakeFetch=async(url)=> {
+const fakeFetch=async(url,options)=> {
   if (url!=="https://token.actions.githubusercontent.com/.well-known/jwks")throw Error("wrong JWKS");
+  // Workers does NOT implement redirect:"error": this assertion guards
+  // against reintroducing the production HTTP 403 regression.
+  if(options?.redirect!=="manual")throw Error("UNSUPPORTED_WORKERS_REDIRECT_MODE");
   return {ok:true,json:async()=>jwks};
 };
 const claims={
@@ -54,6 +57,16 @@ const parseError=await authorizeScoreCacheSeed(
   {now,fetchJwks:async()=>({ok:true,json:async()=>{throw Error("PRIVATE_JSON_DETAIL");}})});
 if(parseError.ok || parseError.reason!=="oidc_jwks_parse_failed")
   throw Error("JWKS JSON failed open or exposed a raw exception");
+const redirectJwks=await authorizeScoreCacheSeed(
+  {headers:new Headers({"X-Runner3-Seed-OIDC":await jwt(claims)})},
+  {preflight_receipt:receipt},
+  {now,fetchJwks:async(url,opts)=>{
+    if(url!=="https://token.actions.githubusercontent.com/.well-known/jwks" ||
+       opts?.redirect!=="manual")throw Error("UNSAFE_JWKS_FETCH_OPTIONS");
+    return {ok:false,status:302,headers:new Headers({location:"https://elsewhere.invalid/jwks"})};
+  }});
+if(redirectJwks.ok || redirectJwks.reason!=="oidc_jwks_unavailable")
+  throw Error("redirecting JWKS endpoint must never be followed or authorized");
 const missing=await authorizeScoreCacheSeed({headers:new Headers()}, {preflight_receipt:receipt},
   {now,fetchJwks:fakeFetch});
 expectDenied(missing,"missing token");
@@ -74,4 +87,4 @@ const parts=forged.split(".");
 parts[1]=b64({...claims,event_name:"workflow_dispatch"});
 expectDenied(await trial(claims,receipt,parts.join(".")),"forged JWT");
 expectDenied(await trial(claims,receipt,await jwt(claims,{alg:"HS256",kid:"testkid"})),"disallowed algorithm");
-console.log("D1_SEED_SIGNED_PREFLIGHT_OIDC_PASS 19 cases");
+console.log("D1_SEED_SIGNED_PREFLIGHT_OIDC_PASS 20 cases");
