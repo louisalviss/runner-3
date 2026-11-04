@@ -21,4 +21,6 @@ jobs:
         with:
           node-version: '22'
       - name: Enforce one Runner3 Core production writer
-        run: node scripts/verify_runner3_core_single_deploy_owner.mjs
+        run: |
+          node scripts/verify_runner3_core_single_deploy_owner.mjs
+          node scripts/verify_runner3_core_dryrun_guard.mjs
