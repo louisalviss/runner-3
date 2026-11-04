@@ -71,7 +71,7 @@ PEDAL=[(0.06,4.04),(4.09,6.045),(6.10,8.04),
 def parent():
     p=Path(__file__).with_name(PARENT_NAME)
     b=p.read_bytes()
-    blob=hashlib.sha1(b"blob "+str(len(b)).encode()+b"\\x00"+b).hexdigest()
+    blob=hashlib.sha1(b"blob "+str(len(b)).encode()+bytes((0,))+b).hexdigest()
     if blob != PARENT_BLOB:
         raise RuntimeError("Pinned piano renderer source changed")
     spec=importlib.util.spec_from_file_location("piano_renderer_m2",str(p))
@@ -163,6 +163,6 @@ def main():
        "production_changes":False
     }
     manifest=out/(STEM+"_manifest.json")
-    manifest.write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\\n")
+    manifest.write_text(json.dumps(report,ensure_ascii=False,indent=2)+chr(10))
     print(json.dumps(report,ensure_ascii=False))
 if __name__=="__main__":main()
