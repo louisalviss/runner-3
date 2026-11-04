@@ -90,6 +90,22 @@ def make_score():
                   (6.045,7.08),(7.19,7.82)):
         for ch in (0,1,2):
             CONTROL.extend(((st,ch,64,85),(en,ch,64,0)))
+    # Repeated strikes of the SAME pitch/channel must release the previous
+    # voice first. Otherwise a later note_off can cut the newly struck note.
+    # Pedal CC64 preserves the intended sustain across this humanized re-strike.
+    by_key={}
+    for i,(t,d,p,v,ch,source) in enumerate(NOTES):
+        by_key.setdefault((ch,p),[]).append(i)
+    for indices in by_key.values():
+        indices.sort(key=lambda i:NOTES[i][0])
+        for previous,current in zip(indices,indices[1:]):
+            t,d,p,v,ch,label=NOTES[previous]
+            next_start=NOTES[current][0]
+            if t+d>=next_start-.005:
+                safe_d=round(next_start-t-.011,4)
+                if safe_d<.06:
+                    raise RuntimeError("Repeated same-pitch attacks are too close")
+                NOTES[previous]=(t,safe_d,p,v,ch,label)
     return NOTES
 
 def vlq(n):
