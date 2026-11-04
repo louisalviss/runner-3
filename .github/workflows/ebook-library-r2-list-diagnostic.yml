@@ -44,6 +44,19 @@ jobs:
                   raise RuntimeError('BAD_LIST_PAYLOAD')
               return data
           a,b=get('?refresh=1'),get('')
+          # A distinct, documented read-only query key tests whether the
+          # legacy bare-URL response is stale at the HTTP cache layer.
+          probe=get('?contract_probe=20261104-v2')
+          print('probe_object_counts',len(probe['objects']))
+          print('probe_field_presence',json.dumps({
+              field:sum(field in row for row in probe['objects'])
+              for field in ('title','creator','display_title','metadata_source')},
+              sort_keys=True))
+          print('probe_same_core',len(probe['objects'])==len(a['objects']) and
+                {(x.get('scope'),x.get('key'),x.get('title'),x.get('creator'))
+                 for x in probe['objects']}==
+                {(x.get('scope'),x.get('key'),x.get('title'),x.get('creator'))
+                 for x in a['objects']})
           allowed=('key','size','uploaded','title','creator','display_title','metadata_source')
           def collect(x):
               rows=x['objects']
