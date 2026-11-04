@@ -73,7 +73,10 @@ export async function authorizeScoreCacheSeed(request, body, {
 
     // Only GitHub's fixed, verified OIDC JWKS host is consulted.
     phase="jwks_fetch";
-    const response=await fetchJwks(JWKS,{redirect:"error",signal:AbortSignal.timeout(4000)});
+    // Cloudflare Workers rejects redirect:"error" at Request construction.
+    // Manual mode returns 3xx to us without contacting a redirect target;
+    // response.ok below fails closed for every redirect/non-2xx response.
+    const response=await fetchJwks(JWKS,{redirect:"manual",signal:AbortSignal.timeout(4000)});
     if (!response?.ok) return deny("oidc_jwks_unavailable");
     phase="jwks_parse";
     const jwks=await response.json();
