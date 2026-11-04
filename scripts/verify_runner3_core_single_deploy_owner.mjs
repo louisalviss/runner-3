@@ -29,7 +29,7 @@ function isExplicitIsolatedPreview(source) {
   );
 }
 
-function coreDeployEvidence(text) {
+export function coreDeployEvidence(text) {
   const source = executableText(text);
   const evidence = [];
   const inheritedCoreCwd = /defaults:[\s\S]{0,500}?working-directory:\s*(?:cloudflare|workers)\/runner3-core\b/i.test(source);
@@ -46,7 +46,16 @@ function coreDeployEvidence(text) {
     const wranglerAction = /cloudflare\/wrangler-action@/i.test(block)
       && /(?:workingDirectory|working-directory|command):[^\n]*runner3-core/i.test(block);
 
-    if ((wranglerDeploy || packageDeploy) && (coreCwd || coreTarget || inheritedCoreCwd) && !isolatedPreview) {
+    // A pinned, credentials-free Wrangler bundle-only dry-run cannot publish
+    // a Worker. Recognize ONLY this isolated exact CI command, never a real
+    // deploy/publish, shell chain, wrapper, cloudflare-action or mixed step.
+    const safeDryRun = !packageDeploy && !wranglerAction &&
+      /^\s*npx --yes wrangler@4 deploy --dry-run --outdir \/tmp\/runner3-core-ci-bundle\s*$/m.test(block) &&
+      (block.match(/\bwrangler(?:@[^\s]+)?\s+(?:deploy|publish)\b/g) || []).length === 1 &&
+      !/\bwrangler[^\n]*\bversions\s+deploy\b/i.test(block) &&
+      !/CLOUDFLARE_API_TOKEN|CF_TOKEN|RUNNER3_CORE_TOKEN/.test(block);
+
+    if ((wranglerDeploy || packageDeploy) && (coreCwd || coreTarget || inheritedCoreCwd) && !isolatedPreview && !safeDryRun) {
       evidence.push('runner3-core-deploy-step');
     }
     if (wranglerAction && !isolatedPreview) evidence.push('runner3-core-wrangler-action');
