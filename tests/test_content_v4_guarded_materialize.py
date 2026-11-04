@@ -47,8 +47,8 @@ class GuardedV4MaterializationTest(unittest.TestCase):
             "seed_score_cache_if_missing":True},{"X-Runner3-Seed-OIDC":"signed.jwt.token"})])
 
     def test_preflight_missing_fails_before_network(self):
-        with patch.object(ci,"load_seed_preflight_receipt",side_effect=RuntimeError("PREFLIGHT_REQUIRED")),(
-             patch.object(ci,"request_json") as network):
+        with (patch.object(ci,"load_seed_preflight_receipt",side_effect=RuntimeError("PREFLIGHT_REQUIRED")),
+              patch.object(ci,"request_json") as network):
             with self.assertRaisesRegex(RuntimeError,"PREFLIGHT_REQUIRED"):
                 ci.cmd_guarded_recompute(self.args)
             network.assert_not_called()
