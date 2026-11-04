@@ -52,7 +52,7 @@ async function proveStaleDirtyRepair(reason) {
       return q;
     },
   };
-  const result=await maybeRecomputePersonal({DB},{modelVersion:PERSONAL_MODEL_VERSION});
+  const result=await maybeRecomputePersonal({DB},{modelVersion:PERSONAL_MODEL_VERSION,quotaPreflightVerified:true});
   if (!result.ok || result.status !== 'clean' || result.recomputed !== false || result.zero_weight_dirty_repaired !== true) {
     throw new Error(`${reason} repair failed: ${JSON.stringify(result)}`);
   }

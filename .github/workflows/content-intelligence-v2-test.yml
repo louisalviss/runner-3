@@ -25,6 +25,7 @@ on:
       - 'scripts/test_d1_recompute_lease.py'
       - 'scripts/test_d1_score_cache_seed_lease.py'
       - 'scripts/verify_d1_score_cache_seed.mjs'
+      - 'scripts/verify_d1_preflight_all_recompute_paths.mjs'
       - 'scripts/verify_score_cache_seed_oidc.mjs'
       - 'scripts/verify_score_cache_seed_oidc_live.mjs'
       - 'scripts/test_d1_usage_watch.py'
@@ -57,6 +58,7 @@ on:
       - 'scripts/test_d1_recompute_lease.py'
       - 'scripts/test_d1_score_cache_seed_lease.py'
       - 'scripts/verify_d1_score_cache_seed.mjs'
+      - 'scripts/verify_d1_preflight_all_recompute_paths.mjs'
       - 'scripts/verify_score_cache_seed_oidc.mjs'
       - 'scripts/verify_score_cache_seed_oidc_live.mjs'
       - 'scripts/test_d1_usage_watch.py'
@@ -100,6 +102,7 @@ jobs:
           python3 scripts/test_d1_recompute_lease.py
           python3 scripts/test_d1_score_cache_seed_lease.py
           node scripts/verify_d1_score_cache_seed.mjs
+          node scripts/verify_d1_preflight_all_recompute_paths.mjs
           node scripts/verify_score_cache_seed_oidc.mjs
           python3 scripts/test_d1_usage_watch.py
           node scripts/verify_recommendation_chunking.mjs

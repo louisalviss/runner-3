@@ -56,20 +56,20 @@ const ordinary=await maybeRecomputePersonal({DB:untouched.DB});
 assert(ordinary.ok && ordinary.status==="clean","normal refresh should not seed");
 assert(untouched.queries.length===1,"clean profile should be a single indexed read");
 const declined=fakeDb(receipt,{lease:false});
-const debounced=await maybeRecomputePersonal({DB:declined.DB},{seedScoreCacheIfMissing:true});
+const debounced=await maybeRecomputePersonal({DB:declined.DB},{seedScoreCacheIfMissing:true,quotaPreflightVerified:true});
 assert(debounced.status==="score_cache_seed_debounced","6h/racing lease guard");
 assert(!declined.queries.some(q=>q.includes("COUNT(*) AS n")),"lease denied but full scan attempted");
 for(const [features,items,label] of [[50001,1,"features"],[1,15001,"items"]]){
   const db=fakeDb(receipt,{features,items});
   let thrown=false;
-  try {await maybeRecomputePersonal({DB:db.DB},{seedScoreCacheIfMissing:true});}
+  try {await maybeRecomputePersonal({DB:db.DB},{seedScoreCacheIfMissing:true,quotaPreflightVerified:true});}
   catch(err){thrown=String(err.message).includes("SCORE_CACHE_SEED_");}
   assert(thrown,"seed cap did not fail closed: "+label);
   assert(db.restored?.score_cache_seed_failed_at,"failed seed did not restore clean: "+label);
   assert(!db.queries.some(q=>q.includes("JOIN content_items i ON i.item_id=f.item_id")),"full feature score scan before cap");
 }
 const failed=fakeDb({...receipt,score_cache_seed_failed_at:"2026-11-03T00:00:00Z"});
-const failedResult=await maybeRecomputePersonal({DB:failed.DB},{seedScoreCacheIfMissing:true});
+const failedResult=await maybeRecomputePersonal({DB:failed.DB},{seedScoreCacheIfMissing:true,quotaPreflightVerified:true});
 assert(failedResult.status==="score_cache_seed_failed_requires_review","failed seed auto-retried");
 assert(failed.queries.length===1,"failed seed caused extra queries");
 // An incomplete seed leaves the profile clean but may leave partial score rows.
