@@ -63,7 +63,7 @@ def build(m):
             if bar==3 and offset==1.5:
                 continue
             for j,p in enumerate(pulsed):
-                add(t+offset+.015+.004*j,.41,vel-j*2,1,name+"-groove")
+                add(t+offset+.015+.004*j,.41,p,vel-j*2,1,name+"-groove")
             rhythm.append(("chord_pulse",round(t+offset,2)))
     # A7sus4's third resolves on beat 3 before the final Dm landing.
     add(7.013,.39,61,57,1,"A7-Csharp-resolution")
