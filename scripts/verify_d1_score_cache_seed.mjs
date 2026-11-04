@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import {
-  hasCommittedScoreCacheProof, maybeRecomputePersonal,
+  hasCommittedScoreCacheProof, maybeRecomputePersonal, refreshPersonalScoresDaily,
   PERSONAL_MODEL_VERSION, PERSONAL_POLICY_VERSION,
   CONTENT_INTELLIGENCE_CONTRACT_VERSION,
 } from "../cloudflare/runner3-core/src/content-personalization.js";
@@ -72,6 +72,34 @@ const failed=fakeDb({...receipt,score_cache_seed_failed_at:"2026-11-03T00:00:00Z
 const failedResult=await maybeRecomputePersonal({DB:failed.DB},{seedScoreCacheIfMissing:true});
 assert(failedResult.status==="score_cache_seed_failed_requires_review","failed seed auto-retried");
 assert(failed.queries.length===1,"failed seed caused extra queries");
+// An incomplete seed leaves the profile clean but may leave partial score rows.
+// The daily Worker must never scan or serve that uncommitted cache.
+for (const detail of [receipt,
+  {...receipt,score_cache_seed_failed_at:"2026-11-03T00:00:00Z"}]) {
+  const db=fakeDb(detail);
+  const result=await refreshPersonalScoresDaily({DB:db.DB});
+  assert(result.ok===false && result.status==="daily_score_cache_seed_required",
+    "daily Worker accepted uncommitted score-cache rows");
+  assert(db.queries.length===1 && !db.queries.some(q=>q.includes("FROM content_scores")),
+    "uncommitted score cache triggered an unnecessary D1 read");
+}
+// The optimized path must still operate for successfully committed cache rows.
+let cacheRead=false;
+const valid={...receipt,score_cache_version:DAILY_SCORE_CACHE_VERSION};
+const committedDB={
+  prepare(sql){
+    if(sql.includes("FROM workflow_state"))return {
+      bind(){return this;},async first(){return state(valid);},
+    };
+    if(sql.includes("FROM content_scores s LEFT JOIN content_items")){
+      cacheRead=true;
+      return {bind(){return this;},async all(){return {results:[]};}};
+    }
+    throw new Error("unexpected committed-cache SQL: "+sql);
+  },
+};
+await refreshPersonalScoresDaily({DB:committedDB});
+assert(cacheRead,"committed cache no longer enters daily freshness read path");
 const job=fs.readFileSync(".github/workflows/content-intelligence-v4-guarded-materialize.yml","utf8");
 assert(job.indexOf("d1_account_quota_preflight.py")>0 && job.indexOf("--seed-score-cache-if-missing")>job.indexOf("d1_account_quota_preflight.py"),"seed bypasses quota preflight");
 assert(job.includes("id-token: write") && job.includes("--preflight-receipt-file"),"signed preflight workflow wiring missing");

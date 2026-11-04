@@ -785,6 +785,11 @@ export async function refreshPersonalScoresDaily(env, { modelVersion = PERSONAL_
   if (state.status === "dirty" || state.status === "recomputing") {
     return { ok: true, refreshed: false, status: `profile_${state.status}` };
   }
+  // A clean legacy receipt is not proof that all score rows were committed.
+  // Failed seeding can leave partial rows: never read them from the daily cron.
+  if (!hasCommittedScoreCacheProof(state, modelVersion)) {
+    return { ok:false, refreshed:false, status:"daily_score_cache_seed_required" };
+  }
   const cached = await refreshCachedPersonalScores(env, {
     modelVersion,
     contractVersion:CONTENT_INTELLIGENCE_CONTRACT_VERSION,
