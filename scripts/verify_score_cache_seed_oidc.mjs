@@ -41,6 +41,19 @@ async function trial(c=claims,r=receipt,token=null) {
 function expectDenied(r,label){if(r.ok)throw Error("unauthorized: "+label);}
 let good=await trial();
 if(!good.ok)throw Error("valid GH OIDC and preflight rejected: "+good.reason);
+// Surface only coarse bounded stages; fail closed for actual network/parse
+// failures without logging an OIDC token or exposing exception messages.
+const transportError=await authorizeScoreCacheSeed(
+  {headers:new Headers({"X-Runner3-Seed-OIDC":await jwt(claims)})},
+  {preflight_receipt:receipt},{now,fetchJwks:async()=>{throw Error("PRIVATE_TRANSPORT_DETAIL");}});
+if(transportError.ok || transportError.reason!=="oidc_jwks_fetch_failed")
+  throw Error("JWKS transport failed open or exposed a raw exception");
+const parseError=await authorizeScoreCacheSeed(
+  {headers:new Headers({"X-Runner3-Seed-OIDC":await jwt(claims)})},
+  {preflight_receipt:receipt},
+  {now,fetchJwks:async()=>({ok:true,json:async()=>{throw Error("PRIVATE_JSON_DETAIL");}})});
+if(parseError.ok || parseError.reason!=="oidc_jwks_parse_failed")
+  throw Error("JWKS JSON failed open or exposed a raw exception");
 const missing=await authorizeScoreCacheSeed({headers:new Headers()}, {preflight_receipt:receipt},
   {now,fetchJwks:fakeFetch});
 expectDenied(missing,"missing token");
@@ -61,4 +74,4 @@ const parts=forged.split(".");
 parts[1]=b64({...claims,event_name:"workflow_dispatch"});
 expectDenied(await trial(claims,receipt,parts.join(".")),"forged JWT");
 expectDenied(await trial(claims,receipt,await jwt(claims,{alg:"HS256",kid:"testkid"})),"disallowed algorithm");
-console.log("D1_SEED_SIGNED_PREFLIGHT_OIDC_PASS 17 cases");
+console.log("D1_SEED_SIGNED_PREFLIGHT_OIDC_PASS 19 cases");

@@ -45,6 +45,9 @@ export async function authorizeScoreCacheSeed(request, body, {
   now=Date.now(), fetchJwks=globalThis.fetch,
 }={}) {
   const deny=(reason)=>({ok:false,reason});
+  // Report a fixed operation stage, not exception messages, tokens, headers,
+  // remote responses or JWKS bytes. Each failure still denies authorization.
+  let phase="token_decode";
   try {
     const token=request?.headers?.get("X-Runner3-Seed-OIDC");
     if (!token || token.length>12000) return deny("oidc_missing");
@@ -69,19 +72,23 @@ export async function authorizeScoreCacheSeed(request, body, {
     if (!validateReceipt(body?.preflight_receipt,claims,now)) return deny("preflight_invalid");
 
     // Only GitHub's fixed, verified OIDC JWKS host is consulted.
+    phase="jwks_fetch";
     const response=await fetchJwks(JWKS,{redirect:"error",signal:AbortSignal.timeout(4000)});
     if (!response?.ok) return deny("oidc_jwks_unavailable");
+    phase="jwks_parse";
     const jwks=await response.json();
     const key=(Array.isArray(jwks?.keys)?jwks.keys:[]).find(k=>
       k.kid===header.kid && k.kty==="RSA" &&
       (k.alg===undefined || k.alg==="RS256") && k.use!=="enc");
     if (!key) return deny("oidc_key_not_found");
+    phase="key_import";
     const publicKey=await crypto.subtle.importKey(
       "jwk",key,{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["verify"]);
+    phase="signature_verify";
     const valid=await crypto.subtle.verify("RSASSA-PKCS1-v1_5",publicKey,
       fromBase64Url(parts[2]),new TextEncoder().encode(parts[0]+"."+parts[1]));
     return valid?{ok:true,reason:"github_oidc_preflight_valid"}:deny("oidc_signature");
   } catch {
-    return deny("oidc_verification_failed");
+    return deny("oidc_"+phase+"_failed");
   }
 }
