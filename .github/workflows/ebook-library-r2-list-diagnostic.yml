@@ -15,7 +15,7 @@ jobs:
       - name: Compare sanitized metadata shape for authenticated refresh/index
         shell: bash
         env:
-          RUNNER3_CORE_TOKEN: \${{ secrets.RUNNER3_CORE_TOKEN }}
+          RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
