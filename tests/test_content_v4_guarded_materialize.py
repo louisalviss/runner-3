@@ -17,6 +17,7 @@ class GuardedV4MaterializationTest(unittest.TestCase):
         self.receipt={"ok":True,"runId":"42","runAttempt":"1"}
         a=patch.object(ci,"load_seed_preflight_receipt",return_value=self.receipt)
         b=patch.object(ci,"github_seed_oidc_token",return_value="signed.jwt.token")
+        self.loaded=a
         a.start();b.start()
         self.addCleanup(a.stop);self.addCleanup(b.stop)
 
