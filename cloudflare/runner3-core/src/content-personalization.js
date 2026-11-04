@@ -664,10 +664,21 @@ export function hasCommittedScoreCacheProof(state, modelVersion = PERSONAL_MODEL
   catch { return false; }
 }
 
-export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODEL_VERSION, priorityExplicit = false, seedScoreCacheIfMissing = false } = {}) {
+export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODEL_VERSION, priorityExplicit = false, seedScoreCacheIfMissing = false, quotaPreflightVerified = false } = {}) {
   if (!env?.DB) return { ok: false, recomputed: false };
   const before = await profileState(env);
   if (!before) return { ok: true, recomputed: false, status: "missing" };
+
+  // Cron/ingestion/feedback/recommendations may read ONE indexed state row.
+  // Full materialization and dirty/legacy COUNT probes require the signed
+  // GitHub Actions account-wide D1 preflight verified at the API boundary.
+  if (quotaPreflightVerified !== true) {
+    const clean = hasCommittedProfileMaterializationProof(before, modelVersion);
+    const status = before.status === "clean" && clean ? "clean" :
+      before.status === "recomputing" ? "recompute_in_progress" :
+      "quota_preflight_required";
+    return {ok:true,recomputed:false,status,quota_preflight_required:status==="quota_preflight_required"};
+  }
 
   // For a clean state with a valid completion receipt, the state row already
   // proves this materialization was committed. Keep the exact old verification
@@ -764,6 +775,8 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
   }
 
   try {
+    // Guard dirty full recompute as strictly as legacy cache seeding.
+    await assertScoreCacheSeedBounds(env);
     const result = await recomputePersonalization(env, modelVersion);
     const committed = await finishRecomputeLease(env, token, modelVersion);
     return {

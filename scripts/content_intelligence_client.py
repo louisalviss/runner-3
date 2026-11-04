@@ -190,10 +190,8 @@ def cmd_interest_ingest(args: argparse.Namespace) -> int:
 
 
 def cmd_recompute(args: argparse.Namespace) -> int:
-    profile = request_json("POST", "/content-intelligence/profile/recompute", {"model_version": args.model_version}, core_url=args.core_url)
-    scores = request_json("POST", "/content-intelligence/scores/recompute", {"model_version": args.model_version}, core_url=args.core_url)
-    print(json.dumps({"ok": True, "profile": profile, "scores": scores}, ensure_ascii=False, sort_keys=True))
-    return 0
+    # This legacy command made two expensive HTTP recompute calls.
+    raise SystemExit("DIRECT_RECOMPUTE_DISABLED_USE_GUARDED_PREFLIGHT")
 
 
 
@@ -234,16 +232,15 @@ def cmd_guarded_recompute(args: argparse.Namespace) -> int:
     """
     if args.model_version != DEFAULT_PERSONAL_MODEL:
         raise SystemExit("personal-v4 model required")
-    payload = {"model_version": args.model_version}
-    extra_headers = None
+    # All recomputes, including dirty profiles, need a signed same-run receipt.
+    payload = {"model_version": args.model_version,
+        "preflight_receipt": load_seed_preflight_receipt(
+            getattr(args, "preflight_receipt_file", None))}
     if getattr(args, "seed_score_cache_if_missing", False):
-        payload["preflight_receipt"] = load_seed_preflight_receipt(
-            getattr(args, "preflight_receipt_file", None))
         payload["seed_score_cache_if_missing"] = True
-        extra_headers = {"X-Runner3-Seed-OIDC": github_seed_oidc_token()}
     result = request_json("POST", "/content-intelligence/profile/recompute",
                           payload, core_url=args.core_url,
-                          **({"extra_headers":extra_headers} if extra_headers else {}))
+                          extra_headers={"X-Runner3-Seed-OIDC":github_seed_oidc_token()})
     if result.get("model_version") != DEFAULT_PERSONAL_MODEL or result.get("guarded") is not True:
         raise RuntimeError("canonical v4 guarded recompute response required")
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
@@ -268,14 +265,9 @@ def cmd_profile_evidence(args: argparse.Namespace) -> int:
 
 
 def cmd_recommendation_snapshot(args: argparse.Namespace) -> int:
-    materialization: dict[str, Any]
-    try:
-        materialization = request_json(
-            "POST", "/content-intelligence/profile/recompute",
-            {"model_version": DEFAULT_PERSONAL_MODEL}, core_url=args.core_url,
-        )
-    except Exception as exc:
-        materialization = {"ok": False, "error": str(exc), "guarded": True}
+    # Recommendation snapshots reuse committed scores, never force D1 scans.
+    materialization = {"ok":True,"status":"deferred_to_quota_guard",
+                       "guarded":True,"recomputed":False}
     payload = {"render_id": args.render_id, "snapshot_id": args.snapshot_id, "top_k": args.top_k}
     result = request_json("POST", "/content-intelligence/recommendations/snapshot", payload, core_url=args.core_url)
     result["materialization"] = materialization
