@@ -57,9 +57,15 @@ class GuardedV4MaterializationTest(unittest.TestCase):
         import json,tempfile,os
         with tempfile.NamedTemporaryFile(mode="w+",encoding="utf-8") as tmp:
             json.dump({"ok":True,"runId":"bad","runAttempt":"1"},tmp);tmp.flush()
-            with patch.dict(os.environ,{"GITHUB_RUN_ID":"42","GITHUB_RUN_ATTEMPT":"1"}):
-                with self.assertRaisesRegex(RuntimeError,"RUN_MISMATCH"):
-                    ci.load_seed_preflight_receipt(tmp.name)
+            # setUp mocks the loader for API contract tests. Exercise the
+            # REAL parser for the mismatched-run security regression.
+            self.loaded.stop()
+            try:
+                with patch.dict(os.environ,{"GITHUB_RUN_ID":"42","GITHUB_RUN_ATTEMPT":"1"}):
+                    with self.assertRaisesRegex(RuntimeError,"RUN_MISMATCH"):
+                        ci.load_seed_preflight_receipt(tmp.name)
+            finally:
+                self.loaded.start()
 
     def test_failed_result_holds(self):
         with patch.object(ci,"request_json",return_value={
