@@ -1,0 +1,39 @@
+name: Ebook Library R2 Listing Contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cloudflare/runner3-core/artifact-library-simple-entry.js'
+      - 'scripts/verify_ebook_library_list_contract.mjs'
+      - '.github/workflows/runner3-core-public-hosted-reader-deploy.yml'
+      - '.github/workflows/ebook-library-list-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check syntax and R2 list contract without network or secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check cloudflare/runner3-core/artifact-library-simple-entry.js
+          node --check scripts/verify_ebook_library_list_contract.mjs
+          node scripts/verify_ebook_library_list_contract.mjs
+      - name: Bundle exact Worker graph without Cloudflare credentials
+        working-directory: cloudflare/runner3-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 deploy --dry-run --outdir /tmp/runner3-core-ci-bundle

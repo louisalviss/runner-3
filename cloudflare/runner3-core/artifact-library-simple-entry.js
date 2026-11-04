@@ -73,18 +73,50 @@ function scopeOf(key) {
   return p[0] === "core" && p[1] === "ebook" ? (p[2] || "") : "";
 }
 
+// Preserve source-authored metadata when present. A filename-derived label
+// is ONLY a display fallback, never a fabricated canonical title or creator.
+function safeMeta(value) {
+  return typeof value==="string" ? value.trim().slice(0,240) : "";
+}
+function displayFallback(scope,key) {
+  const file=String(key).split("/").pop()?.replace(/\.epub$/i,"")
+    .replace(/(?:-VI)?-v\d+$/i,"")||"Book";
+  return (String(scope||"").trim()||file)
+    .replace(/[-_]+/g," ").replace(/\b\w/g,c=>c.toUpperCase()).slice(0,240);
+}
+function sessionCookie(request) {
+  for(const part of String(request.headers.get("cookie")||"").split(";")) {
+    const entry=part.trim(),i=entry.indexOf("=");
+    if(i>=0&&entry.slice(0,i).trim()===LIBRARY_COOKIE)return entry.slice(i+1).trim();
+  }
+  return "";
+}
+function sameSession(a,b) {
+  if(!a||!b||a.length!==b.length)return false;
+  let xor=0;for(let i=0;i<a.length;i++)xor|=a.charCodeAt(i)^b.charCodeAt(i);
+  return xor===0;
+}
 async function canonicalFinalBooks(env) {
   if (!env.ARTIFACTS) throw new Error("ARTIFACTS_BINDING_MISSING");
   const latest = new Map();
-  let cursor;
+  let cursor,pages=0;
   do {
-    const page = await env.ARTIFACTS.list({ prefix: ROOT, cursor, limit: 1000 });
+    if(++pages>25)throw new Error("LIBRARY_LIST_PAGE_CAP");
+    const page = await env.ARTIFACTS.list({ prefix: ROOT, cursor, limit: 1000, include:["customMetadata"] });
     for (const object of page.objects || []) {
       if (!isFinalEpub(object.key)) continue;
       const scope = scopeOf(object.key) || object.key;
       const current = latest.get(scope);
       const uploaded = object.uploaded instanceof Date ? object.uploaded.toISOString() : (object.uploaded || null);
-      const candidate = { key: object.key, size: Number(object.size || 0), uploaded, scope };
+      const metadata=object.customMetadata||{};
+      const title=safeMeta(metadata.title||metadata.book_title||metadata.bookTitle);
+      const creator=safeMeta(metadata.creator||metadata.author);
+      const candidate={
+        key:object.key,size:Number(object.size||0),uploaded,scope,
+        title:title||null,creator:creator||null,
+        display_title:title||displayFallback(scope,object.key),
+        metadata_source:title?"r2_custom":"scope_fallback",
+      };
       if (!current) {
         latest.set(scope, candidate);
         continue;
@@ -121,7 +153,7 @@ function libraryPage() {
   let query='';
   const $=id=>document.getElementById(id);
   const humanize=s=>String(s||'').replace(/[-_]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-  const titleFor=b=>titleMap[b.scope]||humanize(b.scope)||humanize((b.key.split('/').pop()||'Book').replace(/\.epub$/i,'').replace(/(?:-VI)?-v\d+$/i,''));
+  const titleFor=b=>b.title||titleMap[b.scope]||b.display_title||humanize(b.scope)||humanize((b.key.split('/').pop()||'Book').replace(/\.epub$/i,'').replace(/(?:-VI)?-v\d+$/i,''));
   function status(message){const node=$('status');node.textContent=message||'';node.classList.toggle('show',Boolean(message));}
   function filtered(){const q=query.trim().toLocaleLowerCase('vi');return books.filter(b=>!q||titleFor(b).toLocaleLowerCase('vi').includes(q)||b.key.toLocaleLowerCase('vi').includes(q)).sort((a,b)=>titleFor(a).localeCompare(titleFor(b),'vi'));}
   function render(){const root=$('list');root.textContent='';const items=filtered();if(!items.length){const e=document.createElement('div');e.className='empty';e.textContent=query?'No books found.':'No final EPUBs found.';root.appendChild(e);return;}for(const book of items){const row=document.createElement('article');row.className='book';const read=document.createElement('a');read.className='read';read.href='/artifact-library/read?key='+encodeURIComponent(book.key);const title=document.createElement('span');title.className='title';title.textContent=titleFor(book);read.appendChild(title);const download=document.createElement('button');download.className='download';download.type='button';download.textContent='Download';download.addEventListener('click',async()=>{download.disabled=true;try{const r=await fetch('/artifact-library/api/delivery',{method:'POST',headers:{'content-type':'application/json','x-runner3-library':'1'},body:JSON.stringify({key:book.key,ttl_seconds:900})});const data=await r.json();if(!r.ok||data.ok!==true||!data.delivery||!data.delivery.url)throw new Error(data.error||('HTTP '+r.status));location.href=data.delivery.url;}catch(e){status('Download failed: '+String(e&&e.message||e));}finally{download.disabled=false;}});row.append(read,download);root.appendChild(row);}}
@@ -141,6 +173,9 @@ function injectIframeSwipe(html) {
 
 async function publicList(request, env) {
   if (request.method !== "GET") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
+  const expected=await sessionValue(env);
+  if(!expected)return json({ok:false,error:"LIBRARY_AUTH_NOT_CONFIGURED"},503);
+  if(!sameSession(sessionCookie(request),expected))return json({ok:false,error:"UNAUTHORIZED"},401);
   try {
     const objects = await canonicalFinalBooks(env);
     return json({ ok: true, prefix: ROOT, final_only: true, canonical_latest_per_scope: true, objects });
