@@ -60,6 +60,24 @@ jobs:
           print('scope_only_in_refresh',len(set(x)-set(y)))
           print('scope_only_in_index',len(set(y)-set(x)))
           print('field_mismatches',json.dumps(counts,sort_keys=True))
+          # Aggregates only: distinguish omitted fields from actual conflicting
+          # values without exposing a single private EPUB or owner identifier.
+          for side,values in (('refresh',x),('index',y)):
+              presence={field:sum(field in row for row in values.values())
+                        for field in ('title','creator','display_title','metadata_source')}
+              source_kinds={kind:sum(row.get('metadata_source')==kind
+                           for row in values.values())
+                           for kind in ('r2_custom','scope_fallback')}
+              print(side+'_field_presence',json.dumps(presence,sort_keys=True))
+              print(side+'_metadata_kinds',json.dumps(source_kinds,sort_keys=True))
+          for field in ('display_title','metadata_source'):
+              only_refresh=sum(field in x[k] and field not in y[k] for k in common)
+              only_index=sum(field in y[k] and field not in x[k] for k in common)
+              different_values=sum(field in x[k] and field in y[k]
+                                   and x[k][field]!=y[k][field] for k in common)
+              print(field+'_diff_types',json.dumps({
+                  'only_refresh':only_refresh,'only_index':only_index,
+                  'conflicting_values':different_values},sort_keys=True))
           print('missing_source_title_count',sum(not r.get('title') for r in y.values()))
           print('missing_source_creator_count',sum(not r.get('creator') for r in y.values()))
           print('index_flag_refresh',a.get('canonical_latest_per_scope'))
