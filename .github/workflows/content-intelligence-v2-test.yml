@@ -238,3 +238,24 @@ jobs:
           node-version: '22'
       - name: Verify real GitHub OIDC signature and deny PR identity
         run: node scripts/verify_score_cache_seed_oidc_live.mjs
+
+  worker-bundle-dryrun:
+    # Zero Cloudflare credentials and no production deployment. Validate
+    # the exact Worker source graph before a main-branch push auto-deploys.
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Dry-run bundle Runner3 Core without Cloudflare credentials
+        shell: bash
+        working-directory: cloudflare/runner3-core
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 deploy --dry-run --outdir /tmp/runner3-core-ci-bundle
