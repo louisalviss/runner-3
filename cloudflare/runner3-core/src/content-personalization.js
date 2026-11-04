@@ -1,4 +1,5 @@
 import { canonicalInterestKey, canonicalInterestKeySql, familyDiminishingWeight, familySignalCap, interestFamily, interestFamilySql, INTEREST_ONTOLOGY_VERSION } from "./content-interest-ontology.js";
+import { refreshCachedPersonalScores, DAILY_SCORE_CACHE_VERSION } from "./personal-score-daily-cache.js";
 
 export const PERSONAL_MODEL_VERSION = "personal-v4";
 export const CONTENT_INTELLIGENCE_CONTRACT_VERSION = "content-intelligence-v4";
@@ -85,9 +86,55 @@ async function acquireRecomputeLease(env, modelVersion) {
   return Number(result.meta?.changes || 0) === 1 ? token : null;
 }
 
+
+/** Explicit, preflight-workflow-only seed lease for a clean legacy cache. */
+async function acquireScoreCacheSeedLease(env, modelVersion, expectedDetail) {
+  const token = leaseToken();
+  const detail = JSON.stringify({
+    model:modelVersion, contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,
+    policy_version:PERSONAL_POLICY_VERSION, ontology_version:INTEREST_ONTOLOGY_VERSION,
+    reason:"score_cache_seed", lease_acquired_at:new Date().toISOString(),
+  });
+  const result = await env.DB.prepare(`
+    UPDATE workflow_state
+    SET status='recomputing',run_id=?,detail=?,updated_at=CURRENT_TIMESTAMP
+    WHERE source=? AND status='clean' AND detail IS ?
+      AND (NOT EXISTS(SELECT 1 FROM workflow_state WHERE source=?)
+        OR EXISTS(SELECT 1 FROM workflow_state WHERE source=? AND updated_at <= datetime('now',?)))
+  `).bind(token,detail,PROFILE_STATE_KEY,expectedDetail,
+    PROFILE_RECOMPUTE_CLOCK_KEY,PROFILE_RECOMPUTE_CLOCK_KEY,
+    agoModifier(RECOMPUTE_DEBOUNCE_MS)).run();
+  return Number(result.meta?.changes || 0)===1 ? token : null;
+}
+
+/** Hard bounded pre-write probe; a rejected seed does not start scoring. */
+async function assertScoreCacheSeedBounds(env) {
+  for (const [table, cap] of [["content_features",50000],["content_items",15000]]) {
+    const count = await env.DB.prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 FROM ${table} LIMIT ?)`)
+      .bind(cap+1).first();
+    const n = Number(count?.n);
+    if (!Number.isInteger(n) || n<0 || n>cap) {
+      throw new Error(`SCORE_CACHE_SEED_${table.toUpperCase()}_CAP:${Number.isFinite(n)?n:"unknown"}:${cap}`);
+    }
+  }
+}
+
+/** CAS restore: failed seed remains clean, with permanent review-required marker. */
+async function failScoreCacheSeedLease(env, token, originalDetail, error) {
+  let detail={};
+  try { const parsed=JSON.parse(originalDetail || "{}"); if(parsed && typeof parsed==="object" && !Array.isArray(parsed))detail=parsed; } catch {}
+  detail.score_cache_seed_failed_at=new Date().toISOString();
+  detail.score_cache_seed_error=String(error?.message || error).slice(0,240);
+  await env.DB.prepare(`
+    UPDATE workflow_state
+    SET status='clean',run_id=NULL,detail=?,updated_at=CURRENT_TIMESTAMP
+    WHERE source=? AND status='recomputing' AND run_id=?
+  `).bind(JSON.stringify(detail),PROFILE_STATE_KEY,token).run();
+}
+
 async function finishRecomputeLease(env, token, modelVersion) {
   const recomputedAt = new Date().toISOString();
-  const detail = JSON.stringify({ recomputed_at: recomputedAt, model: modelVersion, contract_version: CONTENT_INTELLIGENCE_CONTRACT_VERSION, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION });
+  const detail = JSON.stringify({ recomputed_at: recomputedAt, model: modelVersion, contract_version: CONTENT_INTELLIGENCE_CONTRACT_VERSION, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION, score_cache_version:DAILY_SCORE_CACHE_VERSION });
   const result = await env.DB.prepare(`
     UPDATE workflow_state
     SET status='clean', run_id=NULL, detail=?, updated_at=CURRENT_TIMESTAMP
@@ -474,6 +521,9 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
       const confidence = clamp(Math.max(row.profile_confidence,row.semantic_matches>0 ? 0.30 : 0),0,1);
       const reason = JSON.stringify({
         relevance_signal:Number(row.relevance_signal.toFixed(4)),base_score:Number(row.base_score.toFixed(3)),
+        // Exact inputs allow future daily freshness ranking without rejoining all features.
+        ranking_cache_version:DAILY_SCORE_CACHE_VERSION,relevance_signal_exact:row.relevance_signal,
+        novelty_bonus_exact:row.novelty_bonus,
         rank_percentile:Number(row.rank_percentile.toFixed(4)),matched_features:row.matched_features,
         semantic_matches:row.semantic_matches,matched_families:row.matched_families,
         freshness_bonus:row.freshness_bonus,novelty_bonus:Number(row.novelty_bonus.toFixed(3)),
@@ -607,10 +657,28 @@ export function hasCommittedProfileMaterializationProof(state, modelVersion = PE
     && Number.isFinite(Date.parse(detail.recomputed_at));
 }
 
-export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODEL_VERSION, priorityExplicit = false } = {}) {
+
+export function hasCommittedScoreCacheProof(state, modelVersion = PERSONAL_MODEL_VERSION) {
+  if (!hasCommittedProfileMaterializationProof(state,modelVersion)) return false;
+  try { return JSON.parse(state.detail || "{}").score_cache_version === DAILY_SCORE_CACHE_VERSION; }
+  catch { return false; }
+}
+
+export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODEL_VERSION, priorityExplicit = false, seedScoreCacheIfMissing = false, quotaPreflightVerified = false } = {}) {
   if (!env?.DB) return { ok: false, recomputed: false };
   const before = await profileState(env);
   if (!before) return { ok: true, recomputed: false, status: "missing" };
+
+  // Cron/ingestion/feedback/recommendations may read ONE indexed state row.
+  // Full materialization and dirty/legacy COUNT probes require the signed
+  // GitHub Actions account-wide D1 preflight verified at the API boundary.
+  if (quotaPreflightVerified !== true) {
+    const clean = hasCommittedProfileMaterializationProof(before, modelVersion);
+    const status = before.status === "clean" && clean ? "clean" :
+      before.status === "recomputing" ? "recompute_in_progress" :
+      "quota_preflight_required";
+    return {ok:true,recomputed:false,status,quota_preflight_required:status==="quota_preflight_required"};
+  }
 
   // For a clean state with a valid completion receipt, the state row already
   // proves this materialization was committed. Keep the exact old verification
@@ -621,6 +689,13 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
         "SELECT 1 AS ok FROM content_scores WHERE score_type='personal_relevance' AND model_version=? AND json_extract(reason_json,'$.contract_version')=? AND json_extract(reason_json,'$.profile_policy')=? AND json_extract(reason_json,'$.ontology_version')=? LIMIT 1"
       ).bind(modelVersion, CONTENT_INTELLIGENCE_CONTRACT_VERSION, PERSONAL_POLICY_VERSION, INTEREST_ONTOLOGY_VERSION).first();
   const materializationMismatch = !materialized?.ok;
+  const seedMissing = seedScoreCacheIfMissing === true && before.status === "clean" &&
+    !materializationMismatch && !hasCommittedScoreCacheProof(before,modelVersion);
+  let seedFailed = false;
+  if (seedMissing) {
+    try { seedFailed = Boolean(JSON.parse(before.detail || "{}").score_cache_seed_failed_at); } catch {}
+    if (seedFailed) return { ok:false,recomputed:false,status:"score_cache_seed_failed_requires_review" };
+  }
   let dirtyReason = "";
   if (before.status === "dirty") {
     try { dirtyReason = String(JSON.parse(before.detail || "{}").reason || ""); } catch {}
@@ -660,17 +735,37 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
   }
 
   if (before.status === "clean") {
-    if (!materializationMismatch) return { ok: true, recomputed: false, status: "clean" };
-    await env.DB.prepare(`
-      UPDATE workflow_state
-      SET status='dirty', run_id=NULL, detail=?, updated_at=CURRENT_TIMESTAMP
-      WHERE source=? AND status='clean'
-    `).bind(JSON.stringify({ reason: "materialization_identity_mismatch", model: modelVersion, contract_version: CONTENT_INTELLIGENCE_CONTRACT_VERSION, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION }), PROFILE_STATE_KEY).run();
+    if (!materializationMismatch && !seedMissing) return { ok: true, recomputed: false, status: "clean" };
+    if (materializationMismatch) {
+      await env.DB.prepare(`
+        UPDATE workflow_state
+        SET status='dirty', run_id=NULL, detail=?, updated_at=CURRENT_TIMESTAMP
+        WHERE source=? AND status='clean'
+      `).bind(JSON.stringify({ reason: "materialization_identity_mismatch", model: modelVersion, contract_version: CONTENT_INTELLIGENCE_CONTRACT_VERSION, policy_version: PERSONAL_POLICY_VERSION, ontology_version: INTEREST_ONTOLOGY_VERSION }), PROFILE_STATE_KEY).run();
+    }
   }
 
   // Explicit feedback is already durable in user_content_events. Do not let
   // priority, semantic changes or materialization mismatch bypass the 6h
   // account-wide D1 read/write budget. Dirty state is retained until refresh.
+
+  // Only the explicit guarded workflow may attempt to populate a legacy cache.
+  // A failure restores the clean receipt via CAS and never self-retries from cron.
+  if (seedMissing) {
+    const token = await acquireScoreCacheSeedLease(env,modelVersion,before.detail ?? null);
+    if (!token) return { ok:true,recomputed:false,status:"score_cache_seed_debounced" };
+    try {
+      await assertScoreCacheSeedBounds(env);
+      const result = await recomputePersonalization(env,modelVersion);
+      const committed = await finishRecomputeLease(env,token,modelVersion);
+      return {...result,recomputed:true,lease_committed:committed,
+        score_cache_seeded:committed,status:committed?"clean":"dirty_after_recompute"};
+    } catch(error) {
+      await failScoreCacheSeedLease(env,token,before.detail,error);
+      throw error;
+    }
+  }
+
   const token = await acquireRecomputeLease(env, modelVersion);
   if (!token) {
     const current = await profileState(env);
@@ -680,6 +775,8 @@ export async function maybeRecomputePersonal(env, { modelVersion = PERSONAL_MODE
   }
 
   try {
+    // Guard dirty full recompute as strictly as legacy cache seeding.
+    await assertScoreCacheSeedBounds(env);
     const result = await recomputePersonalization(env, modelVersion);
     const committed = await finishRecomputeLease(env, token, modelVersion);
     return {
@@ -701,6 +798,24 @@ export async function refreshPersonalScoresDaily(env, { modelVersion = PERSONAL_
   if (state.status === "dirty" || state.status === "recomputing") {
     return { ok: true, refreshed: false, status: `profile_${state.status}` };
   }
-  const result = await recomputePersonalScores(env, modelVersion);
-  return { ...result, refreshed: true, status: "score_refreshed" };
+  // A clean legacy receipt is not proof that all score rows were committed.
+  // Failed seeding can leave partial rows: never read them from the daily cron.
+  if (!hasCommittedScoreCacheProof(state, modelVersion)) {
+    return { ok:false, refreshed:false, status:"daily_score_cache_seed_required" };
+  }
+  const cached = await refreshCachedPersonalScores(env, {
+    modelVersion,
+    contractVersion:CONTENT_INTELLIGENCE_CONTRACT_VERSION,
+    policyVersion:PERSONAL_POLICY_VERSION,
+    ontologyVersion:INTEREST_ONTOLOGY_VERSION,
+    freshnessBonus,clamp,
+    readPage:PERSONAL_SCORE_READ_PAGE,
+    writeBatch:PERSONAL_SCORE_WRITE_BATCH,
+    maxRows:15000,maxWrites:10000,
+  });
+  if (cached) return cached;
+  // Old score rows do not carry exact ranking inputs. Never perform an
+  // unbudgeted feature-join recompute from the daily Worker cron. The existing
+  // guarded materialization path can seed the cache on its next eligible run.
+  return { ok:false,refreshed:false,status:"daily_score_cache_seed_required" };
 }

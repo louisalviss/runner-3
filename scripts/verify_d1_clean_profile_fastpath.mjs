@@ -65,14 +65,22 @@ if (clean.queries.length !== 1 || clean.queries.some(q => q.includes('FROM conte
 
 const legacy = database({status: 'clean',detail: JSON.stringify({model: PERSONAL_MODEL_VERSION})}, true);
 const legacyResult = await maybeRecomputePersonal({DB: legacy.DB});
-if (!legacyResult.ok || legacyResult.status !== 'clean' || legacy.queries.filter(q => q.includes('FROM content_scores')).length !== 1) {
-  throw new Error('legacy state must use the verification fallback');
+if (!legacyResult.ok || legacyResult.status !== 'quota_preflight_required' ||
+    legacy.queries.length !== 1 || legacy.getDirtyWrites()) {
+  throw new Error('legacy state scanned D1 before preflight');
+}
+const legacyAuthorized=database({status:'clean',detail:JSON.stringify({model:PERSONAL_MODEL_VERSION})},true);
+const authorizedResult=await maybeRecomputePersonal({DB:legacyAuthorized.DB},{quotaPreflightVerified:true});
+if (!authorizedResult.ok || authorizedResult.status!=='clean' ||
+    legacyAuthorized.queries.filter(q=>q.includes('FROM content_scores')).length!==1) {
+  throw new Error('authorized legacy verification fallback did not work');
 }
 
 const invalid = database({...completed, detail: '{broken'}, true);
 const invalidResult = await maybeRecomputePersonal({DB: invalid.DB});
-if (!invalidResult.ok || invalidResult.status !== 'clean' || invalid.queries.filter(q => q.includes('FROM content_scores')).length !== 1) {
-  throw new Error('malformed state must use the verification fallback');
+if (!invalidResult.ok || invalidResult.status !== 'quota_preflight_required' ||
+    invalid.queries.length !== 1 || invalid.getDirtyWrites()) {
+  throw new Error('malformed state scanned D1 before preflight');
 }
 
 console.log('D1_CLEAN_PROFILE_PROOF_FASTPATH_PASS', JSON.stringify({

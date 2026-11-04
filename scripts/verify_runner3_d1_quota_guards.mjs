@@ -37,6 +37,12 @@ forbidText(personalization, 'prepare("DELETE FROM interest_profile")', "full pro
 forbidText(personalization, 'prepare("DELETE FROM content_scores WHERE score_type=\'personal_relevance\'")', "full score delete reintroduced");
 
 requireText(intelligence, "handleGuardedRecompute", "direct recompute guard missing");
+requireText(intelligence, "quotaPreflightVerified:true", "verified preflight not passed to materializer");
+requireText(intelligence, "PERSONAL_RECOMPUTE_PREFLIGHT_UNAUTHORIZED", "bearer-only recompute gate missing");
+requireText(personalization, "if (quotaPreflightVerified !== true)", "unguarded recompute must exit early");
+requireText(personalization, "await assertScoreCacheSeedBounds(env);", "size guard missing");
+forbidText(audio, "learning.maybeRecomputePersonal(", "cron must not full recompute");
+requireText(client, "DIRECT_RECOMPUTE_DISABLED_USE_GUARDED_PREFLIGHT", "legacy CLI recompute still enabled");
 requireText(intelligence, "explicit_feedback_batch", "explicit feedback batch result marker missing");
 requireText(intelligence, "priorityExplicit:true", "explicit feedback may request a budget-guarded recompute");
 requireText(intelligence, "PERSONAL_MODEL_VERSION_MISMATCH", "non-canonical recompute model rejection missing");

@@ -3,6 +3,7 @@ import datetime
 import json
 import os
 import sys
+from pathlib import Path
 import urllib.error
 import urllib.request
 
@@ -92,8 +93,13 @@ def main():
     projected = current + planned
     projected_reads = current_reads + planned_reads
     allowed = projected <= ceiling and projected_reads <= read_ceiling
+    checked_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     result = {
         "ok": allowed,
+        "checkedAtUtc": checked_at,
+        "runId": os.environ.get("GITHUB_RUN_ID"),
+        "runAttempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+        "plannedReadRows": planned_reads,
         "dateUtc": today,
         "currentRowsRead": current_reads,
         "projectedRowsRead": projected_reads,
@@ -115,6 +121,14 @@ def main():
             file=sys.stderr,
         )
         raise SystemExit(3)
+    receipt_file = os.environ.get("D1_PREFLIGHT_RECEIPT_FILE", "").strip()
+    if receipt_file:
+        if not result["runId"] or not result["runAttempt"]:
+            raise SystemExit("D1_PREFLIGHT_GITHUB_RUN_IDENTITY_REQUIRED")
+        path = Path(receipt_file)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
     print(f"D1_BUDGET_PASS write={projected}/{ceiling} read={projected_reads}/{read_ceiling}")
 
 if __name__ == "__main__":

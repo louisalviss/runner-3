@@ -75,27 +75,20 @@ export default {
     // historical daily scheduled chain and daily score-freshness refresh.
     if (controller?.cron !== HOURLY_PERSONALIZATION_CRON) return;
 
-    const learning = await loadLearningModule();
     const dailyWindow = isLegacyDailyWindow(controller);
-    const refresh = (async () => {
-      const content = contentEnv(env);
-      const recompute = await learning.maybeRecomputePersonal(content);
-      if (dailyWindow && !recompute?.recomputed) {
-        await learning.refreshPersonalScoresDaily(content);
+    // Every hourly tick outside 03:17 UTC exits without any D1 query.
+    // Full materialization is owned solely by the signed quota-preflight job.
+    if (!dailyWindow) return;
+    const learning = await loadLearningModule();
+    try {
+      const daily = await learning.refreshPersonalScoresDaily(contentEnv(env));
+      if (daily?.status === "daily_score_cache_seed_required") {
+        console.warn("content intelligence cache seed required; full scan skipped");
       }
-    })().catch((error) => {
-      console.warn("content intelligence scheduled refresh failed", String(error?.message || error));
-    });
-
-    if (!dailyWindow) {
-      if (ctx?.waitUntil) ctx.waitUntil(refresh);
-      else await refresh;
-      return;
+    } catch (error) {
+      console.warn("content intelligence daily cache refresh failed", String(error?.message || error));
     }
-
-    // Preserve the former 03:17 UTC ordering: finish personalization work first,
-    // then execute the legacy daily chain exactly once.
-    await refresh;
+    // Preserve legacy daily chain following bounded cached freshness.
     const app = await loadReaderApp();
     if (typeof app.scheduled === "function") return app.scheduled(controller, env, ctx);
   },

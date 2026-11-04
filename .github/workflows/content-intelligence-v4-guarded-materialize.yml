@@ -14,6 +14,9 @@ concurrency:
 
 jobs:
   guarded-materialize:
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -24,15 +27,19 @@ jobs:
       D1_PLANNED_ROWS: '25000'
       D1_READ_SAFE_CEILING: '4000000'
       D1_PLANNED_READ_ROWS: '500000'
+      D1_PREFLIGHT_RECEIPT_FILE: '/tmp/runner3-d1-cache-seed-preflight.json'
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
           persist-credentials: false
       - name: Stop before account-wide D1 read/write budget breach
-        run: python3 scripts/d1_account_quota_preflight.py
+        run: |
+          set -euo pipefail
+          rm -f "$D1_PREFLIGHT_RECEIPT_FILE"
+          python3 scripts/d1_account_quota_preflight.py
       - name: Guarded canonical personal-v4 materialization
         run: |
           set -euo pipefail
           test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN missing'; exit 2; }
-          python3 scripts/content_intelligence_client.py guarded-recompute --model-version personal-v4
+          python3 scripts/content_intelligence_client.py guarded-recompute --model-version personal-v4 --seed-score-cache-if-missing --preflight-receipt-file "$D1_PREFLIGHT_RECEIPT_FILE"

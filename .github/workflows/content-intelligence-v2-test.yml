@@ -8,8 +8,11 @@ on:
       - 'cloudflare/runner3-core/src/content-feature-enrichment.js'
       - 'cloudflare/runner3-core/src/content-interest-ontology.js'
       - 'cloudflare/runner3-core/src/content-personalization.js'
+      - 'cloudflare/runner3-core/src/personal-score-daily-cache.js'
+      - 'scripts/verify_personal_score_daily_cache.mjs'
       - 'cloudflare/runner3-core/src/content-interest-evidence.js'
       - 'cloudflare/runner3-core/src/content-intelligence.js'
+      - 'cloudflare/runner3-core/src/score-cache-seed-authorization.js'
       - 'cloudflare/runner3-core/src/rss-reader-learning.js'
       - 'cloudflare/runner3-core/audio-entry.js'
       - 'cloudflare/runner3-core/wrangler.jsonc'
@@ -20,6 +23,11 @@ on:
       - '.github/workflows/content-intelligence-v4-guarded-materialize.yml'
       - 'scripts/verify_runner3_d1_quota_guards.mjs'
       - 'scripts/test_d1_recompute_lease.py'
+      - 'scripts/test_d1_score_cache_seed_lease.py'
+      - 'scripts/verify_d1_score_cache_seed.mjs'
+      - 'scripts/verify_d1_preflight_all_recompute_paths.mjs'
+      - 'scripts/verify_score_cache_seed_oidc.mjs'
+      - 'scripts/verify_score_cache_seed_oidc_live.mjs'
       - 'scripts/test_d1_usage_watch.py'
       - '.github/workflows/runner3-d1-usage-watch.yml'
       - 'scripts/verify_recommendation_chunking.mjs'
@@ -33,8 +41,11 @@ on:
       - 'cloudflare/runner3-core/src/content-feature-enrichment.js'
       - 'cloudflare/runner3-core/src/content-interest-ontology.js'
       - 'cloudflare/runner3-core/src/content-personalization.js'
+      - 'cloudflare/runner3-core/src/personal-score-daily-cache.js'
+      - 'scripts/verify_personal_score_daily_cache.mjs'
       - 'cloudflare/runner3-core/src/content-interest-evidence.js'
       - 'cloudflare/runner3-core/src/content-intelligence.js'
+      - 'cloudflare/runner3-core/src/score-cache-seed-authorization.js'
       - 'cloudflare/runner3-core/src/rss-reader-learning.js'
       - 'cloudflare/runner3-core/audio-entry.js'
       - 'cloudflare/runner3-core/wrangler.jsonc'
@@ -45,6 +56,11 @@ on:
       - '.github/workflows/content-intelligence-v4-guarded-materialize.yml'
       - 'scripts/verify_runner3_d1_quota_guards.mjs'
       - 'scripts/test_d1_recompute_lease.py'
+      - 'scripts/test_d1_score_cache_seed_lease.py'
+      - 'scripts/verify_d1_score_cache_seed.mjs'
+      - 'scripts/verify_d1_preflight_all_recompute_paths.mjs'
+      - 'scripts/verify_score_cache_seed_oidc.mjs'
+      - 'scripts/verify_score_cache_seed_oidc_live.mjs'
       - 'scripts/test_d1_usage_watch.py'
       - '.github/workflows/runner3-d1-usage-watch.yml'
       - 'scripts/verify_interest_profile_promotion.mjs'
@@ -74,6 +90,7 @@ jobs:
           node --check cloudflare/runner3-core/src/content-personalization.js
           node --check cloudflare/runner3-core/src/content-interest-evidence.js
           node --check cloudflare/runner3-core/src/content-intelligence.js
+          node --check cloudflare/runner3-core/src/score-cache-seed-authorization.js
           node --check cloudflare/runner3-core/src/rss-reader-learning.js
           python3 -m py_compile scripts/content_intelligence_client.py
           python3 -m unittest discover -s tests -p test_d1_rss_stable_metadata.py
@@ -83,10 +100,15 @@ jobs:
           node scripts/verify_d1_skip_redundant_heartbeat.mjs
           node scripts/verify_runner3_d1_quota_guards.mjs
           python3 scripts/test_d1_recompute_lease.py
+          python3 scripts/test_d1_score_cache_seed_lease.py
+          node scripts/verify_d1_score_cache_seed.mjs
+          node scripts/verify_d1_preflight_all_recompute_paths.mjs
+          node scripts/verify_score_cache_seed_oidc.mjs
           python3 scripts/test_d1_usage_watch.py
           node scripts/verify_recommendation_chunking.mjs
           node scripts/verify_d1_clean_profile_fastpath.mjs
           node scripts/verify_personal_score_sql_size.mjs
+          node scripts/verify_personal_score_daily_cache.mjs
           node scripts/verify_interest_profile_promotion.mjs
           node scripts/verify_interest_evidence_projection.mjs
           node scripts/verify_interest_ontology.mjs
@@ -200,3 +222,43 @@ jobs:
           assert effective(0.0, 3) == 0.0
           print('Content Intelligence v4 idempotency/window/follow-up-depth regression PASS')
           PY
+
+  oidc-signature-smoke:
+    # Run only for an internal PR. This isolated test has no application,
+    # Cloudflare, or D1 credentials and never calls the production Worker.
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'louisalviss/runner-3' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify real GitHub OIDC signature and deny PR identity
+        run: node scripts/verify_score_cache_seed_oidc_live.mjs
+
+  worker-bundle-dryrun:
+    # Zero Cloudflare credentials and no production deployment. Validate
+    # the exact Worker source graph before a main-branch push auto-deploys.
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Dry-run bundle Runner3 Core without Cloudflare credentials
+        shell: bash
+        working-directory: cloudflare/runner3-core
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 deploy --dry-run --outdir /tmp/runner3-core-ci-bundle
