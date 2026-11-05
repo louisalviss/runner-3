@@ -322,3 +322,33 @@ automatic bid, buyer account mutation, extra scanner/timer or separately
 owned writer was introduced. After CI, acceptance still requires an observed
 live listing-to-website identity and public material capture, independent
 review, authorized merge/deploy and fresh report readback.
+
+
+### 2026-11-06 live acceptance note — public listing is not authenticated
+
+Read-only live smoke against exact Flippa listing IDs 13524796 (Salon Home) and
+14720037 (StarsVeins) on the existing persistent profile returned HTTP 200,
+challenge NONE and correct listing URL, but the visible page header had
+`Log In` / `Sign Up` and no expected buyer-account marker. Listing content
+was readable, yet the profile's authenticated state was **not** verified.
+Neither listing exposed a unique, explicit external asset Website/Visit
+Website anchor in the inspected DOM. Therefore neither may be credited with
+an authenticated site identity nor promoted beyond `SITE_DD_PENDING`.
+
+The source reader now records `session_auth_state` and sets
+`asset_domain_source_kind` to `AUTHENTICATED_LIVE` **only** when the
+expected authenticated account marker is visible; otherwise any exact
+public listing-link evidence would be `DIRECT_LISTING_CURRENT`. HTTP 200,
+a title matching the listing, and challenge NONE alone are not login proof.
+
+An isolated live public CDP smoke of the independent, matching-name site
+timed out at the existing Resource Guardian-owned wrapper's 60-second
+caller limit; no public material was accepted from that run. Temporary
+job/results were cleaned up and a subsequent read-only lock check found
+no lingering smoke-job process or lock. The precise timeout cause is not
+confirmed. Do not substitute this failed smoke for a successful 2-page
+capture, alter Guardian or credentials, or change the production browser
+policy to force acceptance. The next live acceptance requires restored
+authorized Flippa authentication (or a clearly evidenced public direct
+asset link), a successful Guardian-admitted public read, source SHA
+verification, and a human product/monetization review.
