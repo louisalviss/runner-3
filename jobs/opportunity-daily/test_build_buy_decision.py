@@ -215,14 +215,52 @@ class BuildBuyDecisionGates(unittest.TestCase):
         self.assertEqual(x["category"],"REFERENCE_ONLY")
         self.assertEqual(x["buy"]["state"],"DEFER")
         self.assertFalse(x["evidence"]["profit_independently_verified"])
+    def test_flippa_site_review_domain_proof_buy_only(self):
+        row=flippa(id="10",profit_card=500,verdict="BUY_DD",
+            verified_asset_domain="example.org",asset_domain_verified=True,
+            asset_domain_source_kind="DIRECT_LISTING_CURRENT",
+            asset_domain_source_ref="flippa-direct-10#sha256:fixture")
+        review={"status":"REVIEWED","listing_id":"10","asset_domain":"example.org",
+            "asset_type":"content_site",
+            "buyer":"Home renovation vendors looking for paid visibility",
+            "asset_offer":"Permanent sponsored content placements for businesses",
+            "actual_workflow":"Accept advertiser brief and publish an article",
+            "observed_conversion_path":"Public inquiry and sponsored article price page",
+            "monetization_mechanism":"Paid article placements on owned editorial site",
+            "operator_dependencies":"Editors, writers, advertisers and SEO links",
+            "transfer_risks":"Ownership, GSC history and advertiser relationships",
+            "pages":[
+                {"kind":"home","url":"https://example.org/",
+                 "finding":"Homepage shows a home improvement publication",
+                 "source_ref":"site-10/home#sha256:fixture"},
+                {"kind":"monetization","url":"https://example.org/advertise",
+                 "finding":"Public offer describes sponsored placement pricing",
+                 "source_ref":"site-10/pricing#sha256:fixture"}]}
+        row["site_product_review"]=review
+        x=flippa_qualification(row,10000)
+        self.assertEqual(x["category"],"BUY_DD")
+        self.assertTrue(x["evidence"]["asset_site_review_complete"])
+        self.assertFalse(x["evidence"]["profit_independently_verified"])
+        self.assertFalse(x["evidence"]["buyer_transferability_verified"])
+        self.assertEqual(flippa_qualification({**row,"asset_domain_verified":False},10000)["category"],"SITE_DD_PENDING")
+        self.assertEqual(flippa_qualification({**row,"site_product_review":{**review,"asset_domain":"unrelated.org"}},10000)["category"],"SITE_DD_PENDING")
+        gap={"user_job":"Buy permanent sponsored house improvement posts"}
+        for key in ("matched_keyword","exact_serp_gap","small_utility_scope","revenue_path"):
+            gap[key]={"verified":True,"source_ref":"semrush-serp-10#sha256:fixture",
+                      "finding":"Reviewable specific user task and commercial output"}
+        y=flippa_qualification({**row,"independent_build_gap":gap},10000)
+        self.assertEqual(y["category"],"DUAL_DD")
+        self.assertEqual(y["build"]["state"],"DD_PENDING")
+
     def test_unverified_flippa_detail_blocks_buy(self):
         self.assertEqual(flippa_qualification(flippa(verified_detail=False,profit_card=500),10000)["buy"]["state"],"DEFER")
     def test_over_cap_blocks_buy(self):
         self.assertEqual(flippa_qualification(flippa(asking_verified=12000,profit_card=500,verdict="BUY_DD"),10000)["buy"]["state"],"DROP")
     def test_profit_card_supports_dd_only(self):
         x=flippa_qualification(flippa(profit_card=500,verdict="BUY_DD"),10000)
-        self.assertEqual(x["buy"]["state"],"DD_PENDING")
-        self.assertEqual(x["category"],"DUAL_DD")
+        self.assertEqual(x["buy"]["state"],"SITE_REVIEW_PENDING")
+        self.assertEqual(x["category"],"SITE_DD_PENDING")
+        self.assertFalse(x["evidence"]["asset_site_review_complete"])
         self.assertFalse(x["evidence"]["profit_independently_verified"])
         self.assertFalse(x["evidence"]["buyer_transferability_verified"])
     def test_no_negative_profit_masquerades_as_valid(self):
@@ -241,10 +279,11 @@ class BuildBuyDecisionGates(unittest.TestCase):
             self.assertEqual(q["approved_buy"],0)
             self.assertEqual(q["approved_build"],0)
             self.assertEqual(q["evaluated"],3)
-            self.assertEqual(q["counts"]["DUAL_DD"],1)
+            self.assertEqual(q["counts"]["SITE_DD_PENDING"],1)
             self.assertEqual(q["counts"]["WATCH_GAP"],1)
             self.assertEqual(q["counts"]["DROP"],1)
-            self.assertEqual(q["actionable_dd"][0]["source"],"FLIPPA")
+            self.assertEqual(q["actionable_dd"],[])
+            self.assertEqual(q["study_queue"][0]["source"],"FLIPPA")
     def test_missing_semantic_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             s={"provider_status":"PASS","terminal_status":"PASS","source_complete":True,"items":[seo()]}
