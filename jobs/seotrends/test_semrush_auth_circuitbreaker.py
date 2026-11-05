@@ -179,5 +179,71 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
         self.assertIn("SEMRUSH_LIVE_AUTH_UNAVAILABLE", daily.GLOBAL_BLOCKERS)
         self.assertIn("Session expired, access again from Dashboard", daily.GLOBAL_BLOCKERS)
 
+
+
+class BackfillAuthRecencyTests(unittest.TestCase):
+    """Offline proof: stale Cloudflare receipts cannot brick newer DPA PASS."""
+
+    def setUp(self):
+        import importlib.util
+        self.temp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.scans=Path(self.temp.name)
+        spec=importlib.util.spec_from_file_location(
+            "repair_backlog_test", Path(__file__).with_name("repair_backlog.py"))
+        self.repair=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.repair)
+        patcher=patch.object(self.repair, "SCANS", self.scans)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.day="2026-10-30"
+
+    def saved(self, stem, data):
+        (self.scans/f"{self.day}-{stem}").parent.mkdir(parents=True,exist_ok=True)
+        (self.scans/f"{self.day}-{stem}").write_text(json.dumps(data))
+
+    def semrush(self, status, completed_at, blocker=None):
+        self.saved("semrush-results.json", {
+            "status":status, "completed_at":completed_at,
+            "global_blocker":blocker})
+
+    def terminal(self, updated_at, blocker="NOX_DASHBOARD_CHALLENGE"):
+        self.saved("serp-dd-product-v2/state.json", {
+            "stage":"BLOCKED_LIVE_AUTH","blocker":blocker,
+            "updated_at":updated_at})
+
+    def test_newer_real_semrush_pass_unblocks_old_auth_receipt(self):
+        self.semrush("PASS","2026-11-05T02:17:59Z")
+        self.terminal("2026-11-01T00:20:59Z")
+        self.assertFalse(self.repair.auth_blocked(self.day))
+
+    def test_new_auth_failure_after_semrush_pass_still_blocks(self):
+        self.semrush("PASS","2026-11-05T02:17:59Z")
+        self.terminal("2026-11-05T02:18:00Z")
+        self.assertTrue(self.repair.auth_blocked(self.day))
+
+    def test_old_blocked_semrush_still_blocks(self):
+        self.semrush("BLOCKED","2026-11-01T00:20:59Z",
+                     "BROKER_DPA:NOX_DASHBOARD_CHALLENGE")
+        self.terminal("2026-11-01T00:20:59Z")
+        self.assertTrue(self.repair.auth_blocked(self.day))
+
+    def test_missing_timestamps_fail_closed(self):
+        self.semrush("PASS",None)
+        self.terminal("2026-11-01T00:20:59Z")
+        self.assertTrue(self.repair.auth_blocked(self.day))
+        self.semrush("PASS","2026-11-05T02:17:59Z")
+        self.terminal(None)
+        self.assertTrue(self.repair.auth_blocked(self.day))
+
+    def test_equal_timestamp_does_not_override_auth_failure(self):
+        self.semrush("PASS","2026-11-05T02:17:59Z")
+        self.terminal("2026-11-05T02:17:59Z")
+        self.assertTrue(self.repair.auth_blocked(self.day))
+
+    def test_valid_unblocked_semrush_with_no_auth_checkpoint(self):
+        self.semrush("PASS","2026-11-05T02:17:59Z")
+        self.assertFalse(self.repair.auth_blocked(self.day))
+
 if __name__=="__main__":
     unittest.main()
