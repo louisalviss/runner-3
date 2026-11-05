@@ -68,6 +68,39 @@ class BuildBuyDecisionGates(unittest.TestCase):
             self.assertEqual(q["actionable_dd"],[])
             self.assertEqual(q["approved_build"],0)
 
+    def test_date_scoped_semantic_proof_gates_actionable_dd(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp)
+            wedge={"user_job":"Reconcile multiple broker statements accurately",
+                   "query_cluster":"portfolio reconcile broker statements",
+                   "target_market":"US/en"}
+            for key in ("commercial_demand", "underserved_exact_serp", "bounded_build_scope", "credible_monetization"):
+                wedge[key]={"verified":True,
+                            "evidence_ref":"runner-vps1:/var/lib/example/evidence.json",
+                            "finding":"Sourced evidence subject to independent human verification"}
+            semantic={"date":"2026-11-05","status":"PASS_SOURCE_PLUS_SEMANTIC_SCREEN",
+                      "approved_build":0,"items":[{"domain":"verified.test",
+                      "semantic_verdict":"QUALIFIED_DD","terminal_verdict":"WATCH",
+                      "product_intent_checked":True,"candidate_wedge":wedge}]}
+            target=root/"2026-11-05-semantic-business-dd.json"
+            target.write_text(json.dumps(semantic))
+            row=dict(seo("verified.test"),product_intent_checked=True,
+                     terminal_verdict="WATCH",serp_gate="SERP_DD_PASS")
+            inp={"provider_status":"PASS","terminal_status":"PASS",
+                 "source_complete":True,"items":[row]}
+            q=qualify("2026-11-05",inp,{"status":"PASS","new":[]},root=root)
+            self.assertEqual(q["semantic_dd_status"],"PASS")
+            self.assertEqual(q["counts"],{"BUILD_DD":1})
+            self.assertEqual(len(q["actionable_dd"]),1)
+            self.assertEqual(q["approved_build"],0)
+            self.assertEqual(q["approved_buy"],0)
+            semantic["date"]="2026-11-04"
+            target.write_text(json.dumps(semantic))
+            stale=qualify("2026-11-05",inp,{"status":"PASS","new":[]},root=root)
+            self.assertEqual(stale["semantic_dd_status"],"INVALID_OR_STALE")
+            self.assertEqual(stale["counts"],{"DEFER":1})
+            self.assertEqual(stale["actionable_dd"],[])
+
     def test_validated_wedge_enters_manual_dd_not_auto_build(self):
         row=dict(seo(),product_intent_checked=True,terminal_verdict="WATCH",serp_gate="SERP_DD_PASS")
         wedge={"user_job":"Reconcile multiple broker statements accurately",
