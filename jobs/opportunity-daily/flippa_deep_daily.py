@@ -24,18 +24,22 @@ ASSET_LINK_LABELS = {
 def safe_public_url(url):
     try:
         p = urlsplit(str(url or '').strip())
-        name = (p.hostname or '').lower().removeprefix('www.')
-        if (p.scheme != 'https' or not name or p.username or p.password
-                or p.port not in (None, 443) or
-                name in ('localhost','flippa.com') or name.endswith(('.local','.internal','.localhost'))):
-            return False
-        ipaddress.ip_address(name)
+        host = (p.hostname or '').lower()
+        port = p.port  # malformed port must fail, not enter regex fallback
+    except (TypeError,AttributeError,ValueError):
+        return False
+    domain = host.removeprefix('www.')
+    if (p.scheme != 'https' or not domain or p.username or p.password
+            or port not in (None,443) or domain in ('localhost','flippa.com')
+            or domain.endswith(('.local','.internal','.localhost'))):
+        return False
+    try:
+        ipaddress.ip_address(domain)
         return False
     except ValueError:
-        return bool(re.fullmatch(r'[a-z0-9][a-z0-9.-]{2,252}',name)
-                    and '.' in name and not '..' in name)
-    except (TypeError, AttributeError):
-        return False
+        return bool(re.fullmatch(r'[a-z0-9][a-z0-9.-]{2,252}',domain)
+                    and '.' in domain and '..' not in domain)
+
 
 def exact_asset_link(listing_id, actual_listing_url, anchors):
     """Accept one explicit external website anchor on the exact Flippa listing."""
