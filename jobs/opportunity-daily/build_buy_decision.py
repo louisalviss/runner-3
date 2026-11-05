@@ -324,6 +324,12 @@ def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
     is_detail = row.get("verified_detail") is True
     site_ok = verified_flippa_site_review(row)
     build_gap_ok = verified_flippa_build_gap(row, site_ok)
+    domain_proved = bool(row.get("asset_domain_verified") is True
+        and row.get("asset_domain_source_kind") in ("AUTHENTICATED_LIVE", "DIRECT_LISTING_CURRENT")
+        and row.get("verified_asset_domain"))
+    public_review = row.get("site_product_review") if isinstance(row.get("site_product_review"), dict) else {}
+    capture_state = str(public_review.get("status") or "NOT_CAPTURED")
+    page_count = len(public_review.get("pages") or []) if isinstance(public_review.get("pages"), list) else 0
     profit_card = positive_number(row.get("profit_card"))
     views = positive_number(row.get("pageviews_verified"))
     reserve = positive_number(row.get("reserve_verified"))
@@ -347,7 +353,12 @@ def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
     elif views is None or views < 200:
         buy, why = "DEFER", "No useful independent traffic verification"
     elif not site_ok:
-        buy, why = "SITE_REVIEW_PENDING", "Verify exact listing-to-domain identity, visit the asset website and document offer, monetization and transfer risks"
+        buy = "SITE_REVIEW_PENDING"
+        why = ("Verify the exact Flippa listing-to-asset domain first"
+               if not domain_proved else
+               "Public pages captured; product, revenue path and transfer risks need semantic review"
+               if capture_state == "CAPTURED_PUBLIC_PENDING_REVIEW" else
+               "Verified asset domain; public website capture or material is incomplete")
     else:
         buy, why = "DD_PENDING", "Asset website reviewed; price, processor earnings, GSC, cohorts, ownership and transferability still require independent DD"
     if verdict == "BUILD_REFERENCE":
@@ -362,7 +373,9 @@ def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
             reason = "Independent product/keyword/SERP gap supports manual BUILD DD only"
         elif not site_ok:
             build = "SITE_REVIEW_PENDING"
-            reason = "Inspect the exact asset first; listing claims are not a replicable product opportunity"
+            reason = ("Review captured public website material and exact independent product gap"
+                      if capture_state == "CAPTURED_PUBLIC_PENDING_REVIEW" else
+                      "Inspect exact verified asset; seller claims are not a replicable opportunity")
         else:
             build = "DEFER"
             reason = "Website understood but independent keyword gap, scope and monetization not established"
@@ -396,13 +409,15 @@ def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
             "pageviews_claim_month":views, "ga_gsc_independently_verified":False,
             "buyer_transferability_verified":False,
             "asset_site_review_complete":site_ok, "build_serp_gap_verified":build_gap_ok,
-            "asset_domain_identity_verified": bool(row.get("asset_domain_verified") is True
-                and row.get("asset_domain_source_kind") in ("AUTHENTICATED_LIVE", "DIRECT_LISTING_CURRENT")
-                and row.get("verified_asset_domain")),
+            "asset_domain_identity_verified": domain_proved,
+            "verified_asset_domain": str(row.get("verified_asset_domain") or "") if domain_proved else "",
+            "site_capture_status": capture_state if domain_proved else "DOMAIN_UNVERIFIED",
+            "site_pages_captured": page_count if domain_proved else 0,
         },
         "missing":([] if category == "DROP" else
-            ([] if site_ok else ["verified exact Flippa listing-to-asset domain",
-                "actual website product/revenue/operations inspection"])
+            ([] if domain_proved else ["source-linked listing-to-asset domain"])
+            + ([] if capture_state == "CAPTURED_PUBLIC_PENDING_REVIEW" or site_ok else ["public website/material capture"])
+            + ([] if site_ok else ["independent semantic product/monetization/operational DD"])
             + ["seller accounting/processor proofs", "GSC/GA source access",
                "attainable all-in price", "independent product/SERP gap",
                "migration and ownership proof"]),
