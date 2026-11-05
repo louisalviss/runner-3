@@ -141,7 +141,11 @@ def verified_candidate_wedge(semantic: dict) -> bool:
 def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
     domain = str(row.get("domain") or "").lower()
     semantic_verdict = str(semantic.get("semantic_verdict") or "")
-    terminal = str(semantic.get("terminal_verdict") or row.get("terminal_verdict") or "")
+    # Preserve the source scanner's terminal verdict even if a separate
+    # semantic note disagrees. Legacy source-less fixtures still read the note.
+    source_terminal = str(row.get("terminal_verdict") or "")
+    semantic_terminal = str(semantic.get("terminal_verdict") or "")
+    terminal = source_terminal or semantic_terminal
     raw = str(row.get("verdict") or "")
     product_intent = (semantic.get("product_intent_checked") is True if semantic else row.get("product_intent_checked") is True)
     if raw in ("BLOCKED_PROVIDER", "BLOCKED_SERP") or terminal == "BLOCKED" or not provider_ok:
@@ -152,7 +156,11 @@ def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
         build, why = "WATCH_GAP", str(semantic.get("business_reason") or "Gap not yet validated")[:300]
     elif semantic_verdict == "DEFER_UNMATCHED_INTENT" or not product_intent:
         build, why = "DEFER", "No independently matched commercially useful product-intent keyword"
-    elif (semantic_verdict == "QUALIFIED_DD" and product_intent and terminal == "WATCH"
+    elif (semantic_verdict == "QUALIFIED_DD" and product_intent
+          and source_terminal == semantic_terminal == "WATCH"
+          and row.get("product_intent_checked") is True
+          and semantic.get("product_intent_checked") is True
+          and raw in ("WATCH_DD", "SEO_BUILD_TEST")
           and row.get("serp_gate") in ("SERP_DD_PASS", "WATCH_COMPETITION")
           and verified_candidate_wedge(semantic)):
         build, why = "DD_PENDING", "Four sourced business-case gates passed; manual DD still required, no BUILD approval"
