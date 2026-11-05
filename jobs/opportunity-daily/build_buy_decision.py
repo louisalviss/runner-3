@@ -248,8 +248,82 @@ def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
                        ["native-language keyword and country-specific SERP evidence"])),
     }
 
+
+def verified_flippa_site_review(row: dict) -> bool:
+    """Bounded asset/website inspection for a specific Flippa listing.
+
+    This only checks a source-linked evidence packet's shape. Reviewers must
+    independently open the referenced pages and validate seller transferability.
+    A similar-looking domain in the title never establishes asset identity.
+    """
+    review = row.get("site_product_review")
+    listed = str(row.get("id") or str(row.get("identity") or "").removeprefix("flippa:"))
+    domain = str(row.get("verified_asset_domain") or "").strip().lower().removeprefix("www.")
+    if not (str(row.get("identity") or "") == "flippa:" + listed
+            and listed.isdecimal() and row.get("verified_detail") is True
+            and row.get("asset_domain_verified") is True
+            and row.get("asset_domain_source_kind") in ("AUTHENTICATED_LIVE", "DIRECT_LISTING_CURRENT")
+            and len(str(row.get("asset_domain_source_ref") or "").strip()) >= 12):
+        return False
+    if not domain or any(ch in domain for ch in ("/", "@", ":", "?", "#")) or "." not in domain:
+        return False
+    if not isinstance(review, dict) or review.get("status") != "REVIEWED":
+        return False
+    if str(review.get("listing_id") or "") != listed:
+        return False
+    if str(review.get("asset_domain") or "").strip().lower().removeprefix("www.") != domain:
+        return False
+    if review.get("asset_type") not in ("saas", "content_site", "utility", "ecommerce", "directory", "app"):
+        return False
+    for field in ("buyer", "asset_offer", "actual_workflow", "observed_conversion_path",
+                  "monetization_mechanism", "operator_dependencies", "transfer_risks"):
+        if len(str(review.get(field) or "").strip()) < 15:
+            return False
+    pages = review.get("pages")
+    if not isinstance(pages, list) or not 2 <= len(pages) <= 6:
+        return False
+    kinds, urls = set(), set()
+    for page in pages:
+        if not isinstance(page, dict) or not _is_public_https(page.get("url")):
+            return False
+        url = page["url"]
+        hostname = (urlsplit(url).hostname or "").lower().removeprefix("www.")
+        if hostname != domain and not hostname.endswith("." + domain):
+            return False
+        if url in urls or page.get("kind") not in (
+                "home", "product", "content", "offer", "monetization", "pricing", "demo"):
+            return False
+        if len(str(page.get("finding") or "").strip()) < 20:
+            return False
+        if len(str(page.get("source_ref") or "").strip()) < 12:
+            return False
+        urls.add(url)
+        kinds.add(page["kind"])
+    return "home" in kinds and bool(kinds.intersection(
+        ("product", "content", "offer", "monetization", "pricing", "demo")))
+
+
+def verified_flippa_build_gap(row: dict, site_ok: bool) -> bool:
+    """A seller's website is only a reference; BUILD needs independent whitespace."""
+    gap = row.get("independent_build_gap")
+    if not site_ok or not isinstance(gap, dict):
+        return False
+    if len(str(gap.get("user_job") or "").strip()) < 12:
+        return False
+    for part in ("matched_keyword", "exact_serp_gap", "small_utility_scope", "revenue_path"):
+        item = gap.get(part)
+        if not isinstance(item, dict) or item.get("verified") is not True:
+            return False
+        if len(str(item.get("source_ref") or "").strip()) < 12:
+            return False
+        if len(str(item.get("finding") or "").strip()) < 20:
+            return False
+    return True
+
 def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
     is_detail = row.get("verified_detail") is True
+    site_ok = verified_flippa_site_review(row)
+    build_gap_ok = verified_flippa_build_gap(row, site_ok)
     profit_card = positive_number(row.get("profit_card"))
     views = positive_number(row.get("pageviews_verified"))
     reserve = positive_number(row.get("reserve_verified"))
@@ -272,8 +346,10 @@ def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
         buy, why = "DEFER", "No credible material recurring earnings evidenced; card profit alone is insufficient"
     elif views is None or views < 200:
         buy, why = "DEFER", "No useful independent traffic verification"
+    elif not site_ok:
+        buy, why = "SITE_REVIEW_PENDING", "Verify exact listing-to-domain identity, visit the asset website and document offer, monetization and transfer risks"
     else:
-        buy, why = "DD_PENDING", "Price and card earnings justify DD only; processor, GSC, cohorts, ownership and reserve still unverified"
+        buy, why = "DD_PENDING", "Asset website reviewed; price, processor earnings, GSC, cohorts, ownership and transferability still require independent DD"
     if verdict == "BUILD_REFERENCE":
         build = "REFERENCE_ONLY"
         reason = "Reusable utility concept, but no independently verified commercial SERP gap or conversions"
@@ -281,8 +357,15 @@ def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
         build = "DROP"
         reason = "Low-quality source candidate; do not infer build viability from listing"
     elif verdict in ("SEO_BUY_DD", "BUY_DD"):
-        build = "DD_PENDING"
-        reason = "Benchmark keywords and competing tools independently; avoid cloning unverified seller thesis"
+        if build_gap_ok:
+            build = "DD_PENDING"
+            reason = "Independent product/keyword/SERP gap supports manual BUILD DD only"
+        elif not site_ok:
+            build = "SITE_REVIEW_PENDING"
+            reason = "Inspect the exact asset first; listing claims are not a replicable product opportunity"
+        else:
+            build = "DEFER"
+            reason = "Website understood but independent keyword gap, scope and monetization not established"
     else:
         build = "DEFER"
         reason = "No independent organic opportunity or differentiation test"
@@ -295,6 +378,8 @@ def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
         category = "BUILD_DD"
     elif build == "REFERENCE_ONLY":
         category = "REFERENCE_ONLY"
+    elif buy == "SITE_REVIEW_PENDING" or build == "SITE_REVIEW_PENDING":
+        category = "SITE_DD_PENDING"
     elif buy == "DROP" and build == "DROP":
         category = "DROP"
     else:
@@ -309,9 +394,18 @@ def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
             "price_type":price_type, "price_within_cap":under_cap,
             "profit_card_usd_per_month":profit_card, "profit_independently_verified":False,
             "pageviews_claim_month":views, "ga_gsc_independently_verified":False,
-            "buyer_transferability_verified":False, "build_serp_gap_verified":False,
+            "buyer_transferability_verified":False,
+            "asset_site_review_complete":site_ok, "build_serp_gap_verified":build_gap_ok,
+            "asset_domain_identity_verified": bool(row.get("asset_domain_verified") is True
+                and row.get("asset_domain_source_kind") in ("AUTHENTICATED_LIVE", "DIRECT_LISTING_CURRENT")
+                and row.get("verified_asset_domain")),
         },
-        "missing":([] if category == "DROP" else ["seller accounting/processor proofs","GSC/GA source access","attainable all-in price","independent product/SERP gap","migration and ownership proof"]),
+        "missing":([] if category == "DROP" else
+            ([] if site_ok else ["verified exact Flippa listing-to-asset domain",
+                "actual website product/revenue/operations inspection"])
+            + ["seller accounting/processor proofs", "GSC/GA source access",
+               "attainable all-in price", "independent product/SERP gap",
+               "migration and ownership proof"]),
     }
 
 def qualify(day: str, seo: dict, flippa: dict, root: pathlib.Path = SEO_SCAN_ROOT, max_buy_usd: int = ACTIVE_BUY_LIMIT_USD) -> dict:
@@ -332,11 +426,11 @@ def qualify(day: str, seo: dict, flippa: dict, root: pathlib.Path = SEO_SCAN_ROO
             distinct[row["identity"]] = row
     rows = list(distinct.values())
     counts = Counter(x["category"] for x in rows)
-    priority = {"DUAL_DD":0,"BUY_DD":1,"BUILD_DD":2,"WATCH_GAP":3,"REFERENCE_ONLY":4,"DD_PENDING":5,"DEFER":6,"BLOCKED":7,"DROP":8}
+    priority = {"DUAL_DD":0,"BUY_DD":1,"BUILD_DD":2,"SITE_DD_PENDING":3,"WATCH_GAP":4,"REFERENCE_ONLY":5,"DD_PENDING":6,"DEFER":7,"BLOCKED":8,"DROP":9}
     rows.sort(key=lambda x:(priority.get(x["category"],9), x["identity"]))
     # The scraper has no first-party earnings/access rights; upgrades to READY are forbidden.
     actionable = [x for x in rows if x["category"] in ("DUAL_DD","BUY_DD","BUILD_DD")]
-    study = [x for x in rows if x["category"] in ("WATCH_GAP","REFERENCE_ONLY")]
+    study = [x for x in rows if x["category"] in ("SITE_DD_PENDING", "WATCH_GAP", "REFERENCE_ONLY")]
     can_proceed = provider_ok and flippa.get("status") == "PASS"
     return {
         "schema":"build-buy-qualification-v1", "date":day,
