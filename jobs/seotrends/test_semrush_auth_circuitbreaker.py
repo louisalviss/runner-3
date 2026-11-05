@@ -20,6 +20,21 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
         stub.start()
         self.addCleanup(stub.stop)
 
+    def test_explicit_page_size_passes_to_existing_exporter(self):
+        class Fake:
+            returncode=0
+            stdout='{"status":"PASS","domain":"example.com"}\\n'
+            stderr=''
+        calls=[]
+        def stub(cmd,**kwargs):
+            calls.append(cmd)
+            return Fake()
+        with patch.object(daily.subprocess,"run",side_effect=stub):
+            result=daily.run_export("example.com",Path("/tmp/test-semrush-export.json"),50,5000)
+        self.assertEqual(result["status"],"PASS")
+        self.assertEqual(len(calls),1)
+        self.assertEqual(calls[0][calls[0].index("--page-size")+1],"5000")
+
     def test_live_auth_blocks_entire_batch_after_first_attempt(self):
         with tempfile.TemporaryDirectory() as td:
             temp = Path(td)
