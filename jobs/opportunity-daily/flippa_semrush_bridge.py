@@ -15,13 +15,30 @@ DOM=re.compile(r'(?<![\w.])((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+
 BLOCK_MARKERS=('SEMRUSH_LIVE_AUTH_UNAVAILABLE','NOX_LOGIN_CHALLENGE','NOX_DASHBOARD_CHALLENGE','NOX_LOGIN_REQUIRED','NOX_LOGIN_FORM_MISSING','SEMRUSH_HUMAN_HANDOFF_ACTIVE','SEMRUSH_RATE_LIMIT','SEMRUSH_RESOURCE_ADMISSION_DENIED','NOX_CREDENTIALS_INVALID')
 
 def domain_from_verified_listing(row, deep):
-    if row.get('verified_detail') is not True:return None
-    doc=deep.get(str(row.get('id') or '')) or {}
-    if doc.get('status')!=200 or doc.get('challenge')!='NONE':return None
-    title=str(doc.get('title') or '').split('|',1)[0][:180]
-    matches=list(dict.fromkeys(x.lower() for x in DOM.findall(title)))
-    filtered=[x for x in matches if x not in ('flippa.com','www.flippa.com','youtube.com','apple.com')]
-    return filtered[0] if len(filtered)==1 else None
+    """Only source-linked Flippa asset identity can trigger paid SEO verification."""
+    if row.get('verified_detail') is not True:
+        return None
+    doc = deep.get(str(row.get('id') or '')) or {}
+    if doc.get('status') != 200 or doc.get('challenge') != 'NONE':
+        return None
+    if doc.get('asset_domain_verified') is not True:
+        return None
+    if doc.get('asset_domain_source_kind') not in ('AUTHENTICATED_LIVE', 'DIRECT_LISTING_CURRENT'):
+        return None
+    if len(str(doc.get('asset_domain_source_ref') or '').strip()) < 12:
+        return None
+    domain = str(doc.get('verified_asset_domain') or '').lower().removeprefix('www.')
+    if not DOM.fullmatch(domain):
+        return None
+    from urllib.parse import urlsplit
+    url = urlsplit(str(doc.get('verified_asset_url') or ''))
+    if url.scheme != 'https' or (url.hostname or '').lower().removeprefix('www.') != domain:
+        return None
+    source_domain = str(row.get('verified_asset_domain') or '').lower().removeprefix('www.')
+    if source_domain and source_domain != domain:
+        return None
+    return domain
+
 
 def valid_cached(path,domain):
     try:
