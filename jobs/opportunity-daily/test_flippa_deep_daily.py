@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import json,pathlib,tempfile,unittest
 from flippa_deep_daily import (extract,candidates_for_daily,capture,existing_complete,
-   safe_public_url,exact_asset_link,capture_public_site,choose_second_page)
+   safe_public_url,exact_asset_link,capture_public_site,choose_second_page,visible_flippa_session_state)
 class FlippaDetailTests(unittest.TestCase):
  def setUp(self):self.t=tempfile.TemporaryDirectory();self.d=pathlib.Path(self.t.name)
  def tearDown(self):self.t.cleanup()
@@ -19,6 +19,18 @@ class FlippaDetailTests(unittest.TestCase):
   anchors.append({'text':'Visit Website','href':'https://another.example/'})
   self.assertFalse(exact_asset_link(listing,'https://flippa.com/12345678',anchors))
 
+ def test_public_listing_never_claims_authenticated(self):
+  self.assertEqual(visible_flippa_session_state('Browse Log In Sign Up Sell Now'),'PUBLIC_ONLY')
+  self.assertEqual(visible_flippa_session_state('Browse Danny My Watchlist'),'AUTHENTICATED')
+  self.assertEqual(visible_flippa_session_state('Browse Sell Now'),'UNVERIFIED')
+  a=[{'text':'Visit Website','href':'https://example.com/'}]
+  public=exact_asset_link('12345678','https://flippa.com/12345678',a)
+  self.assertEqual(public['asset_domain_source_kind'],'DIRECT_LISTING_CURRENT')
+  account=exact_asset_link('12345678','https://flippa.com/12345678',a,
+                           source_kind='AUTHENTICATED_LIVE')
+  self.assertEqual(account['asset_domain_source_kind'],'AUTHENTICATED_LIVE')
+  self.assertFalse(exact_asset_link('12345678','https://flippa.com/12345678',a,
+                                   source_kind='UNVERIFIED'))
  def test_hidden_domain_and_unsafe_site_fail_closed(self):
   self.assertFalse(exact_asset_link('12345678','https://flippa.com/12345678',[]))
   self.assertFalse(safe_public_url('http://example.com/'))
