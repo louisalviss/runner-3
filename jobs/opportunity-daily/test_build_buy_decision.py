@@ -53,10 +53,44 @@ class BuildBuyDecisionGates(unittest.TestCase):
         item['terminal_verdict']='WATCH'
         item['serp_gate']='SERP_DD_PASS'
         x=seo_qualification(item,{},True)
-        self.assertEqual(x['category'],'BUILD_DD')
+        self.assertEqual(x['category'],'DEFER')
+        self.assertEqual(x['evidence']['next_gate'],'FOUR_PART_CANDIDATE_WEDGE_DD')
         self.assertFalse(x['evidence']['semantic_review_completed'])
         self.assertFalse(x['evidence']['differentiated_solution_verified'])
         self.assertFalse(x['evidence']['revenue_verified'])
+    def test_qualification_not_shortlisted_on_source_serp_alone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp)
+            src={"provider_status":"PASS","terminal_status":"PASS","source_complete":True,
+                 "items":[dict(seo("a.com"),product_intent_checked=True,terminal_verdict="WATCH",serp_gate="SERP_DD_PASS")]}
+            q=qualify("2026-11-05",src,{"status":"PASS","new":[]},root=root)
+            self.assertEqual(q["counts"],{"DEFER":1})
+            self.assertEqual(q["actionable_dd"],[])
+            self.assertEqual(q["approved_build"],0)
+
+    def test_validated_wedge_enters_manual_dd_not_auto_build(self):
+        row=dict(seo(),product_intent_checked=True,terminal_verdict="WATCH",serp_gate="SERP_DD_PASS")
+        wedge={"user_job":"Reconcile multiple broker statements accurately",
+               "query_cluster":"portfolio reconcile broker statements",
+               "target_market":"US/en"}
+        for key in ("commercial_demand","underserved_exact_serp","bounded_build_scope","credible_monetization"):
+            wedge[key]={"verified":True,"evidence_ref":"runner-vps1:/var/lib/example/evidence.json",
+                        "finding":"A detailed independently reviewable proof for the candidate"}
+        x=seo_qualification(row,{"semantic_verdict":"QUALIFIED_DD","terminal_verdict":"WATCH",
+                                 "product_intent_checked":True,"candidate_wedge":wedge},True)
+        self.assertEqual(x["category"],"BUILD_DD")
+        self.assertEqual(x["build"]["state"],"DD_PENDING")
+        self.assertTrue(x["evidence"]["candidate_wedge_evidence_complete"])
+        self.assertFalse(x["evidence"]["revenue_verified"])
+        self.assertFalse(x["evidence"]["differentiated_solution_verified"])
+        self.assertEqual(seo_qualification(row,{"semantic_verdict":"QUALIFIED_DD",
+            "terminal_verdict":"WATCH","product_intent_checked":True,
+            "candidate_wedge":{**wedge,"credible_monetization":{"verified":True}}},True)["category"],"DEFER")
+        self.assertEqual(seo_qualification(row,{"semantic_verdict":"QUALIFIED_DD",
+            "terminal_verdict":"WATCH","product_intent_checked":True,"candidate_wedge":wedge},False)["category"],"BLOCKED")
+        self.assertEqual(seo_qualification(row,{"semantic_verdict":"QUALIFIED_DD",
+            "terminal_verdict":"WATCH","product_intent_checked":True,"candidate_wedge":wedge},True)["buy"]["state"],"NOT_LISTED")
+
     def test_semantic_false_positive_is_drop(self):
         self.assertEqual(seo_qualification(seo(),sem(verdict="DROP_THIS_CYCLE"),True)["category"],"DROP")
     def test_flippa_listing_reference_not_buy(self):
