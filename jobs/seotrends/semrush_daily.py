@@ -95,8 +95,9 @@ def metrics(data: dict) -> dict:
     }
 
 
-def run_export(domain: str, output: pathlib.Path, timeout: int) -> dict:
-    cmd = [EXPORTER_PY, EXPORTER, '--domain', domain, '--db', 'us', '--output', str(output)]
+def run_export(domain: str, output: pathlib.Path, timeout: int, page_size: int = 10000) -> dict:
+    cmd = [EXPORTER_PY, EXPORTER, '--domain', domain, '--db', 'us',
+           '--page-size', str(page_size), '--output', str(output)]
     try:
         p = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
@@ -142,7 +143,12 @@ def main() -> int:
     ap.add_argument('--date', default=datetime.now(timezone.utc).strftime('%Y-%m-%d'))
     ap.add_argument('--queue')
     ap.add_argument('--per-domain-timeout', type=int, default=240)
+    ap.add_argument('--export-page-size', type=int, default=10000,
+                    help='Semrush rows per DPA page; smaller sizes for diagnosed -32098 failures')
     args = ap.parse_args()
+
+    if args.export_page_size not in (100, 500, 1000, 2500, 5000, 10000):
+        ap.error('--export-page-size must be 100, 500, 1000, 2500, 5000, or 10000')
 
     day = args.date
     queue_path = pathlib.Path(args.queue) if args.queue else SCANS / f'{day}-semrush-queue.json'
@@ -197,7 +203,7 @@ def main() -> int:
             })
             continue
 
-        exp = run_export(domain, out, args.per_domain_timeout)
+        exp = run_export(domain, out, args.per_domain_timeout, args.export_page_size)
         exp_reason = str(exp.get('reason') or '')
         if (str(exp.get('status') or '').upper() != 'PASS' and not session_recovery_attempted
             and ('Session expired, access again from Dashboard' in exp_reason
@@ -205,7 +211,7 @@ def main() -> int:
             session_recovery_attempted = True
             recovery = recover_expired_session()
             if recovery['ok']:
-                exp = run_export(domain, out, args.per_domain_timeout)
+                exp = run_export(domain, out, args.per_domain_timeout, args.export_page_size)
                 if str(exp.get('status') or '').upper() != 'PASS':
                     exp = {'status': 'FAIL', 'reason': 'SEMRUSH_AUTO_RECOVERY_RETRY_FAILED:'
                            + str(exp.get('reason') or 'UNVERIFIED')[:250]}
