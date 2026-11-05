@@ -9,7 +9,10 @@ class DailyPipelineGates(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.d=pathlib.Path(self.tmp.name)
   self.x={"id":"14459714","identity":"flippa:14459714","verdict":"BUILD_REFERENCE","verified_detail":True,"title":"HVAC Planner"}
-  self.deep=[{"id":"14459714","status":200,"challenge":"NONE","title":"HVAC Planner: HVACPlanner.com — 42 calculators | Website for Sale on Flippa"}]
+  self.deep=[{"id":"14459714","status":200,"challenge":"NONE","title":"HVAC Planner: HVACPlanner.com — 42 calculators | Website for Sale on Flippa",
+    "verified_asset_domain":"hvacplanner.com","verified_asset_url":"https://hvacplanner.com/",
+    "asset_domain_verified":True,"asset_domain_source_kind":"AUTHENTICATED_LIVE",
+    "asset_domain_source_ref":"https://flippa.com/14459714#asset-link-sha256:fixture"}]
   (self.d/'deep.json').write_text(json.dumps(self.deep))
   self.flippa={"status":"PASS","new":[self.x]}
   self.val={"date_vn":"2026-10-14","generated_at":"2026-10-14T09:15:00+07:00","overall":"RESEARCH_PENDING","seo":{"provider_status":"PASS","terminal_status":"PASS"},"flippa":{"status":"PASS"},"qualification":{"status":"PASS"}}
@@ -18,12 +21,20 @@ class DailyPipelineGates(unittest.TestCase):
   self.assertEqual(domain_from_verified_listing(self.x,{"14459714":self.deep[0]}),"hvacplanner.com")
  def test_unverified_detail_not_crosschecked(self):
   self.assertIsNone(domain_from_verified_listing({**self.x,"verified_detail":False},{"14459714":self.deep[0]}))
- def test_multiple_domains_ambiguous_skipped(self):
+ def test_title_does_not_override_verified_asset_identity(self):
   p={**self.deep[0],"title":"Site: Alpha.com and Beta.net | Flippa"}
-  self.assertIsNone(domain_from_verified_listing(self.x,{"14459714":p}))
+  self.assertEqual(domain_from_verified_listing(self.x,{"14459714":p}),"hvacplanner.com")
  def test_no_blind_flippa_slug_source(self):
-  p={**self.deep[0],"title":"Website for sale on Flippa"}
+  p={**self.deep[0],"title":"HVACPlanner.com | Website for sale on Flippa",
+     "asset_domain_verified":False}
   self.assertIsNone(domain_from_verified_listing(self.x,{"14459714":p}))
+ def test_semrush_identity_requires_exact_source_url(self):
+  bad={**self.deep[0],"verified_asset_url":"https://not-hvacplanner.com/"}
+  self.assertIsNone(domain_from_verified_listing(self.x,{"14459714":bad}))
+  bad={**self.deep[0],"asset_domain_source_kind":"SELLER_TITLE"}
+  self.assertIsNone(domain_from_verified_listing(self.x,{"14459714":bad}))
+  bad={**self.deep[0],"asset_domain_source_ref":""}
+  self.assertIsNone(domain_from_verified_listing(self.x,{"14459714":bad}))
  def test_empty_no_provider_calls(self):
   v=inspect("2026-10-14",{"status":"PASS","new":[]},output_root=self.d)
   self.assertEqual(v["status"],"PASS_EMPTY")
