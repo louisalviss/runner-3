@@ -143,6 +143,66 @@ zero. `DD_PENDING` only permits further manual due diligence, not BUILD/BUY.
 A future producer requires its own independent provenance acceptance and
 deployment review before use.
 
+
+## Website/Product DD — source-first review before BUILD_DD
+
+The existing SeoTrends product-intent and Exact SERP scanner remains the source
+owner. After its candidate passes the source gate, the reviewer must **open the
+actual public site**, not merely copy Semrush keywords or use the site's title.
+Review only a few promising products; do not run a new broad website crawler,
+schedule, paid agent, or keyword discovery loop.
+
+Inspect the live canonical homepage, a page demonstrating features/real workflow,
+and a pricing/commercial or demo page. Include each HTTPS URL, a short concrete
+finding, and an evidence reference that an independent reviewer can retrieve.
+When login/demo prevents product use, distinguish marketing claims from
+observed functionality and leave the unobserved step unverified. An access
+challenge is BLOCKED/needs source-owned browser recovery, not proof of no market.
+
+Store the bounded assessment as optional `site_product_review` on the **same
+candidate** in the date-scoped `*-semantic-business-dd.json` record. Reuse
+the current semantic record and review workflow, not a second scanner/writer.
+The record includes:
+
+- `status: REVIEWED`, `domain`, `user_job`, and `pages` (3–6 same-domain
+  HTTPS URL records typed `home`, `product`, `pricing` or `demo`,
+  with concrete `finding` and retrievable `source_ref`);
+- `buyer`, `product_type`, `actual_workflow`, `actual_output`,
+  `monetization`, `replication_risk`;
+- `proposed_small_utility` and `small_utility_feasibility: SUPPORTED`
+  only if a bounded product/output can reasonably be delivered; otherwise
+  leave it `NOT_SUPPORTED` or `UNKNOWN`.
+
+The source domain and user job must match the candidate and its existing
+`candidate_wedge`. Before a candidate may enter manual `BUILD_DD`, the
+existing four sourced business checks *and* the website/product review must
+pass. Failure to collect enough site pages → `DEFER` with exact missing
+evidence; a complex enterprise product is not declared buildable because
+its source domain has traffic. This remains review eligibility, not BUILD
+approval or evidence that an asserted `verified: true` is true.
+
+The source-owned scanner's `product_intent_checked` flag, terminal verdict,
+and same-day Semrush/SERP evidence take precedence over reviewer claims.
+A review is not an automatic producer of verified business evidence: the
+reviewer must inspect real page content, verify references, buyer, workflow,
+pricing, differentiator, and executable scope before marking `REVIEWED`.
+
+Example reviewed sites from 2026-11-06 (public marketing evidence only):
+- Planera: `https://www.planera.io/`, `/features`, `/pricing` — CPM,
+  construction scheduling, risk simulation, custom sales pricing;
+  full-product clone is not a bounded utility.
+- UrbiStat: `https://www.urbistat.com/ugeo-software-geomarketing/` —
+  geography/data-intensive business; bespoke subscriptions and demo.
+  An independently funded narrow product gap is not established.
+- PDF24: `https://tools.pdf24.org/en/faq`, `/create-pdf` —
+  unrestricted free PDF toolkit financed by ads; high traffic alone
+  provides no replicable new-product advantage.
+
+No real source-backed `QUALIFIED_DD` producer has been accepted. Until it
+exists and is independently reviewed, the live result stays `DEFER`.
+No automatic site fetching, Semrush query, data overwrite, BUILD/BUY, or
+production promotion is added by this PR.
+
 Run `python3 -m unittest -v test_build_buy_decision` from
 `jobs/opportunity-daily`; offline historical replay must preserve source
 counts, BLOCKED semantics, and zero automated approvals.
