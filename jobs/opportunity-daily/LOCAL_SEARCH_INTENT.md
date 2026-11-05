@@ -206,3 +206,69 @@ production promotion is added by this PR.
 Run `python3 -m unittest -v test_build_buy_decision` from
 `jobs/opportunity-daily`; offline historical replay must preserve source
 counts, BLOCKED semantics, and zero automated approvals.
+
+## Flippa asset-site DD (unified Acquisition Idea Radar)
+
+The Flippa lane and SeoTrends lane share one daily **BUILD-versus-BUY**
+qualification report, but their website evidence gates differ.
+
+For Flippa, discovery and listing-detail price/profit/traffic claims are only
+cheap DD prefilters. An eligible listing remains `SITE_DD_PENDING` (shown in
+`study_queue`, never silently dropped) until the operator has confirmed the
+**exact listing ID → actual asset domain** in authenticated or current direct
+listing evidence and inspected the real website. A guessed domain based on
+title/brand similarity is not evidence.
+
+Use the *existing* authenticated Flippa listing detail source and the existing
+`flippa-deep-YYYYMMDD.json` record for listing-bound enrichment. Fields on
+that same detail record, only after source verification:
+
+- `verified_asset_domain`, `asset_domain_verified: true`,
+  `asset_domain_source_kind: AUTHENTICATED_LIVE | DIRECT_LISTING_CURRENT`,
+  `asset_domain_source_ref` (retrievable exact-listing evidence).
+- `site_product_review` with `status: REVIEWED`, matching `listing_id`
+  and `asset_domain`, `asset_type`, `buyer`, `asset_offer`,
+  `actual_workflow`, `observed_conversion_path`,
+  `monetization_mechanism`, `operator_dependencies`, `transfer_risks`,
+  and 2–6 same-asset HTTPS `pages`. Include the homepage and at least
+  one product/content/offer/monetization/pricing/demo page. Every page
+  needs `url`, `kind`, a source-faithful `finding` and an independently
+  checkable `source_ref`.
+- Optional `independent_build_gap`: matching `user_job` plus four
+  separate reviewable claims `matched_keyword`, `exact_serp_gap`,
+  `small_utility_scope`, `revenue_path`; each needs `verified: true`,
+  `source_ref`, and concrete `finding`.
+
+The daily merger copies **only the above allowlisted fields from a verified
+direct-detail row** into the Flippa candidate. No new scanner, token, browser,
+timer, service or publisher is installed. Unknown/hidden buyer-domain mapping,
+blocked product pages, inaccessible platform demos, or conflicting seller
+claims remain `SITE_DD_PENDING`, with exact missing evidence. This is a
+source-evidence contract, **not** a claim that automated website inspection
+is already running.
+
+Flippa BUY DD may begin *only after* the verified website review, and still
+needs independent seller processor accounting, GA/GSC, ownership rights,
+traffic mix, asset/domain transfer, recurring costs, current listing status,
+and total transaction price. Flippa BUILD DD also requires independent
+keyword-to-underserved-task/feasibility/pricing evidence; copying the asset
+or believing seller traffic is insufficient. `DUAL_DD` requires both gates.
+Neither DD category grants permission to bid, contact sellers, sign an NDA,
+purchase, launch a product or promote to production.
+
+Example **not verified asset identity**: Flippa listing ID `13524796`
+is titled "Salon Home"; a matching-name public site
+`https://salon-home.com/` offers home/habitat editorial and paid
+visibility placements, but similarity is not identity proof. Its public
+site describes more than 40,000 monthly readers and lists packages from
+€99/€149, while the historical Flippa detail snapshot lists 439 monthly
+pageviews and the card reports $253 monthly profit. These are different
+surfaces/metric definitions, **not independently reconciled**. Do not mark
+this listing as `BUY_DD` until the exact asset, traffic period/definition,
+seller processor data and sale terms have been verified.
+
+Offline replay of the cached 2026-11-05 input changes its prior one
+Flippa `DUAL_DD` into `SITE_DD_PENDING`; the seven SeoTrends
+candidates stay `DEFER`. All raw source records remain unchanged;
+`approved_buy=0`, `approved_build=0`. The new flag carries evidence
+for manual review; it cannot manufacture provenance or verify payment data.
