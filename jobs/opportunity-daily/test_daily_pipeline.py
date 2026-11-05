@@ -2,11 +2,14 @@
 """Network-free regression for Flippa independent Semrush and daily Dropbox auto publish."""
 import json,pathlib,sys,tempfile,unittest
 from unittest.mock import patch
+import flippa_semrush_bridge as flippa_bridge
 from flippa_semrush_bridge import inspect, domain_from_verified_listing
 from daily_publish import publish, render_current
 
 class DailyPipelineGates(unittest.TestCase):
  def setUp(self):
+  self.old_python=flippa_bridge.PYTHON
+  flippa_bridge.PYTHON=sys.executable  # mock VPS interpreter only for local fake exporter
   self.tmp=tempfile.TemporaryDirectory();self.d=pathlib.Path(self.tmp.name)
   self.x={"id":"14459714","identity":"flippa:14459714","verdict":"BUILD_REFERENCE","verified_detail":True,"title":"HVAC Planner"}
   self.deep=[{"id":"14459714","status":200,"challenge":"NONE","title":"HVAC Planner: HVACPlanner.com — 42 calculators | Website for Sale on Flippa",
@@ -16,7 +19,9 @@ class DailyPipelineGates(unittest.TestCase):
   (self.d/'deep.json').write_text(json.dumps(self.deep))
   self.flippa={"status":"PASS","new":[self.x]}
   self.val={"date_vn":"2026-10-14","generated_at":"2026-10-14T09:15:00+07:00","overall":"RESEARCH_PENDING","seo":{"provider_status":"PASS","terminal_status":"PASS"},"flippa":{"status":"PASS"},"qualification":{"status":"PASS"}}
- def tearDown(self):self.tmp.cleanup()
+ def tearDown(self):
+  flippa_bridge.PYTHON=self.old_python
+  self.tmp.cleanup()
  def test_domain_from_actual_verified_listing_only(self):
   self.assertEqual(domain_from_verified_listing(self.x,{"14459714":self.deep[0]}),"hvacplanner.com")
  def test_unverified_detail_not_crosschecked(self):
