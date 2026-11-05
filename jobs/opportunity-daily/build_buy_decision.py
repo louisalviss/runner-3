@@ -113,6 +113,31 @@ def local_search_intent_review(semantic: dict, product_intent: bool) -> dict:
             "independently_validated": False}
 
 
+def verified_candidate_wedge(semantic: dict) -> bool:
+    """Fail-closed DD admission: the same bounded user task must have four sourced proofs.
+
+    This is eligibility for manual business DD, never BUILD approval. Merely
+    checking Exact SERP, counting competitor traffic, or setting a verdict is
+    insufficient. No external calls are performed here.
+    """
+    wedge = semantic.get("candidate_wedge")
+    if not isinstance(wedge, dict):
+        return False
+    if len(str(wedge.get("user_job") or "").strip()) < 12:
+        return False
+    if not str(wedge.get("query_cluster") or "").strip() or not str(wedge.get("target_market") or "").strip():
+        return False
+    for key in ("commercial_demand", "underserved_exact_serp", "bounded_build_scope", "credible_monetization"):
+        evidence = wedge.get(key)
+        if not isinstance(evidence, dict) or evidence.get("verified") is not True:
+            return False
+        if len(str(evidence.get("evidence_ref") or "").strip()) < 12:
+            return False
+        if len(str(evidence.get("finding") or "").strip()) < 16:
+            return False
+    return True
+
+
 def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
     domain = str(row.get("domain") or "").lower()
     semantic_verdict = str(semantic.get("semantic_verdict") or "")
@@ -127,10 +152,12 @@ def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
         build, why = "WATCH_GAP", str(semantic.get("business_reason") or "Gap not yet validated")[:300]
     elif semantic_verdict == "DEFER_UNMATCHED_INTENT" or not product_intent:
         build, why = "DEFER", "No independently matched commercially useful product-intent keyword"
-    elif not semantic_verdict and product_intent and raw in ("WATCH_DD", "SEO_BUILD_TEST"):
-        build, why = "DD_PENDING", "Exact SERP was checked but semantic business review, unmet need and monetization remain unverified"
+    elif (semantic_verdict == "QUALIFIED_DD" and product_intent and terminal == "WATCH"
+          and row.get("serp_gate") in ("SERP_DD_PASS", "WATCH_COMPETITION")
+          and verified_candidate_wedge(semantic)):
+        build, why = "DD_PENDING", "Four sourced business-case gates passed; manual DD still required, no BUILD approval"
     else:
-        build, why = "DD_PENDING", "Validate unmet user need, exact SERP, differentiation, monetization and conversion before BUILD"
+        build, why = "DEFER", "Source traffic or Exact SERP alone is not a business opportunity; verify demand, underserved task, bounded build scope and monetization"
     local_intent = local_search_intent_review(semantic, product_intent)
     metric = row.get("metrics") or {}
     traffic = positive_number(semantic.get("us_organic_estimate")) if semantic else positive_number(metric.get("traffic"))
@@ -148,6 +175,8 @@ def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
             "semantic_gate": semantic_verdict or "NOT_AVAILABLE", "semantic_review_completed": bool(semantic_verdict),
             "revenue_verified": False,
             "differentiated_solution_verified": False,
+            "candidate_wedge_evidence_complete": verified_candidate_wedge(semantic),
+            "next_gate": "FOUR_PART_CANDIDATE_WEDGE_DD" if build == "DEFER" else "MANUAL_BUSINESS_DD",
             "local_search_intent": local_intent,
         },
         "missing": ([] if build in ("DROP", "BLOCKED") else
