@@ -95,8 +95,62 @@ const EnhancedB = () => {
     <Footer version="B / GSAP + THREE"/>
   </AbsoluteFill>;
 };
+// Optional cinematic 3D shot. Deterministic: every movement is a function of the frame.
+const CinematicGem = () => {
+  const f = useCurrentFrame();
+  const p = easeOut((f - 10) / 40);
+  const t = f / 30;
+  return <group position={[0, Math.sin(t*1.5)*.075, 0]} scale={Math.max(.01,p)}>
+    <mesh rotation={[.3+t*.14,t*.37,.13+t*.08]}>
+      <dodecahedronGeometry args={[1.62,0]}/>
+      <meshPhysicalMaterial color="#14586c" metalness={.9} roughness={.16} clearcoat={1} flatShading/>
+    </mesh>
+    <mesh rotation={[.2,-.25+t*.34,-.15]} scale={.79}>
+      <icosahedronGeometry args={[1.63,1]}/>
+      <meshPhysicalMaterial color="#5ecac0" metalness={.67} roughness={.13} clearcoat={1} clearcoatRoughness={.08} flatShading/>
+    </mesh>
+    <mesh rotation={[1.08, t*.16, -.38+t*.23]}>
+      <torusGeometry args={[2.42,.065,16,120]}/>
+      <meshPhysicalMaterial color="#e9c494" metalness={.87} roughness={.19} clearcoat={1}/>
+    </mesh>
+    <mesh rotation={[-.37,.55,.6-t*.25]}>
+      <torusGeometry args={[2.19,.026,12,120]}/>
+      <meshStandardMaterial color="#a4d9e4" metalness={.73} roughness={.21} emissive="#187a94" emissiveIntensity={.35}/>
+    </mesh>
+    <mesh position={[2.42*Math.cos(t),2.42*Math.sin(t),0]}>
+      <sphereGeometry args={[.11,16,12]}/>
+      <meshStandardMaterial color="#fff4d9" metalness={.55} roughness={.12} emissive="#b98750" emissiveIntensity={.3}/>
+    </mesh>
+  </group>;
+};
+const CinematicB2 = () => {
+  const frame = useCurrentFrame();
+  const scope = useGsapTimeline(({timeline,selector}) => {
+    timeline.from(selector('[data-kicker]'),{y:22,opacity:0,duration:.8,ease:'power3.out'},.12)
+      .from(selector('[data-heading]'),{y:40,opacity:0,duration:1,ease:'power3.out'},2)
+      .from(selector('[data-tag]'),{y:18,opacity:0,duration:.7},3.25);
+  });
+  const reveal = easeOut((frame - 12) / 55);
+  return <AbsoluteFill ref={scope} style={shared}>
+    <Header/>
+    <div style={{position:'absolute',top:215,left:40,width:460,height:440,borderRadius:'50%',background:'radial-gradient(circle,#3f8a9e55,transparent 67%)',filter:'blur(26px)',opacity:.6}}/>
+    <div style={{position:'absolute',top:218,left:0,width:W,height:445}}>
+      <ThreeCanvas width={W} height={445} camera={{fov:48,position:[1.25*Math.sin(frame*.005),.4,8.35-.55*reveal]}} style={{width:W,height:445,backgroundColor:'transparent'}}>
+        <ambientLight intensity={.65}/>
+        <hemisphereLight args={['#c3f0ec','#16344a',1.6]}/>
+        <directionalLight color="#fff2db" intensity={4.2} position={[-4,5,6]}/>
+        <directionalLight color="#51e3db" intensity={2.4} position={[4,-1,2]}/>
+        <pointLight color="#638dff" intensity={45} position={[0,-3,2]} distance={12}/>
+        <CinematicGem/>
+      </ThreeCanvas>
+    </div>
+    <Copy/>
+    <Footer version="B2 / CINEMATIC 3D"/>
+  </AbsoluteFill>;
+};
 const Root = () => <>
   <Composition id="MotionA" component={BaselineA} durationInFrames={180} fps={30} width={W} height={H}/>
   <Composition id="MotionB" component={EnhancedB} durationInFrames={180} fps={30} width={W} height={H}/>
+  <Composition id="MotionB2" component={CinematicB2} durationInFrames={180} fps={30} width={W} height={H}/>
 </>;
 registerRoot(Root);
