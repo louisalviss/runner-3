@@ -215,6 +215,27 @@ class BuildBuyDecisionGates(unittest.TestCase):
         self.assertEqual(x["category"],"REFERENCE_ONLY")
         self.assertEqual(x["buy"]["state"],"DEFER")
         self.assertFalse(x["evidence"]["profit_independently_verified"])
+    def test_captured_pages_do_not_auto_claim_business_review(self):
+        row=flippa(id="10",profit_card=500,verdict="BUY_DD",
+            verified_asset_domain="sample-site.example",asset_domain_verified=True,
+            asset_domain_source_kind="AUTHENTICATED_LIVE",
+            asset_domain_source_ref="https://flippa.com/10#asset-link-sha256:fixture",
+            site_product_review={"status":"CAPTURED_PUBLIC_PENDING_REVIEW","listing_id":"10",
+                "asset_domain":"sample-site.example",
+                "pages":[{"kind":"home","url":"https://sample-site.example/",
+                          "source_ref":"flippa-deep-20261105.json#site-sha256:fixture"},
+                         {"kind":"pricing","url":"https://sample-site.example/pricing",
+                          "source_ref":"flippa-deep-20261105.json#site-sha256:other"}]})
+        out=flippa_qualification(row,10000)
+        self.assertEqual(out["category"],"SITE_DD_PENDING")
+        self.assertEqual(out["buy"]["state"],"SITE_REVIEW_PENDING")
+        self.assertTrue(out["evidence"]["asset_domain_identity_verified"])
+        self.assertEqual(out["evidence"]["verified_asset_domain"],"sample-site.example")
+        self.assertEqual(out["evidence"]["site_pages_captured"],2)
+        self.assertEqual(out["evidence"]["site_capture_status"],"CAPTURED_PUBLIC_PENDING_REVIEW")
+        self.assertFalse(out["evidence"]["asset_site_review_complete"])
+        self.assertFalse(out["evidence"]["profit_independently_verified"])
+
     def test_flippa_site_review_domain_proof_buy_only(self):
         row=flippa(id="10",profit_card=500,verdict="BUY_DD",
             verified_asset_domain="example.org",asset_domain_verified=True,
