@@ -5,6 +5,8 @@ on:
     paths:
       - 'jobs/opportunity-daily/build_buy_decision.py'
       - 'jobs/opportunity-daily/test_build_buy_decision.py'
+      - 'jobs/opportunity-daily/opportunity_daily.py'
+      - 'jobs/opportunity-daily/test_opportunity_daily.py'
       - 'jobs/opportunity-daily/LOCAL_SEARCH_INTENT.md'
       - '.github/workflows/opportunity-daily-qualification.yml'
   workflow_dispatch:
@@ -25,4 +27,4 @@ jobs:
         uses: actions/checkout@v4
       - name: Run fail-closed qualification tests (offline)
         working-directory: jobs/opportunity-daily
-        run: python3 -m unittest -v test_build_buy_decision
+        run: python3 -m unittest -v test_build_buy_decision test_opportunity_daily
