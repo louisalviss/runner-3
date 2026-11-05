@@ -113,7 +113,56 @@ def local_search_intent_review(semantic: dict, product_intent: bool) -> dict:
             "independently_validated": False}
 
 
-def verified_candidate_wedge(semantic: dict) -> bool:
+def verified_site_product_review(semantic: dict, domain: str, user_job: str) -> bool:
+    """Only a source-linked website/product examination can unlock business DD.
+
+    The reviewer must separately inspect the cited pages; structured claims
+    alone do not prove market demand or product performance.
+    """
+    review = semantic.get("site_product_review")
+    if not isinstance(review, dict) or review.get("status") != "REVIEWED":
+        return False
+    if str(review.get("domain") or "").casefold() != domain.casefold():
+        return False
+    if str(review.get("user_job") or "").strip().casefold() != user_job.strip().casefold():
+        return False
+    for field in ("buyer", "product_type", "actual_workflow", "actual_output",
+                  "monetization", "replication_risk", "proposed_small_utility"):
+        if len(str(review.get(field) or "").strip()) < 15:
+            return False
+    if review.get("small_utility_feasibility") != "SUPPORTED":
+        return False
+    pages = review.get("pages")
+    if not isinstance(pages, list) or not 3 <= len(pages) <= 6:
+        return False
+    types = set()
+    urls = set()
+    for page in pages:
+        if not isinstance(page, dict):
+            return False
+        url = page.get("url")
+        if not _is_public_https(url):
+            return False
+        host = (urlsplit(url).hostname or "").casefold()
+        if host != domain.casefold() and not host.endswith("." + domain.casefold()):
+            return False
+        if url in urls:
+            return False
+        urls.add(url)
+        kind = page.get("kind")
+        if kind not in ("home", "product", "pricing", "demo"):
+            return False
+        types.add(kind)
+        if len(str(page.get("finding") or "").strip()) < 20:
+            return False
+        if len(str(page.get("source_ref") or "").strip()) < 12:
+            return False
+    if not {"home", "product"}.issubset(types) or not types.intersection({"pricing", "demo"}):
+        return False
+    return True
+
+
+def verified_candidate_wedge(semantic: dict, domain: str = "") -> bool:
     """Fail-closed DD admission: the same bounded user task must have four sourced proofs.
 
     This is eligibility for manual business DD, never BUILD approval. Merely
@@ -135,7 +184,7 @@ def verified_candidate_wedge(semantic: dict) -> bool:
             return False
         if len(str(evidence.get("finding") or "").strip()) < 16:
             return False
-    return True
+    return verified_site_product_review(semantic, domain, str(wedge["user_job"]))
 
 
 def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
@@ -147,12 +196,15 @@ def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
     semantic_terminal = str(semantic.get("terminal_verdict") or "")
     terminal = source_terminal or semantic_terminal
     raw = str(row.get("verdict") or "")
-    product_intent = (semantic.get("product_intent_checked") is True if semantic else row.get("product_intent_checked") is True)
+    # Only the scanner may establish product intent. Semantic DD corroborates it.
+    product_intent = row.get("product_intent_checked") is True
+    semantic_product_intent = semantic.get("product_intent_checked") is True
     if raw in ("BLOCKED_PROVIDER", "BLOCKED_SERP") or terminal == "BLOCKED" or not provider_ok:
         build, why = "BLOCKED", "Semrush or exact-SERP evidence incomplete; never infer zero demand"
     elif raw == "DROP" or terminal == "DROP" or semantic_verdict == "DROP_THIS_CYCLE":
         build, why = "DROP", str(semantic.get("business_reason") or row.get("reason") or "Terminal rejection")[:300]
-    elif semantic_verdict == "WATCH_NARROW_GAP" and product_intent and terminal == "WATCH":
+    elif (semantic_verdict == "WATCH_NARROW_GAP" and product_intent
+          and semantic_product_intent and terminal == "WATCH"):
         build, why = "WATCH_GAP", str(semantic.get("business_reason") or "Gap not yet validated")[:300]
     elif semantic_verdict == "DEFER_UNMATCHED_INTENT" or not product_intent:
         build, why = "DEFER", "No independently matched commercially useful product-intent keyword"
@@ -162,7 +214,7 @@ def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
           and semantic.get("product_intent_checked") is True
           and raw in ("WATCH_DD", "SEO_BUILD_TEST")
           and row.get("serp_gate") in ("SERP_DD_PASS", "WATCH_COMPETITION")
-          and verified_candidate_wedge(semantic)):
+          and verified_candidate_wedge(semantic, domain)):
         build, why = "DD_PENDING", "Four sourced business-case gates passed; manual DD still required, no BUILD approval"
     else:
         build, why = "DEFER", "Source traffic or Exact SERP alone is not a business opportunity; verify demand, underserved task, bounded build scope and monetization"
@@ -179,11 +231,14 @@ def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
             "source_organic_us_monthly_estimate": traffic,
             "source_traffic_is_transferable": False,
             "product_intent_exact_serp_checked": product_intent,
+            "semantic_product_intent_corroborated": semantic_product_intent,
             "terminal_gate": terminal or raw,
             "semantic_gate": semantic_verdict or "NOT_AVAILABLE", "semantic_review_completed": bool(semantic_verdict),
             "revenue_verified": False,
             "differentiated_solution_verified": False,
-            "candidate_wedge_evidence_complete": verified_candidate_wedge(semantic),
+            "candidate_wedge_evidence_complete": verified_candidate_wedge(semantic, domain),
+            "site_product_review_complete": verified_site_product_review(semantic, domain,
+                str((semantic.get("candidate_wedge") or {}).get("user_job") or "")),
             "next_gate": "FOUR_PART_CANDIDATE_WEDGE_DD" if build == "DEFER" else "MANUAL_BUSINESS_DD",
             "local_search_intent": local_intent,
         },
