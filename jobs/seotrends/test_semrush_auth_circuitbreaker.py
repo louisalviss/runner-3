@@ -23,7 +23,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
     def test_explicit_page_size_passes_to_existing_exporter(self):
         class Fake:
             returncode=0
-            stdout='{"status":"PASS","domain":"example.com"}\\n'
+            stdout='{"status":"PASS","domain":"example.com"}\n'
             stderr=''
         calls=[]
         def stub(cmd,**kwargs):
@@ -42,7 +42,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
                 {"items": [{"domain": d, "discovery_score": 1}
                            for d in ("example-a.com", "example-b.com", "example-c.com")]}))
             seen = []
-            def exporter(domain, path, timeout):
+            def exporter(domain, path, timeout, page_size=10000):
                 seen.append(domain)
                 return {"status": "FAIL", "reason": "RuntimeError:BROKER_DPA:SEMRUSH_LIVE_AUTH_UNAVAILABLE"}
             with patch.object(daily, "SCANS", temp), patch.object(daily, "run_export", exporter), \
@@ -66,7 +66,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
             out.mkdir()
             (out / "c.com.json").write_text(json.dumps({"domain": "c.com", "rows": []}))
             seen = []
-            def exporter(domain, path, timeout):
+            def exporter(domain, path, timeout, page_size=10000):
                 seen.append(domain)
                 return {"status": "FAIL", "reason": "RuntimeError:BROKER_DPA:SEMRUSH_LIVE_AUTH_UNAVAILABLE"}
             with patch.object(daily, "SCANS", temp), patch.object(daily, "run_export", exporter), \
@@ -88,7 +88,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
             out.mkdir()
             (out / "cached.com.json").write_text(json.dumps({"domain": "cached.com", "rows": []}))
             calls = []
-            def exporter(domain, path, timeout):
+            def exporter(domain, path, timeout, page_size=10000):
                 calls.append(domain)
                 return {"status": "FAIL", "reason":
                     "RuntimeError:BROKER_DPA:{'message': 'NON_JSON', 'sample': 'Session expired, access again from Dashboard\\\\n'}"}
@@ -109,7 +109,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
                 {"items": [{"domain": x} for x in ("a.com", "b.com")]}))
             attempts = []
             renewals = []
-            def exporter(domain, output, timeout):
+            def exporter(domain, output, timeout, page_size=10000):
                 attempts.append(domain)
                 if domain == "a.com" and attempts.count(domain) == 1:
                     return {"status": "FAIL", "reason":
@@ -135,7 +135,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
             out=temp/"2026-10-17-semrush";out.mkdir()
             (out/"cached.com.json").write_text(json.dumps({"domain":"cached.com","rows":[]}))
             attempts=[]
-            def exporter(domain, output, timeout):
+            def exporter(domain, output, timeout, page_size=10000):
                 attempts.append(domain)
                 return {"status":"FAIL","reason":"Session expired, access again from Dashboard"}
             with patch.object(daily,"SCANS",temp),patch.object(daily,"run_export",exporter),                     patch.object(daily,"recover_expired_session",lambda:{"ok":False,"state":"NOX_DASHBOARD_CHALLENGE"}),                     patch("sys.argv",["semrush_daily.py","--date","2026-10-17"]):
@@ -153,7 +153,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
             (temp/"2026-10-17-semrush-queue.json").write_text(json.dumps(
                 {"items":[{"domain":x} for x in ("a.com","b.com")]}))
             seen=[]
-            def exporter(domain, output, timeout):
+            def exporter(domain, output, timeout, page_size=10000):
                 seen.append(domain)
                 return {"status":"FAIL","reason":"Session expired, access again from Dashboard"}
             with patch.object(daily,"SCANS",temp),patch.object(daily,"run_export",exporter),                     patch.object(daily,"recover_expired_session",lambda:{"ok":True,"state":"SHARD_REFRESHED"}),                     patch("sys.argv",["semrush_daily.py","--date","2026-10-17"]):
