@@ -1,0 +1,28 @@
+name: Opportunity Daily Qualification
+
+on:
+  pull_request:
+    paths:
+      - 'jobs/opportunity-daily/build_buy_decision.py'
+      - 'jobs/opportunity-daily/test_build_buy_decision.py'
+      - 'jobs/opportunity-daily/LOCAL_SEARCH_INTENT.md'
+      - '.github/workflows/opportunity-daily-qualification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opportunity-daily-qualification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualification-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout pinned revision
+        uses: actions/checkout@v4
+      - name: Run fail-closed qualification tests (offline)
+        working-directory: jobs/opportunity-daily
+        run: python3 -m unittest -v test_build_buy_decision
