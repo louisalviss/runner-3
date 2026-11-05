@@ -34,9 +34,28 @@ def localized_market():
         "serp_result_urls": [f"https://site{i}.example/tools" for i in range(5)],
     }
 
+def product_review(domain, job):
+    return {"status":"REVIEWED","domain":domain,"user_job":job,
+        "buyer":"Managers preparing business operations",
+        "product_type":"Commercial workflow SaaS for organizations",
+        "actual_workflow":"Plan and monitor real-world work with business data",
+        "actual_output":"A structured and actionable business report",
+        "monetization":"Quoted recurring subscription for paying teams",
+        "replication_risk":"Building a full incumbent clone is expensive",
+        "proposed_small_utility":"One bounded and independently useful workflow output",
+        "small_utility_feasibility":"SUPPORTED",
+        "pages":[
+            {"kind":"home","url":"https://"+domain+"/","finding":"Public homepage presents the product and buyer",
+             "source_ref":"website-snapshot/home#sha256:fixture"},
+            {"kind":"product","url":"https://"+domain+"/features","finding":"Feature detail describes product workflow",
+             "source_ref":"website-snapshot/features#sha256:fixture"},
+            {"kind":"pricing","url":"https://"+domain+"/pricing","finding":"Pricing page discloses the commercial model",
+             "source_ref":"website-snapshot/pricing#sha256:fixture"}]}
+
+
 class BuildBuyDecisionGates(unittest.TestCase):
     def test_traffic_not_equal_build_ready(self):
-        x=seo_qualification(seo(),sem(),True)
+        x=seo_qualification(dict(seo(),product_intent_checked=True),sem(),True)
         self.assertEqual(x["build"]["state"],"WATCH_GAP")
         self.assertFalse(x["evidence"]["source_traffic_is_transferable"])
     def test_terminal_drop_overrides_semantic_watch(self):
@@ -81,7 +100,8 @@ class BuildBuyDecisionGates(unittest.TestCase):
             semantic={"date":"2026-11-05","status":"PASS_SOURCE_PLUS_SEMANTIC_SCREEN",
                       "approved_build":0,"items":[{"domain":"verified.test",
                       "semantic_verdict":"QUALIFIED_DD","terminal_verdict":"WATCH",
-                      "product_intent_checked":True,"candidate_wedge":wedge}]}
+                      "product_intent_checked":True,"candidate_wedge":wedge,
+                      "site_product_review":product_review("verified.test",wedge["user_job"])}]}
             target=root/"2026-11-05-semantic-business-dd.json"
             target.write_text(json.dumps(semantic))
             row=dict(seo("verified.test"),product_intent_checked=True,
@@ -110,9 +130,11 @@ class BuildBuyDecisionGates(unittest.TestCase):
             wedge[key]={"verified":True,"evidence_ref":"runner-vps1:/var/lib/example/evidence.json",
                         "finding":"A detailed independently reviewable proof for the candidate"}
         x=seo_qualification(row,{"semantic_verdict":"QUALIFIED_DD","terminal_verdict":"WATCH",
-                                 "product_intent_checked":True,"candidate_wedge":wedge},True)
+                                 "product_intent_checked":True,"candidate_wedge":wedge,
+                                 "site_product_review":product_review("example.com",wedge["user_job"])},True)
         self.assertEqual(x["category"],"BUILD_DD")
         self.assertEqual(x["build"]["state"],"DD_PENDING")
+        self.assertTrue(x["evidence"]["site_product_review_complete"])
         self.assertTrue(x["evidence"]["candidate_wedge_evidence_complete"])
         self.assertFalse(x["evidence"]["revenue_verified"])
         self.assertFalse(x["evidence"]["differentiated_solution_verified"])
@@ -151,6 +173,41 @@ class BuildBuyDecisionGates(unittest.TestCase):
         contradictory_semantic=dict(semantic,terminal_verdict="BLOCKED")
         self.assertNotEqual(seo_qualification(verified_source,contradictory_semantic,True)["category"],"BUILD_DD")
 
+    def test_site_inspection_required_before_build_dd(self):
+        row=dict(seo(),product_intent_checked=True,terminal_verdict="WATCH",serp_gate="SERP_DD_PASS")
+        job="Monitor the progress of team construction projects"
+        wedge={"user_job":job,"query_cluster":"construction project progress",
+               "target_market":"US/en"}
+        for key in ("commercial_demand","underserved_exact_serp","bounded_build_scope","credible_monetization"):
+            wedge[key]={"verified":True,"evidence_ref":"stored-exact-source/fixture",
+                        "finding":"A source-linked and separately reviewable finding"}
+        seme={"semantic_verdict":"QUALIFIED_DD","terminal_verdict":"WATCH",
+              "product_intent_checked":True,"candidate_wedge":wedge}
+        a=seo_qualification(row,seme,True)
+        self.assertEqual(a["category"],"DEFER")
+        self.assertFalse(a["evidence"]["site_product_review_complete"])
+        b=seo_qualification(row,{**seme,"site_product_review":product_review("example.com",job)},True)
+        self.assertEqual(b["category"],"BUILD_DD")
+        wrong=product_review("unrelated.com",job)
+        self.assertEqual(seo_qualification(row,{**seme,"site_product_review":wrong},True)["category"],"DEFER")
+        incomplete=product_review("example.com",job)
+        incomplete["pages"]=incomplete["pages"][:2]
+        self.assertEqual(seo_qualification(row,{**seme,"site_product_review":incomplete},True)["category"],"DEFER")
+        complex_site=product_review("example.com",job)
+        complex_site["small_utility_feasibility"]="NOT_SUPPORTED"
+        self.assertEqual(seo_qualification(row,{**seme,"site_product_review":complex_site},True)["category"],"DEFER")
+        misleading=product_review("example.com",job)
+        misleading["pages"][1]["url"]="https://example.com.attacker.invalid/features"
+        self.assertEqual(seo_qualification(row,{**seme,"site_product_review":misleading},True)["category"],"DEFER")
+
+    def test_semantic_product_intent_cannot_mint_source_intent(self):
+        row=seo()
+        seme=sem()
+        x=seo_qualification(row,seme,True)
+        self.assertEqual(x["category"],"DEFER")
+        self.assertFalse(x["evidence"]["product_intent_exact_serp_checked"])
+        self.assertTrue(x["evidence"]["semantic_product_intent_corroborated"])
+
     def test_semantic_false_positive_is_drop(self):
         self.assertEqual(seo_qualification(seo(),sem(verdict="DROP_THIS_CYCLE"),True)["category"],"DROP")
     def test_flippa_listing_reference_not_buy(self):
@@ -177,7 +234,7 @@ class BuildBuyDecisionGates(unittest.TestCase):
                "approved_build":0,"items":[sem("a.com")]}
             (root/"2026-10-14-semantic-business-dd.json").write_text(json.dumps(s))
             src={"provider_status":"PASS","terminal_status":"PASS","source_complete":True,
-                 "items":[seo("a.com"),seo("other.com",verdict="DROP")]}
+                 "items":[dict(seo("a.com"),product_intent_checked=True),seo("other.com",verdict="DROP")]}
             fl={"status":"PASS","new":[flippa(profit_card=850,verdict="BUY_DD")]}
             q=qualify("2026-10-14",src,fl,root=root)
             self.assertEqual(q["status"],"PASS")
@@ -209,7 +266,7 @@ class BuildBuyDecisionGates(unittest.TestCase):
     def test_local_intent_requires_provenance_and_country_serp(self):
         source = sem()
         source["local_search_intent"] = {"markets": [localized_market()]}
-        x = seo_qualification(seo(), source, True)
+        x = seo_qualification(dict(seo(),product_intent_checked=True), source, True)
         review = x["evidence"]["local_search_intent"]
         self.assertEqual(review["status"], "REVIEW_READY")
         self.assertEqual(review["review_priority"], "EVIDENCE_REVIEW_ONLY")
@@ -221,14 +278,14 @@ class BuildBuyDecisionGates(unittest.TestCase):
     def test_local_translation_alone_not_an_opportunity(self):
         m = localized_market()
         m["serp_result_urls"] = []
-        x = seo_qualification(seo(), {**sem(), "local_search_intent": {"markets": [m]}}, True)
+        x = seo_qualification(dict(seo(),product_intent_checked=True), {**sem(), "local_search_intent": {"markets": [m]}}, True)
         self.assertEqual(x["evidence"]["local_search_intent"]["status"], "EVIDENCE_INCOMPLETE")
         self.assertIn("native-language keyword and country-specific SERP evidence", x["missing"])
 
     def test_local_intent_cannot_pass_on_high_volume_without_gap(self):
         m = localized_market()
         m["matches_product_intent"] = False
-        self.assertEqual(seo_qualification(seo(), {**sem(), "local_search_intent": {"markets": [m]}}, True)
+        self.assertEqual(seo_qualification(dict(seo(),product_intent_checked=True), {**sem(), "local_search_intent": {"markets": [m]}}, True)
                          ["evidence"]["local_search_intent"]["status"], "EVIDENCE_INCOMPLETE")
 
     def test_live_serp_blocker_preserved_on_provider_pass(self):
@@ -242,7 +299,7 @@ class BuildBuyDecisionGates(unittest.TestCase):
         m = localized_market()
         m["serp_result_urls"] = ["https://same.example/page"] * 10 + ["http://bad.example"]
         m["serp_checked_at"] = "2099-01-01"
-        x = seo_qualification(seo(), {**sem(), "local_search_intent": {"markets": [m]}}, True)
+        x = seo_qualification(dict(seo(),product_intent_checked=True), {**sem(), "local_search_intent": {"markets": [m]}}, True)
         self.assertEqual(x["evidence"]["local_search_intent"]["status"], "EVIDENCE_INCOMPLETE")
 
     def test_local_intent_not_checked_if_upstream_product_intent_missing(self):
