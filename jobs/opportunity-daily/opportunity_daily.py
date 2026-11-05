@@ -212,7 +212,15 @@ def read_flippa(current_path, previous_path=None, deep_path=None):
         elif confirmed and vetted and isinstance(profit,(int,float)) and profit >= 250:
             verdict, reason = "BUY_DD", "Economics need proof of recurring profit and transferability"
         research = ["direct current listing/attainable reserve","GSC/GA + Semrush + exact SERP","unit economics/processor/cohorts","BUY vs BUILD","selective independent Reddit/X/Facebook evidence"]
-        rows.append({"identity":"flippa:"+key, "id":key,"title":title,"url":card.get("href",""),"ask_card":cost,"profit_card":profit,"vetted_card":vetted,"reserve_verified":reserve,"bin_verified":bin_price,"asking_verified":asking_price,"pageviews_verified":pageviews,"subscriber_count":subs,"churn":churn,"source":"FLIPPA","verdict":verdict,"reason":reason,"research":research,"verified_detail":confirmed,"score":round((5 if vetted else 0) + min(5,max(0,profit or 0)/200) + (2 if seo_hint else 0),2)})
+        # Propagate only explicit, listing-bound asset review fields from an
+        # authenticated/direct detail record. Never infer the sold domain
+        # from the listing title or unstructured text.
+        allowed = ("verified_asset_domain", "asset_domain_verified",
+                   "asset_domain_source_kind", "asset_domain_source_ref",
+                   "site_product_review", "independent_build_gap")
+        asset_review = ({k: direct[k] for k in allowed if k in direct}
+                        if confirmed else {})
+        rows.append({"identity":"flippa:"+key, "id":key,"title":title,"url":card.get("href",""),"ask_card":cost,"profit_card":profit,"vetted_card":vetted,"reserve_verified":reserve,"bin_verified":bin_price,"asking_verified":asking_price,"pageviews_verified":pageviews,"subscriber_count":subs,"churn":churn,"source":"FLIPPA","verdict":verdict,"reason":reason,"research":research,"verified_detail":confirmed,"score":round((5 if vetted else 0) + min(5,max(0,profit or 0)/200) + (2 if seo_hint else 0),2),**asset_review})
     rows.sort(key=lambda x:(x["verdict"] not in ("SEO_BUY_DD","BUY_DD","BUILD_REFERENCE"),-x["score"],x["identity"]))
     return {"status":"PASS","new":rows,"stats":{"first_access":len(set(current["first_ids"])),"recent":len(curr_ids),"entered_recent_window":len(delta),"exited_recent_window":len(prev_ids - curr_ids),"first_access_delta":len(set(current["first_ids"])-set(old.get("first_ids",[]))),"source_pages":len(pages)}}
 
@@ -260,11 +268,11 @@ def format_report(v):
     qualification=v.get("qualification") or {}
     if qualification:
         c=qualification.get("counts") or {}
-        lines += ["", "## Unified BUILD or BUY qualification", "- Scanner/evidence gate: "+qualification["status"]+"; candidates evaluated: "+str(qualification["evaluated"])+" (not every Flippa card).", "- Semantic business evidence: "+str(qualification.get('business_semantic_source_status') or 'NOT_RUN')+"; end-to-end business DD: "+str(qualification.get('end_to_end_business_dd') or 'NOT_RUN')+"; X/Facebook/Reddit validation: "+str(qualification.get('end_to_end_social_check') or 'NOT_RUN')+".", "- BUY approved: 0; BUILD approved: 0; DD shortlist: "+str(len(qualification["actionable_dd"]))+"; study/reference: "+str(len(qualification["study_queue"]))+".", "- Evidence status counts: "+", ".join(str(k)+"="+str(c[k]) for k in sorted(c)), "- Seller card earnings are NOT audited earnings; source domain traffic is NOT transferable to a new site.", "", "### DD candidates (not approval)"]
+        lines += ["", "## Unified BUILD or BUY qualification", "- Scanner/evidence gate: "+qualification["status"]+"; candidates evaluated: "+str(qualification["evaluated"])+" (not every Flippa card).", "- Semantic business evidence: "+str(qualification.get('business_semantic_source_status') or 'NOT_RUN')+"; end-to-end business DD: "+str(qualification.get('end_to_end_business_dd') or 'NOT_RUN')+"; X/Facebook/Reddit validation: "+str(qualification.get('end_to_end_social_check') or 'NOT_RUN')+".", "- BUY approved: 0; BUILD approved: 0; DD shortlist: "+str(len(qualification["actionable_dd"]))+"; site-review / study / reference: "+str(len(qualification["study_queue"]))+".", "- Evidence status counts: "+", ".join(str(k)+"="+str(c[k]) for k in sorted(c)), "- Seller card earnings are NOT audited earnings; source domain traffic is NOT transferable to a new site.", "", "### DD candidates (not approval)"]
         for x in qualification["actionable_dd"]:
             lines.append("- **"+str(x["title"])+"** ["+x["source"]+" / "+x["category"]+"] "+x["reference"]+"; BUY="+x["buy"]["state"]+" / BUILD="+x["build"]["state"]+"; verify: "+", ".join(x["missing"][:3]))
         if not qualification["actionable_dd"]: lines.append("- None: zero candidates have enough evidence to enter a focused DD shortlist.")
-        lines += ["", "### Study or reference only (not approved)"]
+        lines += ["", "### Website/asset review pending, WATCH or reference (not approved)"]
         for x in qualification["study_queue"]:
             lines.append("- **"+str(x["title"])+"** ["+x["source"]+" / "+x["category"]+"] "+x["reference"]+"; "+x["build"]["why"])
         if not qualification["study_queue"]: lines.append("- None.")
