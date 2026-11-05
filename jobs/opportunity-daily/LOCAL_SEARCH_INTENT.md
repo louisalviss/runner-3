@@ -272,3 +272,53 @@ Flippa `DUAL_DD` into `SITE_DD_PENDING`; the seven SeoTrends
 candidates stay `DEFER`. All raw source records remain unchanged;
 `approved_buy=0`, `approved_build=0`. The new flag carries evidence
 for manual review; it cannot manufacture provenance or verify payment data.
+
+
+## Flippa public website capture — source-backed browser stage (PR #530)
+
+The existing Flippa authenticated detail owner `flippa_deep_daily.py` now performs
+a **bounded post-detail capture** when the exact current Flippa listing contains
+one unambiguous, explicitly labeled external "Visit Website" / "Website" link.
+It records the URL, source-linked domain and anchor fingerprint in the SAME
+`flippa-deep-YYYYMMDD.json` record. No title guessing and no confidential/NDA
+domain recovery. Multiple distinct candidate domains or no labeled website
+link produce **no verified asset identity**.
+
+After the authenticated Flippa browser context is closed, a single
+Guardian-owned *public* CDP worker (`/usr/local/bin/vps-cdp-job`) may inspect
+**one verified asset per daily run**, up to two same-domain HTTPS public pages
+(home and best matching product, pricing, services or advertising page).
+The worker has separate transient proxy-backed identity and browser slot,
+no sharing of Flippa cookies, a bounded timeout, public DNS/IP checks, and
+cleanup of its own temporary job/result workspaces. Failed/blocked pages do
+not rewrite the original listing evidence. The linked domain must match the
+final retrieved public-page domain; redirects elsewhere fail closed.
+
+Captured public evidence is `site_product_review.status:
+CAPTURED_PUBLIC_PENDING_REVIEW` (or `PARTIAL_PUBLIC_CAPTURE` /
+`PUBLIC_CAPTURE_BLOCKED`). It includes exact URLs, observed title and
+bounded page-text excerpt, content SHA256, listing ID and local source
+pointers; `semantic_review_required: true` and
+`financials_independently_verified: false`. **Do not** change this
+automatically to `REVIEWED`. The existing strict BUY/BUILD gates
+intentionally need independent semantic inspection, source/provenance
+and financial verification. The daily report exposes verified domain,
+page count and capture status while keeping such listings in
+`SITE_DD_PENDING`.
+
+Also, `flippa_semrush_bridge.py` no longer infers a domain for provider
+queries from a listing title. Semrush cross-check only uses source-proven
+asset identity in the direct verified listing. Cached legacy cross-check
+records do not establish ownership.
+
+Offline controls: exact listing ID, labeled anchor, disallowed ambiguous
+external links and unsafe URL, 2-page bounds, off-domain redirect, incomplete
+capture, no automatic BUY upgrade, and existing backup/source cases.
+GitHub Actions `Opportunity Daily Qualification` checks qualification,
+daily synthesis, Flippa detail and Semrush bridge tests together.
+
+Implementation lives in Draft PR #530; no production promotion,
+automatic bid, buyer account mutation, extra scanner/timer or separately
+owned writer was introduced. After CI, acceptance still requires an observed
+live listing-to-website identity and public material capture, independent
+review, authorized merge/deploy and fresh report readback.
