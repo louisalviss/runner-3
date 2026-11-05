@@ -5,7 +5,8 @@
     "render": "remotion render src/index.jsx PalmMotion out/remotion-smoke.mp4 --codec=h264 --crf=18",
     "render:motion:a": "remotion render src/motion-ab.jsx MotionA out/motion-a.mp4 --codec=h264 --crf=18 --concurrency=1",
     "render:motion:b": "remotion render src/motion-ab.jsx MotionB out/motion-b.mp4 --codec=h264 --crf=18 --concurrency=1 --gl=swangle",
-    "render:motion:ab": "npm run render:motion:a && npm run render:motion:b"
+    "render:motion:ab": "npm run render:motion:a && npm run render:motion:b",
+    "render:motion:b2": "remotion render src/motion-ab.jsx MotionB2 out/motion-b2.mp4 --codec=h264 --crf=18 --concurrency=1 --gl=swangle"
   },
   "dependencies": {
     "@remotion/cli": "4.0.541",
