@@ -2,12 +2,20 @@
   "name": "runner3-remotion-video",
   "private": true,
   "scripts": {
-    "render": "remotion render src/index.jsx PalmMotion out/remotion-smoke.mp4 --codec=h264 --crf=18"
+    "render": "remotion render src/index.jsx PalmMotion out/remotion-smoke.mp4 --codec=h264 --crf=18",
+    "render:motion:a": "remotion render src/motion-ab.jsx MotionA out/motion-a.mp4 --codec=h264 --crf=18 --concurrency=1",
+    "render:motion:b": "remotion render src/motion-ab.jsx MotionB out/motion-b.mp4 --codec=h264 --crf=18 --concurrency=1 --gl=angle",
+    "render:motion:ab": "npm run render:motion:a && npm run render:motion:b"
   },
   "dependencies": {
-    "@remotion/cli": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "remotion": "latest"
+    "@remotion/cli": "4.0.541",
+    "@remotion/gsap": "4.0.541",
+    "@remotion/three": "4.0.541",
+    "@react-three/fiber": "9.8.2",
+    "gsap": "3.15.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "remotion": "4.0.541",
+    "three": "0.187.0"
   }
 }
