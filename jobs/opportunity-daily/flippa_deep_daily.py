@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Bounded Flippa listing detail acquisition; shared authenticated profile, no bypass."""
+"""Bounded Flippa listing detail acquisition; dedicated authenticated profile, no bypass."""
 from __future__ import annotations
 import argparse,json,pathlib,re,random,time,sys,os,hashlib,ipaddress,socket,subprocess,tempfile,shutil
 from urllib.parse import urlsplit
 ROOT=pathlib.Path('/var/lib/acquisition-radar-scan')
-PROFILE="1de482cb-96ac-4b1b-a3f8-2beddc91b2e0"
+PROFILE="c97a7500-3b11-403f-ac43-2566cdcd3fa2"
 ID=re.compile(r'^[0-9]{6,12}$')
 MAX=3
 
