@@ -60,18 +60,18 @@ def existing_flippa_states(exclude):
 def flippa_profile_preflight():
     """Validate the original Flippa scanner owner and its existing transport.
 
-    flippa-main was provisioned for a Session Vault and is NOT authenticated.
-    Preserve the source scanner's legacy session until separately verified.
+    Use the dedicated Flippa account profile; this is a transport/identity
+    preflight only. Browser authenticated UI is verified during source scan.
     """
-    profile_id='1de482cb-96ac-4b1b-a3f8-2beddc91b2e0'
+    profile_id='c97a7500-3b11-403f-ac43-2566cdcd3fa2'
     try:
         with urllib.request.urlopen('http://127.0.0.1:8080/api/profiles/'+profile_id,timeout=5) as response:
             record=json.load(response)
         record=record.get('profile',record)
     except (OSError,ValueError,TypeError) as exc:
         raise RuntimeError('FLIPPA_PROFILE_MANAGER_UNAVAILABLE') from exc
-    if record.get('id')!=profile_id or record.get('name')!='gmail-otp-main':
-        raise RuntimeError('FLIPPA_LEGACY_OWNER_IDENTITY_MISMATCH')
+    if record.get('id')!=profile_id or record.get('name')!='flippa-main':
+        raise RuntimeError('FLIPPA_DEDICATED_OWNER_IDENTITY_MISMATCH')
     proxy=str(record.get('proxy') or '').strip()
     if not proxy:
         raise RuntimeError('FLIPPA_PROXY_CONFIG_MISSING')
@@ -83,7 +83,7 @@ def flippa_profile_preflight():
             pass
     except OSError as exc:
         raise RuntimeError('FLIPPA_PROXY_UNAVAILABLE') from exc
-    return {'profile':'original-flippa-scanner-owner','proxy_reachable':True}
+    return {'profile':'flippa-main','proxy_reachable':True}
 
 
 def run_flippa(day):
