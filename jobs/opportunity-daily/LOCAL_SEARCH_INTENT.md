@@ -69,3 +69,80 @@ python3 -m unittest -v test_build_buy_decision
 The current live run is independent of this change; historical/daily
 snapshots remain immutable. Adoption requires reviewed source evidence
 and acceptance of the PR before any deployment.
+
+## Four-part commercial wedge gate (PR #530)
+
+For a candidate originating in the existing SeoTrends/source-owner run, Exact
+SERP verification is a **prerequisite**, not a business opportunity. A source
+domain's organic traffic is not evidence that a new product can win clicks.
+
+`build_buy_decision.py` now requires all of these before a SeoTrends candidate
+can even enter `BUILD_DD` (manual DD shortlist):
+
+1. A matched source domain and a valid date-scoped semantic business-review
+   record with `semantic_verdict: QUALIFIED_DD`.
+2. A concrete customer `user_job`, `query_cluster`, and `target_market`
+   traceable to that same source candidate.
+3. Four separately explained, source-referenced findings under
+   `candidate_wedge`: `commercial_demand`, `underserved_exact_serp`,
+   `bounded_build_scope`, and `credible_monetization`. Each needs
+   `verified: true`, `evidence_ref`, and a substantive `finding`.
+4. Source provider PASS, source terminal WATCH, `product_intent_checked: true`,
+   and `serp_gate` in `SERP_DD_PASS` or `WATCH_COMPETITION`. Source BLOCKED,
+   DROP, stale dates and missing input fail closed.
+
+Example **shape only** (do not copy these placeholders into live evidence):
+
+```json
+{
+  "domain": "candidate.example",
+  "terminal_verdict": "WATCH",
+  "semantic_verdict": "QUALIFIED_DD",
+  "product_intent_checked": true,
+  "candidate_wedge": {
+    "user_job": "A precise customer task and its expected output",
+    "query_cluster": "source-linked exact keyword cluster",
+    "target_market": "US/en",
+    "commercial_demand": {
+      "verified": true,
+      "evidence_ref": "source-report-uri-and-identity",
+      "finding": "Specific observed demand, not a source-domain traffic total"
+    },
+    "underserved_exact_serp": {
+      "verified": true,
+      "evidence_ref": "date-scoped-serp-evidence-identity",
+      "finding": "Which output task the competitors fail to satisfy"
+    },
+    "bounded_build_scope": {
+      "verified": true,
+      "evidence_ref": "independent-product-feasibility-review",
+      "finding": "Small differentiated utility and delivery scope"
+    },
+    "credible_monetization": {
+      "verified": true,
+      "evidence_ref": "pricing-or-first-party-wtp-evidence",
+      "finding": "Proven monetization route and a bounded conversion model"
+    }
+  }
+}
+```
+
+These string fields are **structured claims, not cryptographic proof**.
+The reviewing operator must resolve the referenced source content, check dates,
+keyword-to-task relevance, country SERP and source/competitor identity, and
+reject self-referential, irrelevant, synthetic, or unaudited claims. `verified:
+true` is not a substitute for independent evidence inspection.
+
+The canonical `*-semantic-business-dd.json` reader is date-scoped. There is
+currently **no verified automatic producer for these four evidence fields** in
+the daily SeoTrends/Opportunity scan. This PR does not create a scanner,
+provider query, automated semantic reviewer or writer. Absent a reviewed
+source-linked record, the result is `DEFER` with
+`next_gate: FOUR_PART_CANDIDATE_WEDGE_DD`; old `BUILD_DD` counts may fall to
+zero. `DD_PENDING` only permits further manual due diligence, not BUILD/BUY.
+A future producer requires its own independent provenance acceptance and
+deployment review before use.
+
+Run `python3 -m unittest -v test_build_buy_decision` from
+`jobs/opportunity-daily`; offline historical replay must preserve source
+counts, BLOCKED semantics, and zero automated approvals.
