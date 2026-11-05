@@ -20,6 +20,21 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
         stub.start()
         self.addCleanup(stub.stop)
 
+    def test_explicit_page_size_passes_to_existing_exporter(self):
+        class Fake:
+            returncode=0
+            stdout='{"status":"PASS","domain":"example.com"}\n'
+            stderr=''
+        calls=[]
+        def stub(cmd,**kwargs):
+            calls.append(cmd)
+            return Fake()
+        with patch.object(daily.subprocess,"run",side_effect=stub):
+            result=daily.run_export("example.com",Path("/tmp/test-semrush-export.json"),50,5000)
+        self.assertEqual(result["status"],"PASS")
+        self.assertEqual(len(calls),1)
+        self.assertEqual(calls[0][calls[0].index("--page-size")+1],"5000")
+
     def test_live_auth_blocks_entire_batch_after_first_attempt(self):
         with tempfile.TemporaryDirectory() as td:
             temp = Path(td)
@@ -27,7 +42,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
                 {"items": [{"domain": d, "discovery_score": 1}
                            for d in ("example-a.com", "example-b.com", "example-c.com")]}))
             seen = []
-            def exporter(domain, path, timeout):
+            def exporter(domain, path, timeout, page_size=10000):
                 seen.append(domain)
                 return {"status": "FAIL", "reason": "RuntimeError:BROKER_DPA:SEMRUSH_LIVE_AUTH_UNAVAILABLE"}
             with patch.object(daily, "SCANS", temp), patch.object(daily, "run_export", exporter), \
@@ -51,7 +66,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
             out.mkdir()
             (out / "c.com.json").write_text(json.dumps({"domain": "c.com", "rows": []}))
             seen = []
-            def exporter(domain, path, timeout):
+            def exporter(domain, path, timeout, page_size=10000):
                 seen.append(domain)
                 return {"status": "FAIL", "reason": "RuntimeError:BROKER_DPA:SEMRUSH_LIVE_AUTH_UNAVAILABLE"}
             with patch.object(daily, "SCANS", temp), patch.object(daily, "run_export", exporter), \
@@ -73,7 +88,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
             out.mkdir()
             (out / "cached.com.json").write_text(json.dumps({"domain": "cached.com", "rows": []}))
             calls = []
-            def exporter(domain, path, timeout):
+            def exporter(domain, path, timeout, page_size=10000):
                 calls.append(domain)
                 return {"status": "FAIL", "reason":
                     "RuntimeError:BROKER_DPA:{'message': 'NON_JSON', 'sample': 'Session expired, access again from Dashboard\\\\n'}"}
@@ -94,7 +109,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
                 {"items": [{"domain": x} for x in ("a.com", "b.com")]}))
             attempts = []
             renewals = []
-            def exporter(domain, output, timeout):
+            def exporter(domain, output, timeout, page_size=10000):
                 attempts.append(domain)
                 if domain == "a.com" and attempts.count(domain) == 1:
                     return {"status": "FAIL", "reason":
@@ -120,7 +135,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
             out=temp/"2026-10-17-semrush";out.mkdir()
             (out/"cached.com.json").write_text(json.dumps({"domain":"cached.com","rows":[]}))
             attempts=[]
-            def exporter(domain, output, timeout):
+            def exporter(domain, output, timeout, page_size=10000):
                 attempts.append(domain)
                 return {"status":"FAIL","reason":"Session expired, access again from Dashboard"}
             with patch.object(daily,"SCANS",temp),patch.object(daily,"run_export",exporter),                     patch.object(daily,"recover_expired_session",lambda:{"ok":False,"state":"NOX_DASHBOARD_CHALLENGE"}),                     patch("sys.argv",["semrush_daily.py","--date","2026-10-17"]):
@@ -138,7 +153,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
             (temp/"2026-10-17-semrush-queue.json").write_text(json.dumps(
                 {"items":[{"domain":x} for x in ("a.com","b.com")]}))
             seen=[]
-            def exporter(domain, output, timeout):
+            def exporter(domain, output, timeout, page_size=10000):
                 seen.append(domain)
                 return {"status":"FAIL","reason":"Session expired, access again from Dashboard"}
             with patch.object(daily,"SCANS",temp),patch.object(daily,"run_export",exporter),                     patch.object(daily,"recover_expired_session",lambda:{"ok":True,"state":"SHARD_REFRESHED"}),                     patch("sys.argv",["semrush_daily.py","--date","2026-10-17"]):
@@ -163,6 +178,72 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
     def test_semrush_auth_is_named_global_blocker(self):
         self.assertIn("SEMRUSH_LIVE_AUTH_UNAVAILABLE", daily.GLOBAL_BLOCKERS)
         self.assertIn("Session expired, access again from Dashboard", daily.GLOBAL_BLOCKERS)
+
+
+
+class BackfillAuthRecencyTests(unittest.TestCase):
+    """Offline proof: stale Cloudflare receipts cannot brick newer DPA PASS."""
+
+    def setUp(self):
+        import importlib.util
+        self.temp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.scans=Path(self.temp.name)
+        spec=importlib.util.spec_from_file_location(
+            "repair_backlog_test", Path(__file__).with_name("repair_backlog.py"))
+        self.repair=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.repair)
+        patcher=patch.object(self.repair, "SCANS", self.scans)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.day="2026-10-30"
+
+    def saved(self, stem, data):
+        (self.scans/f"{self.day}-{stem}").parent.mkdir(parents=True,exist_ok=True)
+        (self.scans/f"{self.day}-{stem}").write_text(json.dumps(data))
+
+    def semrush(self, status, completed_at, blocker=None):
+        self.saved("semrush-results.json", {
+            "status":status, "completed_at":completed_at,
+            "global_blocker":blocker})
+
+    def terminal(self, updated_at, blocker="NOX_DASHBOARD_CHALLENGE"):
+        self.saved("serp-dd-product-v2/state.json", {
+            "stage":"BLOCKED_LIVE_AUTH","blocker":blocker,
+            "updated_at":updated_at})
+
+    def test_newer_real_semrush_pass_unblocks_old_auth_receipt(self):
+        self.semrush("PASS","2026-11-05T02:17:59Z")
+        self.terminal("2026-11-01T00:20:59Z")
+        self.assertFalse(self.repair.auth_blocked(self.day))
+
+    def test_new_auth_failure_after_semrush_pass_still_blocks(self):
+        self.semrush("PASS","2026-11-05T02:17:59Z")
+        self.terminal("2026-11-05T02:18:00Z")
+        self.assertTrue(self.repair.auth_blocked(self.day))
+
+    def test_old_blocked_semrush_still_blocks(self):
+        self.semrush("BLOCKED","2026-11-01T00:20:59Z",
+                     "BROKER_DPA:NOX_DASHBOARD_CHALLENGE")
+        self.terminal("2026-11-01T00:20:59Z")
+        self.assertTrue(self.repair.auth_blocked(self.day))
+
+    def test_missing_timestamps_fail_closed(self):
+        self.semrush("PASS",None)
+        self.terminal("2026-11-01T00:20:59Z")
+        self.assertTrue(self.repair.auth_blocked(self.day))
+        self.semrush("PASS","2026-11-05T02:17:59Z")
+        self.terminal(None)
+        self.assertTrue(self.repair.auth_blocked(self.day))
+
+    def test_equal_timestamp_does_not_override_auth_failure(self):
+        self.semrush("PASS","2026-11-05T02:17:59Z")
+        self.terminal("2026-11-05T02:17:59Z")
+        self.assertTrue(self.repair.auth_blocked(self.day))
+
+    def test_valid_unblocked_semrush_with_no_auth_checkpoint(self):
+        self.semrush("PASS","2026-11-05T02:17:59Z")
+        self.assertFalse(self.repair.auth_blocked(self.day))
 
 if __name__=="__main__":
     unittest.main()

@@ -28,16 +28,37 @@ def quota_blocked(day):
             'SEMRUSH_REPORT_LIMIT' in str(sem.get('global_blocker') or '') or
             '-2004' in str(sem.get('global_blocker') or ''))
 
+def utc_stamp(value):
+    """Only timezone-aware signed-off timestamps can supersede an auth error."""
+    if not isinstance(value,str) or not value.strip():
+        return None
+    try:
+        parsed=datetime.fromisoformat(value.replace('Z','+00:00'))
+        return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
+    except (ValueError,OverflowError):
+        return None
+
 def auth_blocked(day):
     sem=load(SCANS/f'{day}-semrush-results.json')
     term=load(SCANS/f'{day}-serp-dd-product-v2/state.json')
     markers=('SEMRUSH_LIVE_AUTH_UNAVAILABLE','NOX_LOGIN_CHALLENGE',
              'NOX_DASHBOARD_CHALLENGE','NOX_LOGIN_REQUIRED',
              'SEMRUSH_ONE_SHOT_RECOVERY_FAILED')
-    return ((sem.get('status')=='BLOCKED' and
-             any(x in str(sem.get('global_blocker') or '') for x in markers)) or
-            (term.get('stage')=='BLOCKED_LIVE_AUTH' and
-             any(x in str(term.get('blocker') or '') for x in markers)))
+    if sem.get('status')=='BLOCKED' and any(
+            marker in str(sem.get('global_blocker') or '') for marker in markers):
+        return True
+    if not (term.get('stage')=='BLOCKED_LIVE_AUTH' and
+            any(marker in str(term.get('blocker') or '') for marker in markers)):
+        return False
+
+    # Historical terminal auth failures are not perpetual if a newer completed
+    # same-day Semrush DPA batch actually passed. This does not prove current
+    # auth: the ensuing real terminal query may still fail and re-arm the gate.
+    if sem.get('status') not in ('PASS','PASS_EMPTY'):
+        return True
+    passed_at=utc_stamp(sem.get('completed_at'))
+    blocked_at=utc_stamp(term.get('updated_at'))
+    return not (passed_at and blocked_at and passed_at > blocked_at)
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--days',type=int,default=14); ap.add_argument('--exclude-today',action='store_true'); a=ap.parse_args()
