@@ -124,6 +124,33 @@ class BuildBuyDecisionGates(unittest.TestCase):
         self.assertEqual(seo_qualification(row,{"semantic_verdict":"QUALIFIED_DD",
             "terminal_verdict":"WATCH","product_intent_checked":True,"candidate_wedge":wedge},True)["buy"]["state"],"NOT_LISTED")
 
+    def test_semantic_note_cannot_override_blocked_source_terminal(self):
+        row=dict(seo(),product_intent_checked=True,terminal_verdict="BLOCKED",serp_gate="SERP_DD_PASS")
+        wedge={"user_job":"Reconcile multiple broker statements accurately",
+               "query_cluster":"broker portfolio data","target_market":"US/en"}
+        for key in ("commercial_demand","underserved_exact_serp","bounded_build_scope","credible_monetization"):
+            wedge[key]={"verified":True,"evidence_ref":"runner-vps1:/var/lib/example/evidence.json",
+                        "finding":"Detailed independently reviewable evidence claim"}
+        semantic={"semantic_verdict":"QUALIFIED_DD","terminal_verdict":"WATCH",
+                  "product_intent_checked":True,"candidate_wedge":wedge}
+        out=seo_qualification(row,semantic,True)
+        self.assertEqual(out["category"],"BLOCKED")
+        self.assertEqual(out["evidence"]["terminal_gate"],"BLOCKED")
+
+    def test_semantic_note_cannot_override_source_product_intent(self):
+        wedge={"user_job":"Reconcile multiple broker statements accurately",
+               "query_cluster":"broker portfolio data","target_market":"US/en"}
+        for key in ("commercial_demand","underserved_exact_serp","bounded_build_scope","credible_monetization"):
+            wedge[key]={"verified":True,"evidence_ref":"runner-vps1:/var/lib/example/evidence.json",
+                        "finding":"Detailed independently reviewable evidence claim"}
+        semantic={"semantic_verdict":"QUALIFIED_DD","terminal_verdict":"WATCH",
+                  "product_intent_checked":True,"candidate_wedge":wedge}
+        unverified_source=dict(seo(),product_intent_checked=False,terminal_verdict="WATCH",serp_gate="SERP_DD_PASS")
+        self.assertEqual(seo_qualification(unverified_source,semantic,True)["category"],"DEFER")
+        verified_source=dict(unverified_source,product_intent_checked=True)
+        contradictory_semantic=dict(semantic,terminal_verdict="BLOCKED")
+        self.assertNotEqual(seo_qualification(verified_source,contradictory_semantic,True)["category"],"BUILD_DD")
+
     def test_semantic_false_positive_is_drop(self):
         self.assertEqual(seo_qualification(seo(),sem(verdict="DROP_THIS_CYCLE"),True)["category"],"DROP")
     def test_flippa_listing_reference_not_buy(self):
