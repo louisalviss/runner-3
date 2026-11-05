@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 import json,pathlib,tempfile,unittest
+import flippa_deep_daily as detail
 from flippa_deep_daily import (extract,candidates_for_daily,capture,existing_complete,
    safe_public_url,exact_asset_link,capture_public_site,choose_second_page,visible_flippa_session_state)
 class FlippaDetailTests(unittest.TestCase):
  def setUp(self):self.t=tempfile.TemporaryDirectory();self.d=pathlib.Path(self.t.name)
  def tearDown(self):self.t.cleanup()
+ def test_detail_is_bound_to_dedicated_flippa_profile(self):
+  self.assertEqual(detail.PROFILE,'c97a7500-3b11-403f-ac43-2566cdcd3fa2')
+  self.assertNotEqual(detail.PROFILE,'1de482cb-96ac-4b1b-a3f8-2beddc91b2e0')
  def test_exact_link_provenance_not_title_guess(self):
   listing='12345678'
   anchors=[{'text':'View Website','href':'https://example.com/'},
