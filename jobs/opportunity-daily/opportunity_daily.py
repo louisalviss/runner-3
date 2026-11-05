@@ -274,7 +274,12 @@ def format_report(v):
         if not qualification["actionable_dd"]: lines.append("- None: zero candidates have enough evidence to enter a focused DD shortlist.")
         lines += ["", "### Website/asset review pending, WATCH or reference (not approved)"]
         for x in qualification["study_queue"]:
-            lines.append("- **"+str(x["title"])+"** ["+x["source"]+" / "+x["category"]+"] "+x["reference"]+"; "+x["build"]["why"])
+            site = x.get("evidence") or {}
+            detail = ("; domain="+str(site.get("verified_asset_domain") or "UNVERIFIED")
+                      +"; website capture="+str(site.get("site_capture_status") or "NOT_APPLICABLE")
+                      +"; pages="+str(site.get("site_pages_captured", 0))
+                      if x.get("source") == "FLIPPA" else "")
+            lines.append("- **"+str(x["title"])+"** ["+x["source"]+" / "+x["category"]+"] "+x["reference"]+"; "+x["build"]["why"]+detail)
         if not qualification["study_queue"]: lines.append("- None.")
         lines += ["", "### Archived and not presented as an opportunity", "- "+str(qualification["evaluated"]-len(qualification["actionable_dd"])-len(qualification["study_queue"]))+" candidates remain fully documented in machine-readable qualification.candidates."]
     else:
