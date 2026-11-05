@@ -41,9 +41,21 @@ def safe_public_url(url):
                     and '.' in domain and '..' not in domain)
 
 
-def exact_asset_link(listing_id, actual_listing_url, anchors):
+def visible_flippa_session_state(header_text):
+    """Do not mistake a 200 public listing for an authenticated session."""
+    heading = ' '.join(str(header_text or '').lower().split())
+    if re.search(r'\blog\s*in\b', heading) and re.search(r'\bsign\s*up\b', heading):
+        return 'PUBLIC_ONLY'
+    if re.search(r'\bdanny\b', heading):
+        return 'AUTHENTICATED'
+    return 'UNVERIFIED'
+
+
+def exact_asset_link(listing_id, actual_listing_url, anchors, source_kind='DIRECT_LISTING_CURRENT'):
     """Accept one explicit external website anchor on the exact Flippa listing."""
     p = urlsplit(str(actual_listing_url or ''))
+    if source_kind not in ('DIRECT_LISTING_CURRENT', 'AUTHENTICATED_LIVE'):
+        return {}
     if (p.scheme != 'https' or (p.hostname or '').lower().removeprefix('www.') != 'flippa.com'
             or not re.match(r'^/' + re.escape(str(listing_id)) + r'(?:[-/?#]|$)',p.path)):
         return {}
@@ -67,7 +79,7 @@ def exact_asset_link(listing_id, actual_listing_url, anchors):
     receipt = hashlib.sha256((str(listing_id)+'|'+label+'|'+url).encode()).hexdigest()
     return {'verified_asset_domain':domain,'verified_asset_url':url,
             'asset_domain_verified':True,
-            'asset_domain_source_kind':'AUTHENTICATED_LIVE',
+            'asset_domain_source_kind':source_kind,
             'asset_domain_source_ref':'https://flippa.com/'+str(listing_id)+'#asset-link-sha256:'+receipt}
 
 def matched_site_url(url, domain):
@@ -248,12 +260,19 @@ def capture(ids,day,out=ROOT):
                 title=page.title()
                 body=page.locator('body').inner_text(timeout=15000)
                 record=extract(listingid,title,body,http,challenge)
+                # Listing material may be public even when the profile is signed
+                # out. Only a visible account marker can label it authenticated.
+                nav_state = visible_flippa_session_state(body[:700])
+                record['session_auth_state'] = nav_state
+                record['listing_source_kind'] = ('AUTHENTICATED_LIVE'
+                    if nav_state == 'AUTHENTICATED' else 'DIRECT_LISTING_CURRENT')
                 try:
                     anchors=page.locator('a[href]').evaluate_all("""nodes => nodes.slice(0,400).map(a => ({
                         text: String(a.innerText || a.getAttribute('aria-label') || '').trim().slice(0,100),
                         href: String(a.href || '')
                     }))""")
-                    record.update(exact_asset_link(listingid,page.url,anchors))
+                    record.update(exact_asset_link(
+                        listingid,page.url,anchors,source_kind=record['listing_source_kind']))
                 except Exception:
                     record['asset_domain_status']='ANCHOR_INSPECTION_UNAVAILABLE'
                 rows.append(record)
@@ -274,7 +293,13 @@ def capture(ids,day,out=ROOT):
     # Always preserve earlier verified rows on challenge: no truncation.
     if rows:
         tmp=file.with_suffix('.json.tmp');tmp.write_text(json.dumps(rows,ensure_ascii=False,indent=2)+'\n',encoding='utf8');os.replace(tmp,file)
-    result={'date':day,'status':status,'requested':len(ids),'items':len(rows),'reason':reason,'source':'SHARED_FLIPPA_CDP','repair_attempted':import_repair}
+    auth_states = [str(x.get('session_auth_state') or 'UNVERIFIED') for x in rows
+                   if str(x.get('id') or '') in ids]
+    result={'date':day,'status':status,'requested':len(ids),'items':len(rows),
+            'reason':reason,'source':'SHARED_FLIPPA_CDP',
+            'authenticated_details':sum(x == 'AUTHENTICATED' for x in auth_states),
+            'public_or_unverified_details':sum(x != 'AUTHENTICATED' for x in auth_states),
+            'repair_attempted':import_repair}
     tmp=state.with_suffix('.tmp');tmp.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n');os.replace(tmp,state)
     return result
 
