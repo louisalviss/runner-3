@@ -6,6 +6,16 @@ spec=importlib.util.spec_from_file_location("opportunity_daily",SCRIPT)
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 def save(path,data):path.write_text(json.dumps(data));return path
 class DailyGates(unittest.TestCase):
+ def test_checkpoint_detail_requires_matching_profile_lineage(self):
+  pid=m.FLIPPA_DEDICATED_PROFILE_ID
+  state={'date':'2026-11-07','status':'PASS','profile_id':pid,'items':1}
+  detail=[{'id':'13095813','profile_id':pid,'status':200,'challenge':'NONE'}]
+  self.assertTrue(m.verified_detail_cache('2026-11-07',state,detail))
+  for old in ({'date':'2026-11-07','status':'PASS','items':1},
+              {'date':'2026-11-07','status':'PASS','profile_id':'1de482cb-96ac-4b1b-a3f8-2beddc91b2e0','items':1}):
+   self.assertFalse(m.verified_detail_cache('2026-11-07',old,detail))
+  self.assertFalse(m.verified_detail_cache('2026-11-07',state,[dict(detail[0],profile_id='legacy')]))
+
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.d=pathlib.Path(self.tmp.name)
   self.oldids=[str(x) for x in range(10000000,10000500)]

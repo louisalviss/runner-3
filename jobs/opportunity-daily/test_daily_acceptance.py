@@ -13,7 +13,7 @@ class AcceptTests(unittest.TestCase):
   self.put(self.seo/(DAY+'-semrush-results.json'),{'date':DAY,'status':'PASS','queue_count':1,'pass_count':1,'fail_count':0,'not_run_count':0})
   self.put(self.seo/(DAY+'-terminal-verdicts.json'),{'date':DAY,'status':'PASS','semrush_status':'PASS','verdicts':[{'domain':'example.com','verdict':'DROP'}]})
   self.put(self.out/(DAY+'-manifest.json'),{'date':DAY,'approved_buy':0,'approved_build':0})
-  f={'first_done':True,'recent_done':True,'recent_ids':[str(x) for x in range(500)],'pages':[{'status':200,'challenge':'NONE'}]}
+  f={'profile_id':'c97a7500-3b11-403f-ac43-2566cdcd3fa2','first_done':True,'recent_done':True,'recent_ids':[str(x) for x in range(500)],'pages':[{'status':200,'challenge':'NONE'}]}
   self.put(self.root/'flippa-20261015-daily-state.json',f)
   self.payload={'schema':'opportunity-daily-v2','date_vn':DAY,'overall':'RESEARCH_PENDING','generated_at':'2026-10-15T09:15:00+07:00','seo':{'source_complete':True,'provider_status':'PASS','terminal_status':'PASS'},'flippa':{'status':'PASS','new':[]},'flippa_detail':{'status':'PASS_EMPTY'},'flippa_semrush':{'status':'PASS_EMPTY'},'qualification':{'approved_buy':0,'approved_build':0,'candidates':[{'title':'Example','source':'SEOTRENDS','category':'DROP','buy':{'state':'NOT_LISTED'},'build':{'state':'DROP'}}]}}
   self.report='# daily\n\n## qualification\nReady'
@@ -43,6 +43,17 @@ class AcceptTests(unittest.TestCase):
   self.assertFalse(self.run_check()['checks']['exact_serp_complete'])
  def test_missing_flippa_source_fails(self):
   (self.root/'flippa-20261015-daily-state.json').unlink()
+  self.assertFalse(self.run_check()['checks']['flippa_daily_source'])
+ def test_missing_flippa_profile_lineage_fails(self):
+  p=self.root/'flippa-20261015-daily-state.json'
+  f=json.loads(p.read_text());f.pop('profile_id')
+  self.put(p,f)
+  self.assertFalse(self.run_check()['checks']['flippa_daily_source'])
+  self.assertEqual(self.run_check()['status'],'PARTIAL_BLOCKED')
+ def test_legacy_flippa_profile_lineage_fails(self):
+  p=self.root/'flippa-20261015-daily-state.json'
+  f=json.loads(p.read_text());f['profile_id']='1de482cb-96ac-4b1b-a3f8-2beddc91b2e0'
+  self.put(p,f)
   self.assertFalse(self.run_check()['checks']['flippa_daily_source'])
  def test_flippa_challenge_fails(self):
   f=json.loads((self.root/'flippa-20261015-daily-state.json').read_text());f['pages'][0]['challenge']='TURNSTILE'
