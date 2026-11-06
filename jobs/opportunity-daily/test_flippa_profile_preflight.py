@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Offline Flippa profile provenance and transport checks: no browser/provider calls."""
-import io,json,unittest
+import io,json,unittest,pathlib,tempfile
 from unittest.mock import patch
 
 import opportunity_daily as app
@@ -54,6 +54,42 @@ class FlippaProfilePreflightTests(unittest.TestCase):
              patch.object(app.socket,'create_connection',side_effect=OSError('connection refused')):
             with self.assertRaisesRegex(RuntimeError,'FLIPPA_PROXY_UNAVAILABLE'):
                 app.flippa_profile_preflight()
+
+    def test_scan_profile_guard_accepts_only_dedicated_id(self):
+        app.assert_flippa_scan_profile('PROFILE="c97a7500-3b11-403f-ac43-2566cdcd3fa2"\n')
+
+    def test_scan_profile_guard_rejects_missing_legacy_and_duplicate(self):
+        for source in (
+            'PROFILE="1de482cb-96ac-4b1b-a3f8-2beddc91b2e0"\n',
+            'PROFILE="c97a7500-3b11-403f-ac43-2566cdcd3fa2"\nPROFILE="1de482cb-96ac-4b1b-a3f8-2beddc91b2e0"\n',
+            'OTHER="c97a7500-3b11-403f-ac43-2566cdcd3fa2"\n',
+        ):
+            with self.subTest(source=source), self.assertRaisesRegex(RuntimeError,'FLIPPA_SCAN_PROFILE_DRIFT'):
+                app.assert_flippa_scan_profile(source)
+
+    def test_legacy_cached_script_is_rejected_before_browser(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp)
+            template=root/'flippa-daily-stage-20261013.py'
+            script=root/'flippa-daily-stage-20261106-daily.py'
+            template.write_text('PROFILE="c97a7500-3b11-403f-ac43-2566cdcd3fa2"\n# 20261013\n')
+            script.write_text('PROFILE="1de482cb-96ac-4b1b-a3f8-2beddc91b2e0"\n')
+            with patch.object(app,'ROOT',root), patch.object(app,'TEMPLATE',template), \
+                 patch.object(app,'flippa_profile_preflight',return_value={'profile':'flippa-main'}), \
+                 patch.object(app.subprocess,'run',side_effect=AssertionError('must not execute browser')):
+                with self.assertRaisesRegex(RuntimeError,'FLIPPA_SCAN_PROFILE_DRIFT'):
+                    app.run_flippa('2026-11-06')
+
+    def test_legacy_template_is_rejected_before_browser(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp)
+            template=root/'flippa-daily-stage-20261013.py'
+            template.write_text('PROFILE="1de482cb-96ac-4b1b-a3f8-2beddc91b2e0"\n# 20261013\n')
+            with patch.object(app,'ROOT',root), patch.object(app,'TEMPLATE',template), \
+                 patch.object(app,'flippa_profile_preflight',return_value={'profile':'flippa-main'}), \
+                 patch.object(app.subprocess,'run',side_effect=AssertionError('must not execute browser')):
+                with self.assertRaisesRegex(RuntimeError,'FLIPPA_SCAN_PROFILE_DRIFT'):
+                    app.run_flippa('2026-11-06')
 
 if __name__=='__main__':
     unittest.main()
