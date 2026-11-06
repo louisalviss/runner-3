@@ -9,13 +9,14 @@ class TestArchivedCross(unittest.TestCase):
   self.r=pathlib.Path(self.t.name)/'data';self.r.mkdir()
   self.o=pathlib.Path(self.t.name)/'reports';self.o.mkdir()
   self.day='2026-10-24'
-  self.details=[{'id':'12345678','status':200,'challenge':'NONE','title':'Example.com | Flippa'}]
+  self.details=[{'id':'12345678','status':200,'challenge':'NONE','profile_id':f.FLIPPA_PROFILE_ID,'title':'Example.com | Flippa'}]
   self.payload={'date_vn':self.day,'schema':'opportunity-daily-v2','seo':{'provider_status':'PASS','terminal_status':'PASS'},'flippa':{'status':'PASS','new':[{'id':'12345678','identity':'flippa:12345678','verdict':'BUILD_REFERENCE','verified_detail':True}]},'flippa_detail':{'status':'PASS'},'flippa_semrush':{'status':'PARTIAL'}}
   self.save()
  def tearDown(self):self.t.cleanup()
  def save(self):
   (self.o/(self.day+'-research-queue.json')).write_text(json.dumps(self.payload))
   (self.r/'flippa-deep-20261024.json').write_text(json.dumps(self.details))
+  (self.r/'flippa-20261024-daily-state.json').write_text(json.dumps({'profile_id':f.FLIPPA_PROFILE_ID,'first_done':True,'recent_done':True}))
  def state(self):return f.eligible(self.day,root=self.r,out=self.o)
  def test_needs_cross_check(self):
   self.assertEqual(self.state()['old_status'],'PARTIAL')
@@ -27,6 +28,13 @@ class TestArchivedCross(unittest.TestCase):
   self.assertIsNone(self.state())
  def test_flippa_not_observed_excluded(self):
   self.payload['flippa']['status']='BLOCKED';self.save()
+  self.assertIsNone(self.state())
+ def test_legacy_inventory_profile_excluded(self):
+  p=self.r/'flippa-20261024-daily-state.json'
+  p.write_text(json.dumps({'first_done':True,'recent_done':True}))
+  self.assertIsNone(self.state())
+ def test_legacy_detail_profile_excluded(self):
+  self.details[0].pop('profile_id');self.save()
   self.assertIsNone(self.state())
  def test_unverified_detail_excluded(self):
   self.details[0]['challenge']='TURNSTILE';self.save()
