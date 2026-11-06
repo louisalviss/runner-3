@@ -210,7 +210,7 @@ def existing_complete(path,ids):
     try:
         content=json.loads(path.read_text(encoding='utf8'))
         byid={str(x.get('id')):x for x in content if isinstance(x,dict)}
-        return bool(ids) and all(i in byid and byid[i].get('status')==200 and byid[i].get('challenge')=='NONE' for i in ids)
+        return bool(ids) and all(i in byid and byid[i].get('status')==200 and byid[i].get('challenge')=='NONE' and byid[i].get('profile_id')==PROFILE for i in ids)
     except (OSError,ValueError,TypeError):return False
 
 def capture(ids,day,out=ROOT):
@@ -222,12 +222,28 @@ def capture(ids,day,out=ROOT):
     state=root/('flippa-deep-'+day.replace('-','')+'-state.json')
     if not ids:
         return {'status':'PASS_EMPTY','items':0,'source':'NO_ELIGIBLE_CARDS'}
+    # Never silently reuse or overwrite prior-day legacy-profile evidence.
+    existing=[]
+    if file.is_file():
+        try:
+            existing=json.loads(file.read_text(encoding='utf8'))
+        except (ValueError,OSError):
+            return {'status':'BLOCKED','reason':'DETAIL_EVIDENCE_INVALID','items':0}
+        if (not isinstance(existing,list) or
+                any(not isinstance(x,dict) or x.get('profile_id')!=PROFILE for x in existing)):
+            return {'status':'BLOCKED','reason':'FLIPPA_DETAIL_PROFILE_LINEAGE_MISMATCH','items':0}
+    prior={}
+    if state.is_file():
+        try:
+            prior=json.loads(state.read_text(encoding='utf8'))
+        except (OSError,ValueError):
+            return {'status':'BLOCKED','reason':'DETAIL_STATE_INVALID','items':0}
+        if not isinstance(prior,dict) or prior.get('profile_id')!=PROFILE:
+            return {'status':'BLOCKED','reason':'FLIPPA_DETAIL_STATE_PROFILE_UNVERIFIED','items':0}
     if existing_complete(file,ids):
         return {'status':'PASS','items':len(ids),'source':'VALID_CACHED_DEEP'}
     import_repair=False
     if state.is_file():
-        try:prior=json.loads(state.read_text(encoding='utf8'))
-        except ValueError:prior={}
         if prior.get('status') in ('BLOCKED','PARTIAL') and prior.get('date')==day:
             # One explicit recovery is allowed for a local missing dependency only;
             # never retry an auth/challenge/rate-limit failure in the same day.
@@ -236,11 +252,7 @@ def capture(ids,day,out=ROOT):
                 return {'status':prior['status'],'items':prior.get('items',0),'reason':'ONE_ATTEMPT_PER_DAY'}
             stamped={**prior,'repair_attempted':True}
             tmp=state.with_suffix('.tmp');tmp.write_text(json.dumps(stamped,ensure_ascii=False,indent=2)+'\n');os.replace(tmp,state)
-    try:
-        existing=json.loads(file.read_text(encoding='utf8')) if file.is_file() else []
-        if not isinstance(existing,list):existing=[]
-    except (ValueError,OSError):existing=[]
-    done={str(x.get('id')):x for x in existing if isinstance(x,dict) and x.get('status')==200 and x.get('challenge')=='NONE'}
+    done={str(x.get('id')):x for x in existing if isinstance(x,dict) and x.get('status')==200 and x.get('challenge')=='NONE' and x.get('profile_id')==PROFILE}
     remaining=[i for i in ids if i not in done]
     rows=list(done.values())
     status='PASS'; reason=''
@@ -260,6 +272,7 @@ def capture(ids,day,out=ROOT):
                 title=page.title()
                 body=page.locator('body').inner_text(timeout=15000)
                 record=extract(listingid,title,body,http,challenge)
+                record['profile_id']=PROFILE
                 # Listing material may be public even when the profile is signed
                 # out. Only a visible account marker can label it authenticated.
                 nav_state = visible_flippa_session_state(body[:700])
@@ -295,7 +308,7 @@ def capture(ids,day,out=ROOT):
         tmp=file.with_suffix('.json.tmp');tmp.write_text(json.dumps(rows,ensure_ascii=False,indent=2)+'\n',encoding='utf8');os.replace(tmp,file)
     auth_states = [str(x.get('session_auth_state') or 'UNVERIFIED') for x in rows
                    if str(x.get('id') or '') in ids]
-    result={'date':day,'status':status,'requested':len(ids),'items':len(rows),
+    result={'date':day,'profile_id':PROFILE,'status':status,'requested':len(ids),'items':len(rows),
             'reason':reason,'source':'SHARED_FLIPPA_CDP',
             'authenticated_details':sum(x == 'AUTHENTICATED' for x in auth_states),
             'public_or_unverified_details':sum(x != 'AUTHENTICATED' for x in auth_states),
