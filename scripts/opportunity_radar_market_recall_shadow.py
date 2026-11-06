@@ -453,6 +453,14 @@ def severe_shock_triage(rows: list[dict], session: str) -> dict:
         if not ((d1 is not None and d1 <= -15.0) or (d5 is not None and d5 <= -15.0)):
             continue
         emitted = row.get("baseline_emitted") is True
+        # QA only: an extreme return can reflect an ADS-to-ordinary
+        # unit change or security identity migration, not shareholder loss.
+        # Preserve the raw queue, Top80 accounting and source event identity.
+        identity_review_required = bool(
+            is_corporate_action(row)
+            or (d1 is not None and abs(d1) >= 60.0)
+            or (d5 is not None and abs(d5) >= 60.0)
+        )
         entries.append({
             "event_id": f"{session}|{row['symbol']}|SEVERE_SHOCK_TRIAGE",
             "source_session_date": session,
@@ -468,6 +476,11 @@ def severe_shock_triage(rows: list[dict], session: str) -> dict:
             ],
             "triage_disposition": "PENDING_CAUSAL_REVIEW",
             "catalyst_verified": False,
+            "security_identity_review_required": identity_review_required,
+            "security_identity_review_reason": (
+                "VERIFY_ADS_UNITS_SPLIT_OR_SECURITY_IDENTITY"
+                if identity_review_required else None
+            ),
             "actionable": False,
         })
     entries.sort(key=lambda x: (

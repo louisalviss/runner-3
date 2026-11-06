@@ -30,6 +30,37 @@ class SevereShockTriageTests(unittest.TestCase):
         self.assertTrue(all(x["actionable"] is False for x in result["queue"]))
         self.assertTrue(all(x["catalyst_verified"] is False for x in result["queue"]))
 
+    def test_security_identity_review_retains_complete_raw_queue(self):
+        rows = [
+            {"symbol": "CDLR", "ret_1d_pct": -71.36, "ret_5d_pct": -72.27,
+             "baseline_emitted": False, "shadow_triggers": ["1D_SHOCK", "5D_SHOCK"]},
+            {"symbol": "MNTN", "ret_1d_pct": -54.68, "ret_5d_pct": -52.23,
+             "baseline_emitted": False, "shadow_triggers": ["1D_SHOCK", "5D_SHOCK"]},
+            {"symbol": "VCYT", "ret_1d_pct": -54.30, "ret_5d_pct": -54.00,
+             "baseline_emitted": True, "shadow_triggers": ["1D_SHOCK", "5D_SHOCK"]},
+            {"symbol": "ACTION", "ret_1d_pct": -20, "ret_5d_pct": -20,
+             "corporate_action_suspected": True, "baseline_emitted": False},
+        ]
+        result = mod.severe_shock_triage(rows, "2026-11-05")
+        self.assertEqual(result["total"], 4)
+        self.assertEqual(result["inside_capped_top80"], 1)
+        self.assertEqual(result["outside_capped_top80"], 3)
+        flags = {x["symbol"]: x["security_identity_review_required"]
+                 for x in result["queue"]}
+        self.assertEqual(flags, {
+            "CDLR": True, "MNTN": False, "VCYT": False, "ACTION": True,
+        })
+        self.assertTrue(all(not x["actionable"] for x in result["queue"]))
+        self.assertTrue(all(
+            x["triage_disposition"] == "PENDING_CAUSAL_REVIEW"
+            for x in result["queue"]
+        ))
+        self.assertEqual(
+            [x["event_id"] for x in result["queue"]],
+            [f"2026-11-05|{x}|SEVERE_SHOCK_TRIAGE"
+             for x in ["CDLR", "MNTN", "ACTION", "VCYT"]],
+        )
+
     def test_no_backward_hindsight_and_no_duplicate_signal(self):
         rows = [{"symbol": "XYZ", "ret_1d_pct": -15.0, "ret_5d_pct": None,
                  "baseline_emitted": True, "shadow_triggers": ["1D_SHOCK"]}]
