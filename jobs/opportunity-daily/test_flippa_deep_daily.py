@@ -94,14 +94,41 @@ class FlippaDetailTests(unittest.TestCase):
   self.assertEqual(capture([],'2026-10-15',out=self.d)['status'],'PASS_EMPTY')
  def test_existing_complete_no_browser(self):
   p=self.d/'flippa-deep-20261015.json'
-  p.write_text(json.dumps([{'id':'12345678','status':200,'challenge':'NONE'}]))
+  p.write_text(json.dumps([{'id':'12345678','status':200,'challenge':'NONE','profile_id':detail.PROFILE}]))
   self.assertTrue(existing_complete(p,['12345678']))
   self.assertEqual(capture(['12345678'],'2026-10-15',out=self.d)['source'],'VALID_CACHED_DEEP')
  def test_blocked_state_no_retry(self):
-  (self.d/'flippa-deep-20261015-state.json').write_text(json.dumps({'date':'2026-10-15','status':'BLOCKED','items':0}))
+  (self.d/'flippa-deep-20261015-state.json').write_text(json.dumps({'date':'2026-10-15','status':'BLOCKED','items':0,'profile_id':detail.PROFILE}))
   self.assertEqual(capture(['12345678'],'2026-10-15',out=self.d)['reason'],'ONE_ATTEMPT_PER_DAY')
  def test_incomplete_does_not_qualify(self):
   p=self.d/'flippa-deep-20261015.json'
   p.write_text(json.dumps([{'id':'12345678','status':403,'challenge':'TURNSTILE'}]))
   self.assertFalse(existing_complete(p,['12345678']))
+ def test_legacy_detail_cache_is_rejected_without_overwrite(self):
+  p=self.d/'flippa-deep-20261015.json'
+  old=[{'id':'12345678','status':200,'challenge':'NONE'}]
+  p.write_text(json.dumps(old))
+  before=p.read_bytes()
+  self.assertFalse(existing_complete(p,['12345678']))
+  result=capture(['12345678'],'2026-10-15',out=self.d)
+  self.assertEqual(result['status'],'BLOCKED')
+  self.assertEqual(result['reason'],'FLIPPA_DETAIL_PROFILE_LINEAGE_MISMATCH')
+  self.assertEqual(p.read_bytes(),before)
+
+ def test_legacy_detail_state_is_rejected_without_overwrite(self):
+  p=self.d/'flippa-deep-20261015-state.json'
+  p.write_text(json.dumps({'date':'2026-10-15','status':'PASS'}))
+  old=p.read_bytes()
+  result=capture(['12345678'],'2026-10-15',out=self.d)
+  self.assertEqual(result['status'],'BLOCKED')
+  self.assertEqual(result['reason'],'FLIPPA_DETAIL_STATE_PROFILE_UNVERIFIED')
+  self.assertEqual(p.read_bytes(),old)
+
+ def test_correct_profile_cache_is_reused(self):
+  p=self.d/'flippa-deep-20261015.json'
+  p.write_text(json.dumps([{'id':'12345678','status':200,'challenge':'NONE','profile_id':detail.PROFILE}]))
+  result=capture(['12345678'],'2026-10-15',out=self.d)
+  self.assertEqual(result['status'],'PASS')
+  self.assertEqual(result['source'],'VALID_CACHED_DEEP')
+
 if __name__=='__main__':unittest.main(verbosity=2)
