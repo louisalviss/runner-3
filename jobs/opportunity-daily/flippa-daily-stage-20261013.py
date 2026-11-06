@@ -71,9 +71,14 @@ def atomic(path,obj):
 
 def load_state():
     if os.path.exists(STATE):
-        with open(STATE,encoding="utf-8") as f:return json.load(f)
+        with open(STATE,encoding="utf-8") as f:
+            saved = json.load(f)
+        if not isinstance(saved, dict) or saved.get("profile_id") != PROFILE:
+            raise RuntimeError("FLIPPA_STATE_PROFILE_UNVERIFIED")
+        return saved
     return {
-      "schema":"flippa-stage-state-v1","started_at":datetime.now(timezone.utc).isoformat(),
+      "schema":"flippa-stage-state-v1","profile_id":PROFILE,
+      "started_at":datetime.now(timezone.utc).isoformat(),
       "status":"RUNNING","first_done":False,"recent_done":False,"main_done":False,
       "first_ids":[],"recent_ids":[],"main":{},"pages":[],"next_main_page":1,
       "reported_total":None,"total_pages":None,"main_observations":0,"errors":[]
