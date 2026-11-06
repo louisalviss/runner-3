@@ -95,6 +95,16 @@ def assert_flippa_scan_profile(source: str) -> None:
         raise RuntimeError("FLIPPA_SCAN_PROFILE_DRIFT")
 
 
+def verified_detail_cache(day, state, observed):
+    """Never promote an unbound historical Detail snapshot through checkpoint-only."""
+    return (isinstance(state,dict) and state.get("date")==day and
+            state.get("status")=="PASS" and
+            state.get("profile_id")==FLIPPA_DEDICATED_PROFILE_ID and
+            isinstance(observed,list) and len(observed)==state.get("items") and
+            all(isinstance(x,dict) and x.get("profile_id")==FLIPPA_DEDICATED_PROFILE_ID and
+                x.get("status")==200 and x.get("challenge")=="NONE" for x in observed))
+
+
 def run_flippa(day):
     """Invoke existing authenticated RawCDP source-owner, incremental recent/First Access only."""
     stamp = day.replace("-", "") + "-daily"
@@ -364,11 +374,7 @@ def main(argv=None):
     if args.checkpoint_only:
         state = load(ROOT/("flippa-deep-"+args.date.replace("-","")+"-state.json"),{})
         observed = load(deep_path,[]) if deep_path else []
-        valid = (state.get("date")==args.date and state.get("status")=="PASS" and
-                 state.get("profile_id")==FLIPPA_DEDICATED_PROFILE_ID and
-                 isinstance(observed,list) and len(observed)==state.get("items") and
-                 all(isinstance(x,dict) and x.get("profile_id")==FLIPPA_DEDICATED_PROFILE_ID and
-                     x.get("status")==200 and x.get("challenge")=="NONE" for x in observed))
+        valid = verified_detail_cache(args.date,state,observed)
         detail_check = ({"status":"PASS","items":len(observed),"requested":state.get("requested"),"source":"VALID_CACHED_DEEP"}
                         if valid else {"status":"BLOCKED","items":0,"reason":"SAME_DAY_DETAIL_CACHE_INVALID"})
     value = build(args.date,current,prev,deep_path)
