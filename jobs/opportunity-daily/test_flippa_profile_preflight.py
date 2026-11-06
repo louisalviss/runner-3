@@ -91,5 +91,51 @@ class FlippaProfilePreflightTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError,'FLIPPA_SCAN_PROFILE_DRIFT'):
                     app.run_flippa('2026-11-06')
 
+    def test_completed_state_rejects_legacy_lineage_before_cache_return(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp)
+            template=root/'flippa-daily-stage-20261013.py'
+            script=root/'flippa-daily-stage-20261106-daily.py'
+            state=root/'flippa-20261106-daily-state.json'
+            template.write_text('PROFILE="c97a7500-3b11-403f-ac43-2566cdcd3fa2"\n# 20261013\n')
+            script.write_text('PROFILE="c97a7500-3b11-403f-ac43-2566cdcd3fa2"\n')
+            state.write_text(json.dumps({'first_done':True,'recent_done':True}))
+            with patch.object(app,'ROOT',root), patch.object(app,'TEMPLATE',template), \
+                 patch.object(app,'flippa_profile_preflight',return_value={'profile':'flippa-main'}), \
+                 patch.object(app.subprocess,'run',side_effect=AssertionError('must not execute browser')):
+                with self.assertRaisesRegex(RuntimeError,'FLIPPA_STATE_PROFILE_UNVERIFIED'):
+                    app.run_flippa('2026-11-06')
+
+    def test_completed_state_with_matching_lineage_can_return_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp)
+            template=root/'flippa-daily-stage-20261013.py'
+            script=root/'flippa-daily-stage-20261106-daily.py'
+            state=root/'flippa-20261106-daily-state.json'
+            template.write_text('PROFILE="c97a7500-3b11-403f-ac43-2566cdcd3fa2"\n# 20261013\n')
+            script.write_text('PROFILE="c97a7500-3b11-403f-ac43-2566cdcd3fa2"\n')
+            state.write_text(json.dumps({'first_done':True,'recent_done':True,'profile_id':DEDICATED}))
+            with patch.object(app,'ROOT',root), patch.object(app,'TEMPLATE',template), \
+                 patch.object(app,'flippa_profile_preflight',return_value={'profile':'flippa-main'}), \
+                 patch.object(app.subprocess,'run',side_effect=AssertionError('must not execute browser')):
+                self.assertEqual(app.run_flippa('2026-11-06'),state)
+
+    def test_existing_state_without_executable_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp)
+            template=root/'flippa-daily-stage-20261013.py'
+            template.write_text('PROFILE="c97a7500-3b11-403f-ac43-2566cdcd3fa2"\n# 20261013\n')
+            (root/'flippa-20261106-daily-state.json').write_text(json.dumps({'profile_id':DEDICATED}))
+            with patch.object(app,'ROOT',root), patch.object(app,'TEMPLATE',template), \
+                 patch.object(app,'flippa_profile_preflight',return_value={'profile':'flippa-main'}), \
+                 patch.object(app.subprocess,'run',side_effect=AssertionError('must not execute browser')):
+                with self.assertRaisesRegex(RuntimeError,'FLIPPA_CACHED_SCRIPT_MISSING'):
+                    app.run_flippa('2026-11-06')
+
+    def test_template_state_loader_carries_profile_lineage(self):
+        source=(pathlib.Path(__file__).parent/'flippa-daily-stage-20261013.py').read_text(encoding='utf-8')
+        self.assertIn('"profile_id":PROFILE',source)
+        self.assertIn('saved.get("profile_id") != PROFILE',source)
+
 if __name__=='__main__':
     unittest.main()
