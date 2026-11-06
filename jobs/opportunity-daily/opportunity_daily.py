@@ -99,8 +99,6 @@ def run_flippa(day):
     """Invoke existing authenticated RawCDP source-owner, incremental recent/First Access only."""
     stamp = day.replace("-", "") + "-daily"
     state = ROOT / ("flippa-" + stamp + "-state.json")
-    if load(state, {}).get("recent_done") and load(state, {}).get("first_done"):
-        return state
     flippa_profile_preflight()
     if not TEMPLATE.exists():
         raise RuntimeError("FLIPPA_TEMPLATE_MISSING")
@@ -110,9 +108,16 @@ def run_flippa(day):
     assert_flippa_scan_profile(source)
     script = ROOT / ("flippa-daily-stage-" + stamp + ".py")
     if not script.exists():
+        if state.exists():
+            raise RuntimeError("FLIPPA_CACHED_SCRIPT_MISSING")
         atomic(script, source.replace("20261013", stamp))
-    # Never execute a cached script without verifying its selected profile.
+    # Guard the exact executable and state lineage before trusting cached completion.
     assert_flippa_scan_profile(script.read_text(encoding="utf-8"))
+    prior_state = load(state, {}) if state.exists() else {}
+    if state.exists() and prior_state.get("profile_id") != FLIPPA_DEDICATED_PROFILE_ID:
+        raise RuntimeError("FLIPPA_STATE_PROFILE_UNVERIFIED")
+    if prior_state.get("recent_done") and prior_state.get("first_done"):
+        return state
 
     env = os.environ.copy()
     env["PYTHONPATH"] = "/opt/browser-stack/bin:/opt/dhs-control"
