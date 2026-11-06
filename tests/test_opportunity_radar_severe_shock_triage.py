@@ -58,7 +58,7 @@ class SevereShockTriageTests(unittest.TestCase):
         self.assertEqual(
             [x["event_id"] for x in result["queue"]],
             [f"2026-11-05|{x}|SEVERE_SHOCK_TRIAGE"
-             for x in ["CDLR", "ACTION", "MNTN", "VCYT"]],
+             for x in ["CDLR", "MNTN", "ACTION", "VCYT"]],
         )
 
     def test_no_backward_hindsight_and_no_duplicate_signal(self):
