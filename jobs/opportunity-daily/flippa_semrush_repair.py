@@ -13,6 +13,7 @@ OUT=pathlib.Path('/var/lib/opportunity-daily')
 STATE=OUT/'flippa-sem-repair-state.json'
 TZ=ZoneInfo('Asia/Ho_Chi_Minh')
 FIRST=datetime.date(2026,10,23)
+FLIPPA_PROFILE_ID='c97a7500-3b11-403f-ac43-2566cdcd3fa2'
 
 def read(p):
     try:return json.loads(pathlib.Path(p).read_text(encoding='utf8'))
@@ -26,6 +27,11 @@ def eligible(day,root=ROOT,out=OUT):
         return None
     if (v.get('flippa') or {}).get('status')!='PASS':
         return None
+    # Historical reports from an unbound browser may be preserved for audit,
+    # but must never be replayed or republished as verified canonical evidence.
+    inventory=read(root/('flippa-'+day.replace('-','')+'-daily-state.json'))
+    if inventory.get('profile_id')!=FLIPPA_PROFILE_ID:
+        return None
     if (v.get('flippa_detail') or {}).get('status') not in ('PASS','PASS_EMPTY'):
         return None
     cross=v.get('flippa_semrush') or {}
@@ -34,7 +40,7 @@ def eligible(day,root=ROOT,out=OUT):
     deep=root/('flippa-deep-'+day.replace('-','')+'.json')
     if not deep.is_file():return None
     details=read(deep)
-    if not isinstance(details,list) or not details or not all(x.get('status')==200 and x.get('challenge')=='NONE' for x in details):return None
+    if not isinstance(details,list) or not details or not all(isinstance(x,dict) and x.get('profile_id')==FLIPPA_PROFILE_ID and x.get('status')==200 and x.get('challenge')=='NONE' for x in details):return None
     return {'day':day,'flippa':v['flippa'],'deep':deep,'old_status':cross['status'],'items':len(details)}
 
 def process():
