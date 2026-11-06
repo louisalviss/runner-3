@@ -365,8 +365,10 @@ def main(argv=None):
         state = load(ROOT/("flippa-deep-"+args.date.replace("-","")+"-state.json"),{})
         observed = load(deep_path,[]) if deep_path else []
         valid = (state.get("date")==args.date and state.get("status")=="PASS" and
+                 state.get("profile_id")==FLIPPA_DEDICATED_PROFILE_ID and
                  isinstance(observed,list) and len(observed)==state.get("items") and
-                 all(x.get("status")==200 and x.get("challenge")=="NONE" for x in observed))
+                 all(isinstance(x,dict) and x.get("profile_id")==FLIPPA_DEDICATED_PROFILE_ID and
+                     x.get("status")==200 and x.get("challenge")=="NONE" for x in observed))
         detail_check = ({"status":"PASS","items":len(observed),"requested":state.get("requested"),"source":"VALID_CACHED_DEEP"}
                         if valid else {"status":"BLOCKED","items":0,"reason":"SAME_DAY_DETAIL_CACHE_INVALID"})
     value = build(args.date,current,prev,deep_path)
