@@ -8,6 +8,8 @@ SEO=pathlib.Path('/var/lib/seotrends-public/scans')
 ROOT=pathlib.Path('/var/lib/acquisition-radar-scan')
 OUT=pathlib.Path('/var/lib/opportunity-daily')
 TZ=ZoneInfo('Asia/Ho_Chi_Minh')
+# Same dedicated owner as the Flippa inventory template and detail scanner.
+FLIPPA_PROFILE_ID='c97a7500-3b11-403f-ac43-2566cdcd3fa2'
 
 def load(path):
     try:return json.loads(pathlib.Path(path).read_text(encoding='utf8'))
@@ -29,7 +31,7 @@ def check(day,seo=SEO,root=ROOT,out=OUT):
     checks['semrush_all_pass']=sem.get('status')=='PASS' and sem.get('queue_count')==len(items) and sem.get('pass_count')==len(items) and sem.get('not_run_count')==0 and sem.get('fail_count')==0
     checks['exact_serp_complete']=ter.get('status')=='PASS' and len(ter.get('verdicts') or [])==len(items) and ter.get('semrush_status')=='PASS'
     all_pages=f.get('pages') or []
-    checks['flippa_daily_source']=f.get('recent_done') is True and f.get('first_done') is True and len(set(f.get('recent_ids') or []))==500 and bool(all_pages) and all(x.get('status')==200 and x.get('challenge')=='NONE' for x in all_pages)
+    checks['flippa_daily_source']=f.get('profile_id')==FLIPPA_PROFILE_ID and f.get('recent_done') is True and f.get('first_done') is True and len(set(f.get('recent_ids') or []))==500 and bool(all_pages) and all(x.get('status')==200 and x.get('challenge')=='NONE' for x in all_pages)
     checks['flippa_detail_stage']=payload.get('flippa_detail',{}).get('status') in ('PASS','PASS_EMPTY')
     checks['flippa_semrush_stage']=cross.get('status') in ('PASS','PASS_EMPTY')
     checks['qualified_rows_match']=bool(payload.get('schema')=='opportunity-daily-v2' and payload.get('seo',{}).get('source_complete') is True and len((payload.get('qualification') or {}).get('candidates') or [])==len(items)+len((payload.get('flippa') or {}).get('new') or []))
