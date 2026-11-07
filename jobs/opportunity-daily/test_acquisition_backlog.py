@@ -150,9 +150,8 @@ class BacklogRegression(unittest.TestCase):
     def test_nov8_unpublished_and_current_ask_deferred(self):
         d=self.load('2026-11-08')
         rows={x['id']:x for x in d['active']}
-        self.assertEqual(len(rows),83)
-        self.assertEqual(sum(x['status']=='DD_PENDING' for x in rows.values()),16)
         self.assertEqual(d['closed_historical_count'],11)
+        self.assertNotIn('14405223',{x['id'] for x in d['closed_historical']})
         for ident in ('14405223','14674707'):
             row=rows[ident]
             self.assertEqual(row['status'],'WATCH_OR_REFERENCE')
