@@ -147,7 +147,15 @@ class BacklogRegression(unittest.TestCase):
         self.assertEqual(sum(x.get('effective_listing_id')=='14595704'
                              for x in d['active']),1)
 
+    def add_naditaalim_fixture(self):
+        (self.root/'2026-11-01-research-queue.json').write_text(json.dumps({
+            'qualification':{'candidates':[{'identity':'flippa:14674707',
+                'source':'FLIPPA','title':'Naditaalim',
+                'category':'BUILD_DD','missing':['seller accounting proof']}]}
+        }))
+
     def test_nov8_unpublished_and_current_ask_deferred(self):
+        self.add_naditaalim_fixture()
         d=self.load('2026-11-08')
         rows={x['id']:x for x in d['active']}
         self.assertEqual(d['closed_historical_count'],11)
@@ -167,6 +175,7 @@ class BacklogRegression(unittest.TestCase):
         self.assertEqual((d['approved_buy'],d['approved_build']),(0,0))
 
     def test_nov8_nonterminal_observations_expire(self):
+        self.add_naditaalim_fixture()
         fresh=self.load('2026-11-15')
         stale=self.load('2026-11-16')
         for ident in ('14405223','14674707','13880956'):
@@ -179,6 +188,7 @@ class BacklogRegression(unittest.TestCase):
             self.assertEqual(z['direct_recheck_age_days'],8)
 
     def test_prior_snapshot_does_not_apply_nov8_price(self):
+        self.add_naditaalim_fixture()
         d=self.load('2026-11-07')
         rows={x['id']:x for x in d['active']}
         self.assertEqual(rows['13880956']['status'],'DD_PENDING')
