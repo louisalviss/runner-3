@@ -102,6 +102,51 @@ class BacklogRegression(unittest.TestCase):
         self.assertEqual(row['research_lane'],'DUAL_DD')
         self.assertEqual(row['source_decision_as_of'],'2026-10-17')
         self.assertFalse(row['approved_buy'])
+    def test_nov8_direct_recheck_closes_only_proven_listings(self):
+        today=self.load('2026-11-08')
+        direct={x['id']:x for x in today['closed_historical']
+                if x['last_direct_confirmation_as_of']=='2026-11-08'}
+        self.assertEqual(set(direct),{'12661644','14277870','14421384',
+                                      '14447876','14564050','13650492'})
+        self.assertEqual(direct['13650492']['last_direct_status'],'ENDED')
+        self.assertTrue(all(x.get('direct_listing_recheck',{}).get('http_status')==200
+                            for x in direct.values()))
+        self.assertFalse(any(x['id'] in direct for x in today['active']))
+        self.assertEqual((today['approved_buy'],today['approved_build']),(0,0))
+        self.assertTrue(today['policy']['dated_direct_closure_only'])
+
+    def test_direct_recheck_never_rewrites_historical_day(self):
+        historic=self.load('2026-11-07')
+        closed={x['id'] for x in historic['closed_historical']}
+        active={x['id'] for x in historic['active']}
+        self.assertNotIn('12661644',closed)
+        self.assertIn('12661644',active)
+        self.assertNotIn('14215867',
+                         {x['id'] for x in historic['closed_historical']})
+        self.assertEqual(next(x['current_listing_status'] for x in historic['active']
+                              if x['id']=='14215867'),'CURRENT_AVAILABILITY_UNVERIFIED')
+
+    def test_redirect_preserves_original_identity_but_uses_new_live_id(self):
+        d=self.load('2026-11-08')
+        r=next(x for x in d['active'] if x['id']=='14215867')
+        self.assertEqual(r['identity'],'flippa:14215867')
+        self.assertEqual(r['current_listing_status'],'REDIRECTED_TO_NEW_LISTING')
+        self.assertEqual(r['effective_listing_id'],'14595704')
+        self.assertEqual(r['url'],'https://flippa.com/14595704')
+        self.assertEqual(r['direct_listing_recheck']['status'],'REDIRECTED')
+        self.assertEqual(r['research_lane'],'BUY_DD')
+        self.assertNotIn('14215867',{x['id'] for x in d['closed_historical']})
+
+    def test_redirect_target_not_duplicated_from_daily_candidate(self):
+        candidate={'source':'FLIPPA','category':'DUAL_DD',
+                   'identity':'flippa:14595704','title':'Inbox Verifyer new ID',
+                   'missing':['processor proof']}
+        d=b.build_backlog('2026-11-08',root=self.root,report_root=self.root,
+                          current_candidates=[candidate])
+        self.assertFalse(any(x['id']=='14595704' for x in d['active']))
+        self.assertEqual(sum(x.get('effective_listing_id')=='14595704'
+                             for x in d['active']),1)
+
     def test_no_future_candidates_in_historical_day(self):
         d=self.load('2026-10-16')
         self.assertFalse(any(x['id']=='14494999' for x in d['active']))

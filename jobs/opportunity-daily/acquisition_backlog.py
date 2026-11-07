@@ -77,6 +77,39 @@ CLOSED = {
     '13472579':('TradeSave+','ENDED'),
     '12224172':('SubscriptionForce','NOT_LIVE'),
 }
+# Bounded read-only direct listing observations from canonical flippa-main on
+# 2026-11-08. Recorded from exact Flippa page titles + final listing ID,
+# HTTP 200, challenge NONE. The observed status is NOT financial DD.
+# Keep past-day snapshots immutable; page title alone cannot approve BUY/BUILD.
+DIRECT_RECHECKS_20261108 = {
+    '12661644': ('SOLD','12661644','SaaS Sold on Flippa'),
+    '14277870': ('SOLD','14277870','Website Sold on Flippa'),
+    '14421384': ('SOLD','14421384','AI Apps & Tools Sold on Flippa'),
+    '14447876': ('SOLD','14447876','Website Sold on Flippa'),
+    '14564050': ('SOLD','14564050','Website Sold on Flippa'),
+    '13650492': ('ENDED','13650492','SaaS Listing Ended on Flippa'),
+    '14215867': ('REDIRECTED','14595704','SaaS for Sale on Flippa'),
+}
+DIRECT_RECHECK_DAY='2026-11-08'
+
+def dated_direct_rechecks(day):
+    if day < DIRECT_RECHECK_DAY:
+        return {}
+    return {
+        listing_id:{
+            'observed_on':DIRECT_RECHECK_DAY,
+            'status':status,
+            'requested_url':'https://flippa.com/'+listing_id,
+            'final_url':'https://flippa.com/'+final_id,
+            'final_listing_id':final_id,
+            'title_status':title_status,
+            'source':'LIVE_EXACT_FLIPPA_TITLE_AND_FINAL_ID',
+            'challenge':'NONE',
+            'http_status':200,
+        }
+        for listing_id,(status,final_id,title_status) in DIRECT_RECHECKS_20261108.items()
+    }
+
 CATEGORIES = {'DUAL_DD':'DUAL_DD','BUY_DD':'BUY_DD','BUILD_DD':'BUILD_DD',
               'REFERENCE_ONLY':'REFERENCE'}
 
@@ -154,9 +187,15 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
             for ident,card in (d.get('recent_rows') or {}).items():
                 if str(ident) not in historical_cards and isinstance(card,dict):
                     historical_cards[str(ident)]=(observed,card)
+    current_rechecks=dated_direct_rechecks(day)
+    closed_new={ident:ob for ident,ob in current_rechecks.items()
+                if ob['status'] in ('SOLD','ENDED') and ob['final_listing_id']==ident}
+    closed_ids=set(CLOSED)|set(closed_new)
+    redirected_targets={ob['final_listing_id'] for ob in current_rechecks.values()
+                        if ob['status']=='REDIRECTED'}
     rows={}
     for ident,name,category,rank,gate,source_day in SEEDS:
-        if source_day>day:
+        if source_day>day or ident in closed_ids:
             continue
         rows[ident]={'id':ident,'identity':'flippa:'+ident,'name':name,'research_lane':category,
                      'priority':rank,'source_decision_as_of':source_day,'next_dd_gate':gate,
@@ -175,7 +214,7 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
             if item.get('source')!='FLIPPA' or item.get('category') not in CATEGORIES:
                 continue
             ident=str(item.get('identity') or '').removeprefix('flippa:')
-            if not ident.isdigit() or ident in CLOSED:continue
+            if not ident.isdigit() or ident in closed_ids or ident in redirected_targets:continue
             if ident not in rows:
                 rows[ident]={'id':ident,'identity':'flippa:'+ident,
                             'name':str(item.get('title') or ident)[:140],
@@ -208,6 +247,14 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
         # Absent from a rolling feed means UNKNOWN, never SOLD.
         item['recent_500_presence']='SEEN' if ident in recent_ids else 'NOT_SEEN'
         item['current_listing_status']='CURRENT_AVAILABILITY_UNVERIFIED'
+        # Exact direct observation is dated evidence, not permanent availability.
+        direct=current_rechecks.get(ident)
+        if direct:
+            item['direct_listing_recheck']=direct
+            if direct['status']=='REDIRECTED':
+                item['current_listing_status']='REDIRECTED_TO_NEW_LISTING'
+                item['effective_listing_id']=direct['final_listing_id']
+                item['url']=direct['final_url']
         # Historical price/visibility is never live availability proof.
         item['direct_listing_evidence']=audit.get(ident)
         active.append(item)
@@ -216,6 +263,11 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
              'last_direct_confirmation_as_of':'2026-10-07','status':'CLOSED_HISTORICAL'}
             for ident,(name,status) in sorted(CLOSED.items())
             if day>='2026-10-07']
+    for ident,ob in sorted(closed_new.items()):
+        name=next((name for seed_id,name,*_ in SEEDS if seed_id==ident),ident)
+        closed.append({'id':ident,'name':name,'last_direct_status':ob['status'],
+                       'last_direct_confirmation_as_of':ob['observed_on'],
+                       'direct_listing_recheck':ob,'status':'CLOSED_HISTORICAL'})
     return {'schema':'acquisition-flippa-cumulative-backlog-v1','as_of':day,
             'last_scoped_recent_scan':recent_day,'last_full_inventory_observation':BASELINE_DAY,
             'active_count':len(active),'closed_historical_count':len(closed),
@@ -223,6 +275,8 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
             'active':active,'closed_historical':closed,
             'policy':{'no_dropping_on_recent_absence':True,'price_is_listing_claim':True,
                       'no_buy_approval_from_carried_data':True,
+                      'dated_direct_closure_only':True,
+                      'redirect_preserves_historical_identity':True,
                       'not_in_recent_not_sold':True,
                       'cumulative_not_new_daily_results':True,
                       'last_full_listing_scan_not_today':True}}
