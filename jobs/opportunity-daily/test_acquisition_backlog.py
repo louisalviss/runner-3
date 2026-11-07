@@ -147,6 +147,55 @@ class BacklogRegression(unittest.TestCase):
         self.assertEqual(sum(x.get('effective_listing_id')=='14595704'
                              for x in d['active']),1)
 
+    def add_naditaalim_fixture(self):
+        (self.root/'2026-11-01-research-queue.json').write_text(json.dumps({
+            'qualification':{'candidates':[{'identity':'flippa:14674707',
+                'source':'FLIPPA','title':'Naditaalim',
+                'category':'BUILD_DD','missing':['seller accounting proof']}]}
+        }))
+
+    def test_nov8_unpublished_and_current_ask_deferred(self):
+        self.add_naditaalim_fixture()
+        d=self.load('2026-11-08')
+        rows={x['id']:x for x in d['active']}
+        self.assertEqual(d['closed_historical_count'],11)
+        self.assertNotIn('14405223',{x['id'] for x in d['closed_historical']})
+        for ident in ('14405223','14674707'):
+            row=rows[ident]
+            self.assertEqual(row['status'],'WATCH_OR_REFERENCE')
+            self.assertEqual(row['current_listing_status'],'DIRECT_UNPUBLISHED')
+            self.assertEqual(row['direct_listing_recheck']['http_status'],200)
+            self.assertFalse(row['direct_recheck_due'])
+        expensive=rows['13880956']
+        self.assertEqual(expensive['status'],'WATCH_OR_REFERENCE')
+        self.assertEqual(expensive['observed_ask_usd'],12999)
+        self.assertEqual(expensive['buy_budget_status'],'LAST_DIRECT_ASK_ABOVE_CAP')
+        self.assertEqual(expensive['current_listing_status'],'DIRECT_ASK_ABOVE_BUY_CAP')
+        self.assertNotIn('13880956',{x['id'] for x in d['closed_historical']})
+        self.assertEqual((d['approved_buy'],d['approved_build']),(0,0))
+
+    def test_nov8_nonterminal_observations_expire(self):
+        self.add_naditaalim_fixture()
+        fresh=self.load('2026-11-15')
+        stale=self.load('2026-11-16')
+        for ident in ('14405223','14674707','13880956'):
+            f=next(x for x in fresh['active'] if x['id']==ident)
+            z=next(x for x in stale['active'] if x['id']==ident)
+            self.assertEqual(f['status'],'WATCH_OR_REFERENCE')
+            self.assertEqual(z['status'],'DD_PENDING')
+            self.assertEqual(z['current_listing_status'],'DIRECT_EVIDENCE_STALE_RECHECK')
+            self.assertTrue(z['direct_recheck_due'])
+            self.assertEqual(z['direct_recheck_age_days'],8)
+
+    def test_prior_snapshot_does_not_apply_nov8_price(self):
+        self.add_naditaalim_fixture()
+        d=self.load('2026-11-07')
+        rows={x['id']:x for x in d['active']}
+        self.assertEqual(rows['13880956']['status'],'DD_PENDING')
+        self.assertNotIn('observed_ask_usd',rows['13880956'])
+        self.assertEqual(rows['14674707']['status'],'DD_PENDING')
+        self.assertEqual(rows['14405223']['status'],'DD_PENDING')
+
     def test_no_future_candidates_in_historical_day(self):
         d=self.load('2026-10-16')
         self.assertFalse(any(x['id']=='14494999' for x in d['active']))

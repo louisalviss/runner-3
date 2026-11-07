@@ -89,6 +89,11 @@ DIRECT_RECHECKS_20261108 = {
     '14564050': ('SOLD','14564050','Website Sold on Flippa'),
     '13650492': ('ENDED','13650492','SaaS Listing Ended on Flippa'),
     '14215867': ('REDIRECTED','14595704','SaaS for Sale on Flippa'),
+    # Exact original ID/page, 2026-11-08, HTTP 200 and no challenge.
+    '14405223': ('NOT_LIVE','14405223','UNPUBLISHED_FLIPPA_PAGE'),
+    '14674707': ('NOT_LIVE','14674707','UNPUBLISHED_FLIPPA_PAGE'),
+    # USD 12,999 discounted indicative price shown on exact app listing.
+    '13880956': ('ASK_OVER_CAP','13880956','Android App for Sale on Flippa'),
 }
 DIRECT_RECHECK_DAY='2026-11-08'
 
@@ -103,7 +108,14 @@ def dated_direct_rechecks(day):
             'final_url':'https://flippa.com/'+final_id,
             'final_listing_id':final_id,
             'title_status':title_status,
-            'source':'LIVE_EXACT_FLIPPA_TITLE_AND_FINAL_ID',
+            'source':('FLIPPA_EXACT_UNPUBLISHED_BODY_AND_FINAL_ID'
+                      if status=='NOT_LIVE' else
+                      'FLIPPA_EXACT_DISCOUNTED_ASK_AND_FINAL_ID'
+                      if status=='ASK_OVER_CAP' else
+                      'LIVE_EXACT_FLIPPA_TITLE_AND_FINAL_ID'),
+            'observed_ask_usd':12999 if status=='ASK_OVER_CAP' else None,
+            'body_status_proof':('Unfortunately this business is not yet live.'
+                                 if status=='NOT_LIVE' else None),
             'challenge':'NONE',
             'http_status':200,
         }
@@ -255,6 +267,23 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
                 item['current_listing_status']='REDIRECTED_TO_NEW_LISTING'
                 item['effective_listing_id']=direct['final_listing_id']
                 item['url']=direct['final_url']
+            elif direct['status'] in ('NOT_LIVE','ASK_OVER_CAP'):
+                age=(dt.date.fromisoformat(day)-
+                     dt.date.fromisoformat(direct['observed_on'])).days
+                # Nonterminal observations MUST expire. A listing may be
+                # published/repriced later; never close it as SOLD/ENDED.
+                item['current_listing_status']=(
+                    'DIRECT_UNPUBLISHED' if direct['status']=='NOT_LIVE'
+                    else 'DIRECT_ASK_ABOVE_BUY_CAP')
+                item['direct_recheck_age_days']=age
+                item['direct_recheck_due']=age>7
+                if direct['status']=='ASK_OVER_CAP':
+                    item['observed_ask_usd']=direct['observed_ask_usd']
+                    item['buy_budget_status']='LAST_DIRECT_ASK_ABOVE_CAP'
+                if age<=7:
+                    item['status']='WATCH_OR_REFERENCE'
+                else:
+                    item['current_listing_status']='DIRECT_EVIDENCE_STALE_RECHECK'
         # Historical price/visibility is never live availability proof.
         item['direct_listing_evidence']=audit.get(ident)
         active.append(item)
@@ -276,6 +305,7 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
             'policy':{'no_dropping_on_recent_absence':True,'price_is_listing_claim':True,
                       'no_buy_approval_from_carried_data':True,
                       'dated_direct_closure_only':True,
+                      'nonterminal_direct_evidence_expires_after_days':7,
                       'redirect_preserves_historical_identity':True,
                       'not_in_recent_not_sold':True,
                       'cumulative_not_new_daily_results':True,
