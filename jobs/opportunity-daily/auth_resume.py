@@ -296,14 +296,17 @@ def resume(day,dry_run=False):
                     result['serp_status']=term.get('status')
                     result['serp_blocker']=str((term.get('serp_run') or {}).get('reason') or '')[:100]
                     result['state']='SOURCE_RECOVERED' if term.get('status')=='PASS' else 'SOURCE_RECOVERY_PARTIAL'
-                    op=subprocess.run([PYTHON,'/var/lib/acquisition-radar-scan/opportunity_daily.py','--date',day,'--checkpoint-only'],capture_output=True,text=True,timeout=360,check=False)
-                    result['daily_returncode']=op.returncode
-                    if op.returncode!=0: result['state']='CHECKPOINT_PUBLISH_FAILED'
+                    # Successful source recovery is published exactly once by
+                    # post_recovery(); avoid the duplicate checkpoint-only run.
+                    if term.get('status')!='PASS':
+                        op=subprocess.run([PYTHON,'/var/lib/acquisition-radar-scan/opportunity_daily.py','--date',day,'--checkpoint-only'],capture_output=True,text=True,timeout=360,check=False)
+                        result['daily_returncode']=op.returncode
+                        if op.returncode!=0: result['state']='CHECKPOINT_PUBLISH_FAILED'
         except (subprocess.TimeoutExpired, OSError) as exc:
             result['state']='RECOVERY_EXECUTION_FAILED'
             result['error_type']=type(exc).__name__
         m=MARKER.with_suffix('.tmp');m.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n');m.replace(MARKER)
-        if result['state']=='SOURCE_RECOVERED' and result.get('daily_returncode')==0:
+        if result['state']=='SOURCE_RECOVERED':
             result['post_recovery']=post_recovery(day,lock_owned=True)
         return {k:v for k,v in result.items() if k!='ticket'}
 
@@ -316,4 +319,9 @@ if __name__=='__main__':
     day=args.date or today.isoformat()
     if not args.date and decision(day).get('state')=='NO_COMPLETE_SAME_DAY_QUEUE':
         day=(today-datetime.timedelta(days=1)).isoformat()
-    print(json.dumps(resume(day,dry_run=args.dry_run),ensure_ascii=False))
+    result=resume(day,dry_run=args.dry_run)
+    print(json.dumps(result,ensure_ascii=False))
+    post=result.get('post_recovery') or {}
+    if post.get('state') in ('CHECKPOINT_FAILED','ACCEPTANCE_FAILED',
+                             'AUDIT_FAILED','POST_VERIFY_FAILED'):
+        raise SystemExit(3)
