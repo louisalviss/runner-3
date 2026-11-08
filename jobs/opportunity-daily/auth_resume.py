@@ -137,6 +137,7 @@ def post_recovery_plan(day,now=None):
     items=q.get('items') or []
     passed=sem.get('items') or []
     verdicts=ter.get('verdicts') or []
+    domains=lambda rows:{str(x.get('domain') or '').lower() for x in rows if isinstance(x,dict)}
     if not (q.get('date')==day and q.get('scan_terminal') is True and
             isinstance(items,list) and len(items)>0 and q.get('count')==len(items) and
             q.get('scanned')==q.get('added_total') and q.get('pending')==0 and
@@ -145,9 +146,12 @@ def post_recovery_plan(day,now=None):
             sem.get('fail_count')==0 and sem.get('not_run_count')==0 and
             isinstance(passed,list) and len(passed)==len(items) and
             all(isinstance(x,dict) and x.get('status')=='PASS' for x in passed) and
+            len(domains(items))==len(items) and domains(items)==domains(passed) and
             ter.get('date')==day and ter.get('status')=='PASS' and
             ter.get('semrush_status')=='PASS' and isinstance(verdicts,list) and
-            len(verdicts)==len(items)):
+            len(verdicts)==len(items) and domains(verdicts)==domains(items) and
+            all(isinstance(x,dict) and x.get('verdict') in ('WATCH','DROP','BUILD')
+                for x in verdicts)):
         return {'state':'SOURCE_NOT_INDEPENDENTLY_PASS'}
     manifest_path=POST_OUT/(day+'-manifest.json')
     receipt_path=POST_OUT/(day+'-acceptance.json')
@@ -160,7 +164,7 @@ def post_recovery_plan(day,now=None):
            manifest_path.stat().st_mtime_ns>=latest_source and
            receipt_path.stat().st_mtime_ns>=manifest_path.stat().st_mtime_ns)
     complete=(fresh and manifest.get('date')==day and
-              manifest.get('status')!='PARTIAL_BLOCKED' and
+              manifest.get('status') in ('RESEARCH_PENDING','PASS') and
               receipt.get('date')==day and receipt.get('status')=='PASS' and
               all((receipt.get('checks') or {}).values()) and
               len(receipt.get('checks') or {})==11 and
