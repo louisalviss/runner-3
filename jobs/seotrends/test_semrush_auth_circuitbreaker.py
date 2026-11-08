@@ -10,6 +10,7 @@ from unittest.mock import patch
 SPEC = importlib.util.spec_from_file_location("daily", Path(__file__).with_name("semrush_daily.py"))
 daily = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(daily)
+ORIGINAL_RECOVERY = daily.recover_expired_session
 
 class SemrushCircuitBreakerTests(unittest.TestCase):
     def setUp(self):
@@ -27,7 +28,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
             observed.append(cmd)
             return SimpleNamespace(returncode=0, stdout=json.dumps(
                 {'ok': True, 'state': 'RECOVERED', 'server': '1.semrush.com.in'}))
-        with patch.object(daily, 'recover_expired_session', wraps=daily.recover_expired_session), \
+        with patch.object(daily, 'recover_expired_session', ORIGINAL_RECOVERY), \
              patch.object(daily.subprocess, 'run', side_effect=recover_call):
             result=daily.recover_expired_session()
         self.assertEqual(result, {'ok': True, 'state': 'RECOVERED'})
