@@ -138,6 +138,20 @@ class PostRecoveryReconciliation(unittest.TestCase):
             self.assertEqual(a.post_recovery(self.day,now=self.today)["state"],
                              "SOURCE_NOT_INDEPENDENTLY_PASS")
 
+    def test_status_pass_without_matching_domain_identity_is_blocked(self):
+        sem=json.loads(self.sem.read_text())
+        sem["items"]=[{"domain":"other-domain.example","status":"PASS"}]
+        self.put(self.sem,sem)
+        self.assertEqual(a.post_recovery_plan(self.day,self.today)["state"],
+                         "SOURCE_NOT_INDEPENDENTLY_PASS")
+
+    def test_terminal_pass_with_blocked_verdict_is_not_proof(self):
+        t=json.loads(self.term.read_text())
+        t["verdicts"][0]["verdict"]="BLOCKED"
+        self.put(self.term,t)
+        self.assertEqual(a.post_recovery_plan(self.day,self.today)["state"],
+                         "SOURCE_NOT_INDEPENDENTLY_PASS")
+
     def test_dry_run_does_not_modify_files_or_auth_state(self):
         self.put(self.receipt,{"date":self.day,"status":"PARTIAL_BLOCKED"})
         result=a.post_recovery(self.day,now=self.today,dry_run=True)
