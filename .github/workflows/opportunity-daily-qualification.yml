@@ -16,6 +16,10 @@ on:
       - 'jobs/opportunity-daily/test_flippa_profile_preflight.py'
       - 'jobs/opportunity-daily/flippa_semrush_bridge.py'
       - 'jobs/opportunity-daily/test_daily_pipeline.py'
+      - 'jobs/opportunity-daily/auth_resume.py'
+      - 'jobs/opportunity-daily/test_auth_resume.py'
+      - 'jobs/opportunity-daily/test_auth_resume_reconcile.py'
+      - 'jobs/opportunity-daily/audit_gap_ledger.py'
       - 'jobs/opportunity-daily/daily_acceptance.py'
       - 'jobs/opportunity-daily/test_daily_acceptance.py'
       - 'jobs/opportunity-daily/flippa_semrush_repair.py'
@@ -41,5 +45,5 @@ jobs:
       - name: Run fail-closed qualification tests (offline)
         working-directory: jobs/opportunity-daily
         run: |
-          python3 -m unittest -v test_build_buy_decision test_opportunity_daily test_flippa_deep_daily test_flippa_profile_preflight test_daily_pipeline test_daily_acceptance test_flippa_semrush_repair test_acquisition_backlog
+          python3 -m unittest -v test_build_buy_decision test_opportunity_daily test_flippa_deep_daily test_flippa_profile_preflight test_daily_pipeline test_daily_acceptance test_flippa_semrush_repair test_acquisition_backlog test_auth_resume test_auth_resume_reconcile
           python3 ../seotrends/test_semrush_auth_circuitbreaker.py -v
