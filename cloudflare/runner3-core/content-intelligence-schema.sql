@@ -20,6 +20,10 @@ CREATE TABLE IF NOT EXISTS content_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_content_items_source_type ON content_items(source_type);
+-- Case-insensitive canonical-URL lookup: expression index matches LOWER(canonical_url)=LOWER(?).
+-- Added after D1 query-insights audit (2026-11-11); the existing UNIQUE URL key is case-sensitive.
+CREATE INDEX IF NOT EXISTS idx_content_items_lower_canonical_url ON content_items(LOWER(canonical_url));
+
 CREATE INDEX IF NOT EXISTS idx_content_items_source_key ON content_items(source_key);
 CREATE INDEX IF NOT EXISTS idx_content_items_published_at ON content_items(published_at);
 CREATE INDEX IF NOT EXISTS idx_content_items_last_seen_at ON content_items(last_seen_at);
