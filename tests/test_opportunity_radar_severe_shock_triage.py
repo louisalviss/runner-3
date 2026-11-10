@@ -61,6 +61,42 @@ class SevereShockTriageTests(unittest.TestCase):
              for x in ["CDLR", "MNTN", "ACTION", "VCYT"]],
         )
 
+    def test_severe_labels_ignore_looser_shadow_one_day_threshold(self):
+        # Production 2026-11-09: -7..-15% 1D plus <=-15% 5D.
+        # Old implementation wrongly labelled these as severe 1D_SHOCK.
+        rows = [
+            {"symbol": "LZ", "ret_1d_pct": -7.35435, "ret_5d_pct": -30.01443,
+             "baseline_emitted": False, "shadow_triggers": ["1D_SHOCK", "5D_SHOCK"]},
+            {"symbol": "CLMT", "ret_1d_pct": -9.03128, "ret_5d_pct": -22.83329,
+             "baseline_emitted": False, "shadow_triggers": ["1D_SHOCK", "5D_SHOCK"]},
+            {"symbol": "MNDY", "ret_1d_pct": -9.09815, "ret_5d_pct": -16.09280,
+             "baseline_emitted": False, "shadow_triggers": ["1D_SHOCK", "5D_SHOCK"]},
+        ]
+        queue = mod.severe_shock_triage(rows, "2026-11-09")["queue"]
+        self.assertEqual(len(queue), 3)
+        self.assertTrue(all(x["price_triggers"] == ["5D_SHOCK"] for x in queue))
+        # Original shadow experiment still gets its separate -7% trigger.
+        self.assertEqual(mod.shadow_triggers(rows[0]), ["1D_SHOCK", "5D_SHOCK"])
+
+    def test_severe_labels_have_exact_boundaries(self):
+        rows = [
+            {"symbol": "A", "ret_1d_pct": -14.999, "ret_5d_pct": -15,
+             "baseline_emitted": False, "shadow_triggers": ["1D_SHOCK", "5D_SHOCK"]},
+            {"symbol": "B", "ret_1d_pct": -15, "ret_5d_pct": -14.999,
+             "baseline_emitted": True, "shadow_triggers": ["1D_SHOCK"]},
+            {"symbol": "C", "ret_1d_pct": -19, "ret_5d_pct": -20,
+             "baseline_emitted": True, "shadow_triggers": ["1D_SHOCK", "5D_SHOCK"]},
+            {"symbol": "D", "ret_1d_pct": -8, "ret_5d_pct": -14,
+             "baseline_emitted": False, "shadow_triggers": ["1D_SHOCK"]},
+        ]
+        result = mod.severe_shock_triage(rows, "2026-11-09")
+        got = {x["symbol"]: x["price_triggers"] for x in result["queue"]}
+        self.assertEqual(got, {
+            "A": ["5D_SHOCK"], "B": ["1D_SHOCK"],
+            "C": ["1D_SHOCK", "5D_SHOCK"],
+        })
+        self.assertEqual(result["total"], 3)
+
     def test_no_backward_hindsight_and_no_duplicate_signal(self):
         rows = [{"symbol": "XYZ", "ret_1d_pct": -15.0, "ret_5d_pct": None,
                  "baseline_emitted": True, "shadow_triggers": ["1D_SHOCK"]}]

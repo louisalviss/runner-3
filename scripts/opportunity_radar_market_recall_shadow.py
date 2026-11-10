@@ -470,10 +470,13 @@ def severe_shock_triage(rows: list[dict], session: str) -> dict:
             "volume_ratio_20d": number(row.get("volume_ratio")),
             "in_capped_top80": emitted,
             "baseline_exclusion_reason": row.get("baseline_explanation"),
-            "price_triggers": [
-                t for t in row.get("shadow_triggers", [])
-                if t in ("1D_SHOCK", "5D_SHOCK")
-            ],
+            # Severe triage has its own -15% close-to-close threshold.
+            # shadow_triggers uses a broader -7% 1D discovery hypothesis;
+            # copying those labels misclassifies -7..-15% moves as severe.
+            "price_triggers": (
+                (["1D_SHOCK"] if d1 is not None and d1 <= -15.0 else [])
+                + (["5D_SHOCK"] if d5 is not None and d5 <= -15.0 else [])
+            ),
             "triage_disposition": "PENDING_CAUSAL_REVIEW",
             "catalyst_verified": False,
             "security_identity_review_required": identity_review_required,
