@@ -33,8 +33,9 @@ class ReviewedCutoverTests(unittest.TestCase):
             future=backlog.build_backlog("2026-11-12",root=root,report_root=root,
                                         current_candidates=[old,new],
                                         reviewed_override={"13095813"})
-            self.assertEqual(future['active_count'],1)
-            self.assertEqual(future['active'][0]['id'],"98765123")
+            self.assertEqual(future['active_count'],historic['active_count']-1)
+            self.assertIn("98765123",{x['id'] for x in future['active']})
+            self.assertNotIn("13095813",{x['id'] for x in future['active']})
             self.assertEqual(future['reviewed_archived_count'],1)
             self.assertEqual(future['reviewed_archived'][0]['id'],"13095813")
             self.assertNotIn("13095813",{x['id'] for x in future['closed_historical']})
