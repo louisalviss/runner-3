@@ -39,7 +39,7 @@ MECHANISM_RULES: dict[str, tuple[str, ...]] = {
 }
 
 
-def request_json(method: str, path: str, payload: dict[str, Any] | None = None, *, core_url: str | None = None, extra_headers: dict[str, str] | None = None) -> dict[str, Any]:
+def request_json(method: str, path: str, payload: dict[str, Any] | None = None, *, core_url: str | None = None, extra_headers: dict[str, str] | None = None, timeout_seconds: int = 30) -> dict[str, Any]:
     base = (core_url or os.environ.get("RUNNER3_CORE_URL") or DEFAULT_CORE_URL).rstrip("/")
     headers = {"Accept": "application/json", "User-Agent": "runner3-content-intelligence/1.3"}
     token = os.environ.get("RUNNER3_CORE_TOKEN", "").strip()
@@ -53,7 +53,7 @@ def request_json(method: str, path: str, payload: dict[str, Any] | None = None, 
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(base + path, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
             return json.load(resp)
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
@@ -240,7 +240,8 @@ def cmd_guarded_recompute(args: argparse.Namespace) -> int:
         payload["seed_score_cache_if_missing"] = True
     result = request_json("POST", "/content-intelligence/profile/recompute",
                           payload, core_url=args.core_url,
-                          extra_headers={"X-Runner3-Seed-OIDC":github_seed_oidc_token()})
+                          extra_headers={"X-Runner3-Seed-OIDC":github_seed_oidc_token()},
+                          timeout_seconds=180)
     if result.get("model_version") != DEFAULT_PERSONAL_MODEL or result.get("guarded") is not True:
         raise RuntimeError("canonical v4 guarded recompute response required")
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
