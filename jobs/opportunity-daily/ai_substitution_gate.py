@@ -55,9 +55,7 @@ def review_for_candidate(identity: str, inline: object = None, as_of: str | None
     except ValueError:
         return result
     if reviewed_day > cutoff:
-        # The curated override must not rewrite older source snapshots.
-        if official is not None and isinstance(inline, dict):
-            return review_for_candidate(identity, inline, as_of)
+        # A future curated review must never rewrite historical snapshots.
         return result
     if len(str(packet.get("customer_job") or "").strip()) < 16:
         return result
