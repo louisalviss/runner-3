@@ -245,6 +245,7 @@ def research_intake_budget(
     active = []
     cold = []
     identity_holds = []
+    baseline_lane = []
     seen = set()
     for item in source_queue:
         symbol = item.get("symbol")
@@ -288,6 +289,13 @@ def research_intake_budget(
             record["disposition"] = "IDENTITY_HOLD_NO_AUTO_DEEP"
             record["reason"] = "POSSIBLE_SPLIT_ADS_UNIT_OR_CORPORATE_ACTION"
             identity_holds.append(record)
+        elif record["in_top80"]:
+            # Already emitted into the existing market Signals source lane.
+            # Research intake must not allocate a second price-only slot.
+            # This does not assert the raw Signal passes Hard Persist.
+            record["disposition"] = "BASELINE_SOURCE_LANE__NO_DUPLICATE_RESEARCH_SLOT"
+            record["reason"] = "ALREADY_IN_SOURCE_TOP80__ECONOMIC_HARD_PERSIST_STILL_REQUIRED"
+            baseline_lane.append(record)
         elif high_volume and (first_in_window or (episode_gap and material_one_day)):
             record["disposition"] = "SOURCE_REVIEW_ELIGIBLE"
             record["reason"] = (
@@ -323,7 +331,10 @@ def research_intake_budget(
         row["disposition"] = "ADMITTED_FOR_ISSUER_SOURCE_REVIEW"
     for row in deferred:
         row["disposition"] = "DEFERRED_CAPACITY__KEEP_EPISODE_KEY"
-    if len(admitted) + len(deferred) + len(cold) + len(identity_holds) != len(source_queue):
+    if (
+        len(admitted) + len(deferred) + len(cold)
+        + len(identity_holds) + len(baseline_lane)
+    ) != len(source_queue):
         raise ValueError("RESEARCH_INTAKE_RECONCILIATION_FAILED")
     return {
         "schema": "opportunity-radar-research-capacity-v1",
@@ -342,9 +353,11 @@ def research_intake_budget(
         "deferred_eligible_episodes": len(deferred),
         "current_cold_watch": len(cold),
         "identity_hold": len(identity_holds),
+        "already_in_top80_source_lane": len(baseline_lane),
         "admitted": admitted,
         "deferred": deferred,
         "identity_exceptions": identity_holds,
+        "already_emitted_to_source_lane": baseline_lane,
         "cold": cold,
         "policy": (
             "Budget applies only to price-only severe source triage, not "
@@ -388,6 +401,7 @@ def main() -> None:
         "research_admitted": shadow["research_intake_capacity"]["admitted_source_reviews"],
         "research_deferred": shadow["research_intake_capacity"]["deferred_eligible_episodes"],
         "research_cold_current": shadow["research_intake_capacity"]["current_cold_watch"],
+        "already_in_source_top80": shadow["research_intake_capacity"]["already_in_top80_source_lane"],
     }))
 
 
