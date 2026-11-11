@@ -34,6 +34,18 @@ class GuardedV4MaterializationTest(unittest.TestCase):
             {"model_version":"personal-v4","preflight_receipt":self.receipt},
             {"X-Runner3-Seed-OIDC":"signed.jwt.token"})])
 
+    def test_recompute_has_extended_read_timeout_only(self):
+        seen=[]
+        def request(method,path,payload,**kw):
+            seen.append((path,kw.get("timeout_seconds")))
+            return {"ok":True,"guarded":True,"model_version":"personal-v4",
+                    "status":"clean","recomputed":False}
+        with patch.object(ci,"request_json",side_effect=request):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(ci.cmd_guarded_recompute(self.args),0)
+        self.assertEqual(seen,[("/content-intelligence/profile/recompute",180)])
+
+
     def test_seed_same_authorization(self):
         self.args.seed_score_cache_if_missing=True
         seen=[]
