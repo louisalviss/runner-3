@@ -11,6 +11,7 @@ import datetime as dt
 import json
 import pathlib
 import re
+from ai_substitution_gate import review_for_candidate
 
 ROOT = pathlib.Path('/var/lib/acquisition-radar-scan')
 OUT = pathlib.Path('/var/lib/opportunity-daily')
@@ -286,6 +287,13 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
                     item['current_listing_status']='DIRECT_EVIDENCE_STALE_RECHECK'
         # Historical price/visibility is never live availability proof.
         item['direct_listing_evidence']=audit.get(ident)
+        ai_review=review_for_candidate(item['identity'],as_of=day)
+        item['ai_substitution_status']=ai_review['status']
+        if ai_review['status']=='HIGH':
+            # This is a strategic BUY/BUILD research rejection, NOT listing SOLD/ENDED.
+            item['status']='AI_SUBSTITUTION_REJECTED'
+            item['next_dd_gate']='REJECT BUY/BUILD: reviewed answer-only AI substitution risk; reconsider on new moat evidence'
+            item['ai_substitution_evidence_refs']=ai_review['source_refs']
         active.append(item)
     active.sort(key=lambda x:(x['priority'],x['source_decision_as_of'],x['id']))
     closed=[{'id':ident,'name':name,'last_direct_status':status,
@@ -309,7 +317,9 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
                       'redirect_preserves_historical_identity':True,
                       'not_in_recent_not_sold':True,
                       'cumulative_not_new_daily_results':True,
-                      'last_full_listing_scan_not_today':True}}
+                      'last_full_listing_scan_not_today':True,
+                      'ai_substitution_review_is_dated':True,
+                      'ai_rejection_does_not_mean_listing_sold':True}}
 
 def summarize(backlog, max_rows=18):
     lines=['## Cumulative Flippa BUY/DD/WATCH backlog (carried forward)','',
@@ -319,7 +329,10 @@ def summarize(backlog, max_rows=18):
         '- Last full Flippa inventory: '+str(backlog.get('last_full_inventory_observation'))+
         '; recent-window snapshot: '+str(backlog.get('last_scoped_recent_scan'))+
         '. Missing from Recent-500 is **not** SOLD/ENDED.',
-        '- These are historical research statuses, **not** current listing availability or verified financials.','',
+        '- These are historical research statuses, **not** current listing availability or verified financials.',
+        '- AI substitution rejected BUY/BUILD research entries: '+
+            str(sum(x.get('ai_substitution_status')=='HIGH' for x in (backlog.get('active') or [])))+
+            ' (remain in history; NOT marked SOLD).','',
         '| Priority | Listing | Research lane | Last card observation | Recent-500 | Next DD gate |',
         '|---:|---|---|---|---|---|']
     for row in (backlog.get('active') or [])[:max_rows]:
