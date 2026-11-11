@@ -4,6 +4,7 @@ import argparse, datetime as dt, hashlib, json, os, pathlib, re, socket, subproc
 from urllib.parse import urlsplit
 from build_buy_decision import qualify
 from acquisition_backlog import build_backlog, summarize as summarize_backlog
+from reviewed_cutover import is_reviewed_prior_listing
 from flippa_semrush_bridge import inspect as inspect_flippa_semrush
 from seo_upside import attach as attach_seo_upside
 from daily_publish import publish as publish_daily
@@ -280,9 +281,17 @@ def build(day, flippa_current, previous=None, deep=None):
         identity = x["identity"]
         if identity in seen:continue
         seen.add(identity);deduped.append(x)
+    # Source payloads and the raw incremental ledger remain immutable.
+    # A user-reviewed old ID is not a *new* research opportunity, even if it
+    # returns to Recent-500 on a later Flippa window. Keep the suppressed count.
+    deduped_before_archive=len(deduped)
+    deduped=[x for x in deduped
+             if not is_reviewed_prior_listing(str(x.get("identity") or ""), day)]
+    reviewed_source_watch_suppressed=deduped_before_archive-len(deduped)
     decision = qualify(day, seo, flippa, root=SEO, max_buy_usd=MAX_BUY)
     cumulative = build_backlog(day, root=ROOT, report_root=OUT, current_candidates=decision.get('candidates') or [])
-    payload = {"schema":"opportunity-daily-v2","date_vn":day,"generated_at":dt.datetime.now(TZ).isoformat(),"scope":"SEO_TRENDS_PLUS_FLIPPA","overall":"PARTIAL_BLOCKED" if decision["status"]!="PASS" else "RESEARCH_PENDING","seo":seo,"flippa":flippa,"research_queue":deduped,"qualification":decision,"cumulative_flippa":cumulative,"limits":{"buy_cap_usd":MAX_BUY,"no_bids":True,"no_new_projects":True,"no_solo_semrush_research":True},"owner":"daily-synthesis-only"}
+    payload = {"schema":"opportunity-daily-v2","date_vn":day,"generated_at":dt.datetime.now(TZ).isoformat(),"scope":"SEO_TRENDS_PLUS_FLIPPA","overall":"PARTIAL_BLOCKED" if decision["status"]!="PASS" else "RESEARCH_PENDING","seo":seo,"flippa":flippa,"research_queue":deduped,"reviewed_source_watch_suppressed":reviewed_source_watch_suppressed,
+               "qualification":decision,"cumulative_flippa":cumulative,"limits":{"buy_cap_usd":MAX_BUY,"no_bids":True,"no_new_projects":True,"no_solo_semrush_research":True},"owner":"daily-synthesis-only"}
     return payload
 
 def format_report(v):
@@ -292,10 +301,13 @@ def format_report(v):
         "## Coverage",
         "- SeoTrends: "+str(s["scanned"])+"/"+str(s["added"])+" daily added domains, "+str(len(s["items"]))+" shortlist; Semrush "+str(s["provider_status"])+"; terminal "+str(s["terminal_status"]),
         "- Flippa: "+str(f["stats"].get("first_access","?"))+" First Access, "+str(f["stats"].get("recent","?"))+" Recent-500; "+str(f["stats"].get("entered_recent_window","?"))+" entrants vs previous window (NOT necessarily newly listed).",
-        "- Legacy source watch queue (not qualified DD): "+str(len(v["research_queue"]))+"; automated purchases/bids: 0.",""]
+        "- New source watch queue (not qualified DD): "+str(len(v["research_queue"]))+
+        "; previously reviewed IDs suppressed: "+str(v.get("reviewed_source_watch_suppressed",0))+
+        "; automated purchases/bids: 0.",""]
     qualification=v.get("qualification") or {}
     if qualification:
         c=qualification.get("counts") or {}
+        lines += ["- Reviewed historical Flippa candidates omitted from fresh qualification: "+str(qualification.get("archived_reviewed_suppressed",0))+"."]
         lines += ["", "## Unified BUILD or BUY qualification", "- Scanner/evidence gate: "+qualification["status"]+"; candidates evaluated: "+str(qualification["evaluated"])+" (not every Flippa card).", "- Semantic business evidence: "+str(qualification.get('business_semantic_source_status') or 'NOT_RUN')+"; end-to-end business DD: "+str(qualification.get('end_to_end_business_dd') or 'NOT_RUN')+"; X/Facebook/Reddit validation: "+str(qualification.get('end_to_end_social_check') or 'NOT_RUN')+".", "- BUY approved: 0; BUILD approved: 0; DD shortlist: "+str(len(qualification["actionable_dd"]))+"; site-review / study / reference: "+str(len(qualification["study_queue"]))+".", "- Evidence status counts: "+", ".join(str(k)+"="+str(c[k]) for k in sorted(c)), "- Seller card earnings are NOT audited earnings; source domain traffic is NOT transferable to a new site.", "", "### DD candidates (not approval)"]
         for x in qualification["actionable_dd"]:
             lines.append("- **"+str(x["title"])+"** ["+x["source"]+" / "+x["category"]+"] "+x["reference"]+"; BUY="+x["buy"]["state"]+" / BUILD="+x["build"]["state"]+"; verify: "+", ".join(x["missing"][:3]))
