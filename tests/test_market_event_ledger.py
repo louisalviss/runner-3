@@ -188,6 +188,39 @@ class MoveLedgerTests(unittest.TestCase):
         self.assertFalse(any(x["actionable"] for x in outcome["admitted"]))
         self.assertEqual(outcome, m.research_intake_budget(historical, current, max_source_reviews=2))
 
+    def test_research_intake_de_duplicates_existing_top80_source_lane(self):
+        session = "2026-11-10"
+        rolling = {
+            "source_session_date": session,
+            "status": "RESEARCH_ONLY_PENDING_RECONCILIATION",
+            "observed_sessions": ["2026-11-09", session],
+            "severe_unique_symbols": 2,
+            "queue": [
+                {"symbol": "EMITTED", "sessions": [session]},
+                {"symbol": "MISSED", "sessions": [session]},
+            ],
+        }
+        current = {
+            "status": "DIAGNOSTIC_PENDING_CAUSAL_REVIEW",
+            "source_session_date": session,
+            "total": 2,
+            "queue": [
+                {"symbol": "EMITTED", "event_id": session+"|EMITTED|SEVERE_SHOCK_TRIAGE",
+                 "adjusted_return_1d_pct": -20, "adjusted_return_5d_pct": -20,
+                 "volume_ratio_20d": 4.0, "in_capped_top80": True},
+                {"symbol": "MISSED", "event_id": session+"|MISSED|SEVERE_SHOCK_TRIAGE",
+                 "adjusted_return_1d_pct": -18, "adjusted_return_5d_pct": -20,
+                 "volume_ratio_20d": 2.0, "in_capped_top80": False},
+            ],
+        }
+        result = m.research_intake_budget(rolling, current)
+        self.assertEqual(result["already_in_top80_source_lane"], 1)
+        self.assertEqual(result["admitted_source_reviews"], 1)
+        self.assertEqual(result["admitted"][0]["symbol"], "MISSED")
+        self.assertEqual(result["already_emitted_to_source_lane"][0]["symbol"], "EMITTED")
+        self.assertFalse(result["already_emitted_to_source_lane"][0]["issuer_catalyst_verified"])
+        self.assertFalse(result["already_emitted_to_source_lane"][0]["actionable"])
+
     def test_research_intake_fail_closed_cross_session_duplicate(self):
         historical = {
             "source_session_date": "2026-11-10",
