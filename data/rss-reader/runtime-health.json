@@ -2,21 +2,25 @@
   "version": 3,
   "collector": "runner-3",
   "scope": "ai-rss-reader-ingestion-runner15",
-  "runStartedAt": "2026-11-04T11:45:55Z",
-  "runFinishedAt": "2026-11-04T11:46:22Z",
+  "runStartedAt": "2026-11-11T00:49:52Z",
+  "runFinishedAt": "2026-11-11T00:50:09Z",
   "logicalSourceCount": 15,
   "runner3LogicalSources": 15,
   "chatgptDirectSources": [],
-  "status": "healthy",
-  "ingestionOk": true,
+  "status": "failed",
+  "ingestionOk": false,
   "gate": {
     "core12": {
       "ok": true,
       "problems": []
     },
     "vohoanghacHybrid": {
-      "ok": true,
-      "problems": []
+      "ok": false,
+      "problems": [
+        "vohoanghac: logical source not healthy",
+        "vohoanghac.notes: not healthy",
+        "vohoanghac health counters/status invalid"
+      ]
     },
     "substackArchive2": {
       "ok": true,
@@ -36,8 +40,8 @@
     },
     "vohoanghac": {
       "script": "rss_substack_collect_v2.py",
-      "exitCode": 0,
-      "stdout": "{\"collector\": \"runner-3\", \"scope\": \"1-substack-hybrid\", \"status\": \"healthy\", \"articles_ok\": true, \"notes_ok\": true, \"fresh_articles\": 20, \"fresh_notes\": 36, \"notes_error\": null}",
+      "exitCode": 2,
+      "stdout": "{\"collector\": \"runner-3\", \"scope\": \"1-substack-hybrid\", \"status\": \"failed\", \"articles_ok\": true, \"notes_ok\": false, \"fresh_articles\": 20, \"fresh_notes\": 0, \"notes_error\": \"RuntimeError: unable to resolve verified Substack profile user id; publication archive: RuntimeError: publication archive returned a non-list payload | https://substack.com/api/v1/user/vohoanghac/public_profile: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile | https://substack.com/api/v1/user/vohoanghac/public_profile/self: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile/self | legacy profile discovery: RuntimeError: unable to resolve Substack profile user id; profile HTML: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/@vohoanghac | https://substack.com/api/v1/user/vohoanghac/public_profile: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile | https://substack.com/api/v1/user/vohoanghac/public_profile/self: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile/self\"}",
       "stderr": ""
     },
     "substackArchive2": {

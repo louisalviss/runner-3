@@ -2,14 +2,14 @@
   "version": 3,
   "collector": "runner-3",
   "scope": "1-substack-hybrid",
-  "runStartedAt": "2026-11-04T11:46:18Z",
+  "runStartedAt": "2026-11-11T00:50:04Z",
   "sources": {
     "vohoanghac": {
-      "ok": true,
+      "ok": false,
       "transport": "hybrid-rss+substack-profile",
-      "checkedAt": "2026-11-04T11:46:20Z",
-      "preservedExistingMirror": false,
-      "contentChanged": true,
+      "checkedAt": "2026-11-11T00:50:05Z",
+      "preservedExistingMirror": true,
+      "contentChanged": false,
       "components": {
         "articles": {
           "ok": true,
@@ -21,50 +21,10 @@
           "contentHashChangeCount": 0
         },
         "notes": {
-          "ok": true,
+          "ok": false,
           "transport": "substack-public-profile",
           "profileUrl": "https://substack.com/@vohoanghac",
-          "freshItemCount": 36,
-          "newestPublishedAt": "2026-11-04T10:20:45Z",
-          "userId": 131582197,
-          "profileLookupUrl": "https://vohoanghac.com/api/v1/archive?sort=new&limit=10",
-          "profileIdSource": "publication_archive_byline",
-          "feedUrl": "https://substack.com/api/v1/reader/feed/profile/131582197?limit=50&cursor=eyJiZWZvcmVfdGltZXN0YW1wIjoiMjAyNi0xMS0wNFQxMTo0NjoxOS45NDFaIiwiZW50aXR5X2tleSI6ImMtMzQ0NTM1MDg1IiwicGlubmVkX2VudGl0eV9rZXlzIjpudWxsLCJjb250ZXh0X3RpbWVzdGFtcCI6IjIwMjYtMDktMjRUMDU6NTU6MTguNDA0WiIsInByZXBlbmRlZF9wb3N0X2lkcyI6bnVsbCwicGFnZV9udW1iZXIiOjF9",
-          "rawProfileEntryCount": 36,
-          "commentActivityCount": 36,
-          "validOriginalNoteCount": 36,
-          "requestVariants": [
-            {
-              "params": {
-                "limit": 50
-              },
-              "transport": "jina-live-relay",
-              "relayNoCache": true,
-              "relayDNT": true
-            },
-            {
-              "params": {
-                "limit": 50,
-                "cursor": "eyJiZWZvcmVfdGltZXN0YW1wIjoiMjAyNi0xMS0wNFQxMTo0NjoxOS45NDFaIiwiZW50aXR5X2tleSI6ImMtMzYyNjQ5MDgyIiwicGlubmVkX2VudGl0eV9rZXlzIjpudWxsLCJjb250ZXh0X3RpbWVzdGFtcCI6IjIwMjYtMTAtMTZUMTc6NDA6MDIuNDQ5WiIsInByZXBlbmRlZF9wb3N0X2lkcyI6bnVsbCwicGFnZV9udW1iZXIiOjB9"
-              },
-              "transport": "jina-live-relay",
-              "relayNoCache": true,
-              "relayDNT": true
-            },
-            {
-              "params": {
-                "limit": 50,
-                "cursor": "eyJiZWZvcmVfdGltZXN0YW1wIjoiMjAyNi0xMS0wNFQxMTo0NjoxOS45NDFaIiwiZW50aXR5X2tleSI6ImMtMzQ0NTM1MDg1IiwicGlubmVkX2VudGl0eV9rZXlzIjpudWxsLCJjb250ZXh0X3RpbWVzdGFtcCI6IjIwMjYtMDktMjRUMDU6NTU6MTguNDA0WiIsInByZXBlbmRlZF9wb3N0X2lkcyI6bnVsbCwicGFnZV9udW1iZXIiOjF9"
-              },
-              "transport": "jina-live-relay",
-              "relayNoCache": true,
-              "relayDNT": true
-            }
-          ],
-          "feedTransports": [
-            "jina-live-relay"
-          ],
-          "liveRelayUsed": true
+          "error": "RuntimeError: unable to resolve verified Substack profile user id; publication archive: RuntimeError: publication archive returned a non-list payload | https://substack.com/api/v1/user/vohoanghac/public_profile: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile | https://substack.com/api/v1/user/vohoanghac/public_profile/self: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile/self | legacy profile discovery: RuntimeError: unable to resolve Substack profile user id; profile HTML: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/@vohoanghac | https://substack.com/api/v1/user/vohoanghac/public_profile: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile | https://substack.com/api/v1/user/vohoanghac/public_profile/self: HTTPError: 403 Client Error: Forbidden for url: https://substack.com/api/v1/user/vohoanghac/public_profile/self"
         }
       },
       "contentHashChangeCount": 0,
@@ -72,8 +32,8 @@
       "newestPublishedAt": "2026-11-04T10:20:45Z"
     }
   },
-  "runFinishedAt": "2026-11-04T11:46:20Z",
-  "okCount": 1,
-  "failedCount": 0,
-  "status": "healthy"
+  "runFinishedAt": "2026-11-11T00:50:05Z",
+  "okCount": 0,
+  "failedCount": 1,
+  "status": "failed"
 }
