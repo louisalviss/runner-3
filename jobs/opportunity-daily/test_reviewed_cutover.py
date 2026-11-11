@@ -17,6 +17,8 @@ class ReviewedCutoverTests(unittest.TestCase):
         self.assertTrue(is_reviewed_prior_listing("flippa:13095813","2026-11-12"))
         self.assertFalse(is_reviewed_prior_listing("flippa:13095813","2026-11-11"))
         self.assertFalse(is_reviewed_prior_listing("schoolcalendar.net","2026-11-12"))
+        self.assertTrue(is_reviewed_prior_listing("flippa:14595704","2026-11-12"))
+        self.assertFalse(is_reviewed_prior_listing("flippa:14595704","2026-11-11"))
 
     def test_archived_in_old_cohort_preserves_source_and_new_candidate(self):
         with tempfile.TemporaryDirectory() as tmp:
