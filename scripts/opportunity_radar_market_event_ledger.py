@@ -202,6 +202,161 @@ def rolling_severe_backlog(raw_text: str, source_session: str, max_sessions: int
     }
 
 
+def research_intake_budget(
+    rolling: dict, severe: dict, *, max_source_reviews: int = 8
+) -> dict:
+    """Price-only research ADMISSION, not a price scanner or trading gate.
+
+    Preserve every raw shock and rolling ticker. Prioritize only *new* severe
+    price episodes and volume-supported breaks after an observed gap. An old
+    five-day threshold persisting across sessions is cold, not another task.
+    Primary-source economic catalysts bypass this price-only screen via the
+    existing curated Hard Persist lane; this function cannot certify them.
+    """
+    if type(max_source_reviews) is not int or max_source_reviews < 1:
+        raise ValueError("INVALID_RESEARCH_SOURCE_REVIEW_BUDGET")
+    session = rolling.get("source_session_date")
+    if (
+        not session
+        or severe.get("source_session_date") != session
+        or rolling.get("status") != "RESEARCH_ONLY_PENDING_RECONCILIATION"
+        or severe.get("status") != "DIAGNOSTIC_PENDING_CAUSAL_REVIEW"
+    ):
+        raise ValueError("RESEARCH_INTAKE_SOURCE_SESSION_MISMATCH")
+    historical = rolling.get("queue") or []
+    recent_sessions = rolling.get("observed_sessions") or []
+    if not recent_sessions or recent_sessions[-1] != session:
+        raise ValueError("RESEARCH_INTAKE_NO_COMPLETE_SOURCE_SESSION")
+    previous_session = recent_sessions[-2] if len(recent_sessions) > 1 else None
+    by_symbol: dict[str, dict] = {}
+    for item in historical:
+        symbol = item.get("symbol")
+        sessions = item.get("sessions")
+        if not symbol or symbol in by_symbol or not isinstance(sessions, list) or not sessions:
+            raise ValueError("RESEARCH_INTAKE_ROLLING_IDENTITY_INVALID")
+        if sessions != sorted(set(sessions)) or sessions[-1] > session:
+            raise ValueError("RESEARCH_INTAKE_ROLLING_SESSIONS_INVALID")
+        by_symbol[symbol] = item
+    if len(by_symbol) != rolling.get("severe_unique_symbols"):
+        raise ValueError("RESEARCH_INTAKE_ROLLING_COUNT_MISMATCH")
+    source_queue = severe.get("queue") or []
+    if len(source_queue) != severe.get("total"):
+        raise ValueError("RESEARCH_INTAKE_CURRENT_SEVERE_COUNT_MISMATCH")
+    active = []
+    cold = []
+    identity_holds = []
+    seen = set()
+    for item in source_queue:
+        symbol = item.get("symbol")
+        if not symbol or symbol in seen or symbol not in by_symbol:
+            raise ValueError("RESEARCH_INTAKE_CURRENT_SYMBOL_MISMATCH")
+        seen.add(symbol)
+        history = by_symbol[symbol]["sessions"]
+        if session not in history or history[-1] != session:
+            raise ValueError("RESEARCH_INTAKE_CURRENT_SESSION_NOT_IN_HISTORY")
+        volume = finite_or_none(item.get("volume_ratio_20d"))
+        one = finite_or_none(item.get("adjusted_return_1d_pct"))
+        five = finite_or_none(item.get("adjusted_return_5d_pct"))
+        if one is None and five is None:
+            raise ValueError("RESEARCH_INTAKE_MISSING_PRICE_MOVES")
+        first_in_window = history[0] == session
+        previous_observation = history[-2] if len(history) > 1 else None
+        episode_gap = previous_observation is not None and previous_observation != previous_session
+        high_volume = volume is not None and volume >= 1.5
+        material_one_day = one is not None and one <= -15.0
+        identity_review = item.get("security_identity_review_required") is True
+        event_key = (
+            f"{session if episode_gap and material_one_day else history[0]}"
+            f"|{symbol}|SEVERE_PRICE_EPISODE"
+        )
+        record = {
+            "symbol": symbol,
+            "source_session_date": session,
+            "event_key": event_key,
+            "first_severe_session_in_rolling_window": history[0],
+            "last_prior_severe_session": previous_observation,
+            "source_price_event_id": item.get("event_id"),
+            "ret_1d_pct": one,
+            "ret_5d_pct": five,
+            "volume_ratio": volume,
+            "in_top80": item.get("in_capped_top80") is True,
+            "issuer_catalyst_verified": False,
+            "net_rr_certified": False,
+            "actionable": False,
+        }
+        if identity_review:
+            record["disposition"] = "IDENTITY_HOLD_NO_AUTO_DEEP"
+            record["reason"] = "POSSIBLE_SPLIT_ADS_UNIT_OR_CORPORATE_ACTION"
+            identity_holds.append(record)
+        elif high_volume and (first_in_window or (episode_gap and material_one_day)):
+            record["disposition"] = "SOURCE_REVIEW_ELIGIBLE"
+            record["reason"] = (
+                "NEW_1D_SEVERE_WITH_VOLUME" if first_in_window and material_one_day
+                else "NEW_5D_SEVERE_WITH_VOLUME" if first_in_window
+                else "NEW_1D_SEVERE_AFTER_EPISODE_GAP"
+            )
+            active.append(record)
+        else:
+            record["disposition"] = "COLD_WATCH_NO_DEEP_SLOT"
+            record["reason"] = (
+                "LOW_OR_UNVERIFIED_VOLUME" if not high_volume
+                else "REPEAT_FIVE_DAY_OR_UNINTERRUPTED_SEVERE_EPISODE"
+            )
+            cold.append(record)
+    # Earliest fresh 1D event gets priority, then strong new 5D,
+    # then a renewed 1D shock following a quiet completed session.
+    rank = {
+        "NEW_1D_SEVERE_WITH_VOLUME": 0,
+        "NEW_5D_SEVERE_WITH_VOLUME": 1,
+        "NEW_1D_SEVERE_AFTER_EPISODE_GAP": 2,
+    }
+    active.sort(key=lambda x: (
+        rank[x["reason"]],
+        min(x["ret_1d_pct"] or 0.0, 0.0),
+        min(x["ret_5d_pct"] or 0.0, 0.0),
+        -(x["volume_ratio"] or 0.0),
+        x["symbol"],
+    ))
+    admitted = active[:max_source_reviews]
+    deferred = active[max_source_reviews:]
+    for row in admitted:
+        row["disposition"] = "ADMITTED_FOR_ISSUER_SOURCE_REVIEW"
+    for row in deferred:
+        row["disposition"] = "DEFERRED_CAPACITY__KEEP_EPISODE_KEY"
+    if len(admitted) + len(deferred) + len(cold) + len(identity_holds) != len(source_queue):
+        raise ValueError("RESEARCH_INTAKE_RECONCILIATION_FAILED")
+    return {
+        "schema": "opportunity-radar-research-capacity-v1",
+        "status": "PRICE_ONLY_RESEARCH_INTAKE_NOT_SIGNAL_OR_DEEP_UNDERWRITE",
+        "source_session_date": session,
+        "max_source_reviews": max_source_reviews,
+        "original_scanner_unchanged": True,
+        "top80_unchanged": True,
+        "trading_gates_unchanged": True,
+        "entire_rolling_severe_preserved": len(historical),
+        "current_severe_preserved": len(source_queue),
+        "current_severe_unique": len(seen),
+        "not_current_severe_cold_history": len(historical) - len(source_queue),
+        "eligible_source_reviews": len(active),
+        "admitted_source_reviews": len(admitted),
+        "deferred_eligible_episodes": len(deferred),
+        "current_cold_watch": len(cold),
+        "identity_hold": len(identity_holds),
+        "admitted": admitted,
+        "deferred": deferred,
+        "identity_exceptions": identity_holds,
+        "cold": cold,
+        "policy": (
+            "Budget applies only to price-only severe source triage, not "
+            "existing Candidates due-refresh/entry-trigger exceptions, "
+            "not primary-source validated new catalysts, and not review "
+            "of corporate-action identities. The curator must reconcile "
+            "deferred episode keys with the durable checkpoint; no silent "
+            "dismissal, causality certification or BUY."
+        ),
+    }
+
+
 def main() -> None:
     health = json.loads(HEALTH_PATH.read_text())
     if health.get("status") != "COMPLETE" or health.get("complete") is not True:
@@ -214,6 +369,9 @@ def main() -> None:
     output, stats = append_unseen(old, events)
     rolling = rolling_severe_backlog(output, health["source_session_date"])
     shadow["rolling_severe_backlog"] = rolling
+    shadow["research_intake_capacity"] = research_intake_budget(
+        rolling, shadow["severe_shock_triage"]
+    )
     shadow_tmp = SHADOW_PATH.with_suffix(".json.tmp")
     shadow_tmp.write_text(json.dumps(shadow, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     shadow_tmp.replace(SHADOW_PATH)
@@ -227,6 +385,9 @@ def main() -> None:
         "new_events": stats["new"], "cumulative_events": stats["total"],
         "baseline_selection_unchanged": True, "d1_unchanged": True,
         "rolling_severe_symbols": rolling["severe_unique_symbols"],
+        "research_admitted": shadow["research_intake_capacity"]["admitted_source_reviews"],
+        "research_deferred": shadow["research_intake_capacity"]["deferred_eligible_episodes"],
+        "research_cold_current": shadow["research_intake_capacity"]["current_cold_watch"],
     }))
 
 
