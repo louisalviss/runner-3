@@ -12,6 +12,7 @@ from collections import Counter
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit
+from ai_substitution_gate import review_for_candidate
 
 SEO_SCAN_ROOT = pathlib.Path("/var/lib/seotrends-public/scans")
 ACTIVE_BUY_LIMIT_USD = 10000
@@ -187,7 +188,7 @@ def verified_candidate_wedge(semantic: dict, domain: str = "") -> bool:
     return verified_site_product_review(semantic, domain, str(wedge["user_job"]))
 
 
-def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
+def seo_qualification(row: dict, semantic: dict, provider_ok: bool, as_of: str | None = None) -> dict:
     domain = str(row.get("domain") or "").lower()
     semantic_verdict = str(semantic.get("semantic_verdict") or "")
     # Preserve the source scanner's terminal verdict even if a separate
@@ -218,6 +219,12 @@ def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
         build, why = "DD_PENDING", "Four sourced business-case gates passed; manual DD still required, no BUILD approval"
     else:
         build, why = "DEFER", "Source traffic or Exact SERP alone is not a business opportunity; verify demand, underserved task, bounded build scope and monetization"
+    ai_review = review_for_candidate(domain, semantic.get("ai_substitution_review"), as_of)
+    if build not in ("DROP", "BLOCKED"):
+        if ai_review["status"] == "HIGH":
+            build, why = "DROP", "Reviewed answer-only AI substitution: do not BUILD a click-dependent response site"
+        elif build == "DD_PENDING" and ai_review["status"] != "RESILIENT":
+            build, why = "DEFER", "AI-substitution risk has not been independently reviewed; no manual BUILD DD promotion"
     local_intent = local_search_intent_review(semantic, product_intent)
     metric = row.get("metrics") or {}
     traffic = positive_number(semantic.get("us_organic_estimate")) if semantic else positive_number(metric.get("traffic"))
@@ -234,18 +241,27 @@ def seo_qualification(row: dict, semantic: dict, provider_ok: bool) -> dict:
             "semantic_product_intent_corroborated": semantic_product_intent,
             "terminal_gate": terminal or raw,
             "semantic_gate": semantic_verdict or "NOT_AVAILABLE", "semantic_review_completed": bool(semantic_verdict),
+            "ai_substitution_status": ai_review["status"],
+            "ai_substitution_reviewed": ai_review["reviewed"],
+            "ai_substitution_source_refs": ai_review["source_refs"],
             "revenue_verified": False,
             "differentiated_solution_verified": False,
             "candidate_wedge_evidence_complete": verified_candidate_wedge(semantic, domain),
             "site_product_review_complete": verified_site_product_review(semantic, domain,
                 str((semantic.get("candidate_wedge") or {}).get("user_job") or "")),
-            "next_gate": "FOUR_PART_CANDIDATE_WEDGE_DD" if build == "DEFER" else "MANUAL_BUSINESS_DD",
+            "next_gate": ("AI_SUBSTITUTION_REJECTED" if ai_review["status"] == "HIGH" else
+                          "AI_SUBSTITUTION_REVIEW" if build == "DEFER"
+                              and verified_candidate_wedge(semantic, domain) else
+                          "FOUR_PART_CANDIDATE_WEDGE_DD" if build == "DEFER" else
+                          "MANUAL_BUSINESS_DD"),
             "local_search_intent": local_intent,
         },
         "missing": ([] if build in ("DROP", "BLOCKED") else
                     ["demonstrated unmet need", "replicable search gap", "credible monetization/conversion"]
                     + ([] if local_intent["status"] == "REVIEW_READY" else
-                       ["native-language keyword and country-specific SERP evidence"])),
+                       ["native-language keyword and country-specific SERP evidence"])
+            + ([] if ai_review["status"] in ("HIGH", "RESILIENT") else
+                       ["AI substitution and independent non-answer workflow review"])),
     }
 
 
@@ -320,7 +336,7 @@ def verified_flippa_build_gap(row: dict, site_ok: bool) -> bool:
             return False
     return True
 
-def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
+def flippa_qualification(row: dict, max_buy_usd: int, as_of: str | None = None) -> dict:
     is_detail = row.get("verified_detail") is True
     site_ok = verified_flippa_site_review(row)
     build_gap_ok = verified_flippa_build_gap(row, site_ok)
@@ -382,6 +398,16 @@ def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
     else:
         build = "DEFER"
         reason = "No independent organic opportunity or differentiation test"
+    ai_review = review_for_candidate(str(row.get("identity") or ""),
+                                     row.get("ai_substitution_review"), as_of)
+    if ai_review["status"] == "HIGH":
+        buy, why = "DROP", "Reviewed answer-only site dependent on visits AI may replace; reject BUY"
+        build, reason = "DROP", "AI can answer the user job; no verified durable workflow moat for BUILD"
+    elif ai_review["status"] != "RESILIENT":
+        if buy == "DD_PENDING":
+            buy, why = "SITE_REVIEW_PENDING", "AI substitution review required before BUY DD"
+        if build == "DD_PENDING":
+            build, reason = "SITE_REVIEW_PENDING", "AI substitution review required before BUILD DD"
     # A listing can be in one research lane and only serve as reference for another.
     if buy == "DD_PENDING" and build == "DD_PENDING":
         category = "DUAL_DD"
@@ -408,6 +434,9 @@ def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
             "profit_card_usd_per_month":profit_card, "profit_independently_verified":False,
             "pageviews_claim_month":views, "ga_gsc_independently_verified":False,
             "buyer_transferability_verified":False,
+            "ai_substitution_status":ai_review["status"],
+            "ai_substitution_reviewed":ai_review["reviewed"],
+            "ai_substitution_source_refs":ai_review["source_refs"],
             "asset_site_review_complete":site_ok, "build_serp_gap_verified":build_gap_ok,
             "asset_domain_identity_verified": domain_proved,
             "verified_asset_domain": str(row.get("verified_asset_domain") or "") if domain_proved else "",
@@ -420,7 +449,9 @@ def flippa_qualification(row: dict, max_buy_usd: int) -> dict:
             + ([] if site_ok else ["independent semantic product/monetization/operational DD"])
             + ["seller accounting/processor proofs", "GSC/GA source access",
                "attainable all-in price", "independent product/SERP gap",
-               "migration and ownership proof"]),
+               "migration and ownership proof"]
+            + ([] if ai_review["status"] in ("HIGH", "RESILIENT") else
+               ["AI substitution and independent non-answer workflow review"])),
     }
 
 def qualify(day: str, seo: dict, flippa: dict, root: pathlib.Path = SEO_SCAN_ROOT, max_buy_usd: int = ACTIVE_BUY_LIMIT_USD) -> dict:
@@ -431,10 +462,10 @@ def qualify(day: str, seo: dict, flippa: dict, root: pathlib.Path = SEO_SCAN_ROO
     for item in seo.get("items") or []:
         if not isinstance(item, dict) or not item.get("domain"):
             continue
-        rows.append(seo_qualification(item, by_domain.get(str(item["domain"]).lower(), {}), provider_ok))
+        rows.append(seo_qualification(item, by_domain.get(str(item["domain"]).lower(), {}), provider_ok, as_of=day))
     for item in flippa.get("new") or []:
         if isinstance(item, dict) and item.get("identity"):
-            rows.append(flippa_qualification(item, max_buy_usd))
+            rows.append(flippa_qualification(item, max_buy_usd, as_of=day))
     distinct = {}
     for row in rows:
         if row["identity"] not in distinct:
@@ -462,5 +493,7 @@ def qualify(day: str, seo: dict, flippa: dict, root: pathlib.Path = SEO_SCAN_ROO
             "listing_claims_not_verified_financials":True,
             "reference_only_cannot_be_promoted":True,
             "source_scanners_unchanged":True,
+            "ai_substitution_review_required_before_actionable_dd":True,
+            "ai_review_is_not_financial_proof":True,
         },
     }
