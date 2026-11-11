@@ -358,8 +358,8 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None, revi
 def summarize(backlog, max_rows=18):
     lines=['## Cumulative Flippa BUY/DD/WATCH backlog (carried forward)','',
         '- Active research entries: '+str(backlog.get('active_count',0))+
-        '; reviewed and archived (not SOLD): '+str(backlog.get('reviewed_archived_count',0))+
         '; historical confirmed closed: '+str(backlog.get('closed_historical_count',0))+
+        '; reviewed and archived (not SOLD): '+str(backlog.get('reviewed_archived_count',0))+
         '; BUY approved: 0; BUILD approved: 0.',
         '- Last full Flippa inventory: '+str(backlog.get('last_full_inventory_observation'))+
         '; recent-window snapshot: '+str(backlog.get('last_scoped_recent_scan'))+
