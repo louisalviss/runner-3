@@ -13,6 +13,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit
 from ai_substitution_gate import review_for_candidate
+from reviewed_cutover import reviewed_processed_ids
 
 SEO_SCAN_ROOT = pathlib.Path("/var/lib/seotrends-public/scans")
 ACTIVE_BUY_LIMIT_USD = 10000
@@ -463,8 +464,14 @@ def qualify(day: str, seo: dict, flippa: dict, root: pathlib.Path = SEO_SCAN_ROO
         if not isinstance(item, dict) or not item.get("domain"):
             continue
         rows.append(seo_qualification(item, by_domain.get(str(item["domain"]).lower(), {}), provider_ok, as_of=day))
+    archived_ids=reviewed_processed_ids(day)
+    archived_suppressed=0
     for item in flippa.get("new") or []:
         if isinstance(item, dict) and item.get("identity"):
+            listing_identity=str(item.get("identity") or "")
+            if listing_identity.startswith("flippa:") and listing_identity.removeprefix("flippa:") in archived_ids:
+                archived_suppressed+=1
+                continue
             rows.append(flippa_qualification(item, max_buy_usd, as_of=day))
     distinct = {}
     for row in rows:
@@ -483,6 +490,8 @@ def qualify(day: str, seo: dict, flippa: dict, root: pathlib.Path = SEO_SCAN_ROO
         "status":"PASS" if can_proceed else "PARTIAL_BLOCKED",
         "semantic_dd_status":semantic["status"],"source_semantic_path":semantic["file"],
         "evaluated":len(rows), "by_source":dict(Counter(x["source"] for x in rows)),
+        "archived_reviewed_suppressed":archived_suppressed,
+        "reviewed_prior_cohort_size":len(archived_ids),
         "counts":dict(counts),
         "approved_buy":0,"approved_build":0,
         "actionable_dd":actionable[:10], "study_queue":study[:10],
@@ -495,5 +504,6 @@ def qualify(day: str, seo: dict, flippa: dict, root: pathlib.Path = SEO_SCAN_ROO
             "source_scanners_unchanged":True,
             "ai_substitution_review_required_before_actionable_dd":True,
             "ai_review_is_not_financial_proof":True,
+            "reviewed_cohort_not_reintroduced_as_new_buy_build":True,
         },
     }
