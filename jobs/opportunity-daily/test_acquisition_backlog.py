@@ -201,5 +201,26 @@ class BacklogRegression(unittest.TestCase):
         self.assertFalse(any(x['id']=='14494999' for x in d['active']))
         self.assertTrue(any(x['id']=='99999991' for x in d['active']))
 
+    def test_dated_ai_substitution_drops_schoolcalendar_without_marking_sold(self):
+        before=self.load('2026-11-11')
+        old=next((x for x in before['active'] if x['id']=='13095813'),None)
+        # The fixture may not contain a real school-calendar candidate; seed
+        # it through the same current-candidates path used by the live job.
+        candidate={'identity':'flippa:13095813','source':'FLIPPA','title':'SchoolCalendar.net',
+                   'category':'BUILD_DD','missing':['seller GA data']}
+        historic=b.build_backlog('2026-11-11',root=self.root,report_root=self.root,
+                                  current_candidates=[candidate])
+        live=b.build_backlog('2026-11-12',root=self.root,report_root=self.root,
+                              current_candidates=[candidate])
+        oldrow=next(x for x in historic['active'] if x['id']=='13095813')
+        row=next(x for x in live['active'] if x['id']=='13095813')
+        self.assertEqual(oldrow['ai_substitution_status'],'UNREVIEWED')
+        self.assertEqual(row['ai_substitution_status'],'HIGH')
+        self.assertEqual(row['status'],'AI_SUBSTITUTION_REJECTED')
+        self.assertEqual(row['research_lane'],'BUILD_DD')  # historical identity preserved
+        self.assertNotIn('13095813',{x['id'] for x in live['closed_historical']})
+        self.assertEqual((live['approved_buy'],live['approved_build']),(0,0))
+        self.assertIn('AI substitution rejected',b.summarize(live))
+
 if __name__=='__main__':
     unittest.main()

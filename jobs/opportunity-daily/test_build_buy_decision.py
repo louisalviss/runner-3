@@ -53,6 +53,17 @@ def product_review(domain, job):
              "source_ref":"website-snapshot/pricing#sha256:fixture"}]}
 
 
+def resilience(identity, date="2026-10-01"):
+    return {"status":"REVIEWED","identity":identity,"review_date":date,
+            "customer_job":"Execute a paid recurring business transaction",
+            "risk":"RESILIENT_WORKFLOW","ai_answer_completes_customer_job":False,
+            "revenue_depends_on_answer_pageviews":False,
+            "resilience_basis":"TRANSACTION","non_answer_value_source_checked":True,
+            "reason":"Users must make payments and execute the transaction in the original service.",
+            "source_refs":["https://example.com/transaction-proof",
+                           "https://example.net/independent-buyer-proof"]}
+
+
 class BuildBuyDecisionGates(unittest.TestCase):
     def test_traffic_not_equal_build_ready(self):
         x=seo_qualification(dict(seo(),product_intent_checked=True),sem(),True)
@@ -101,7 +112,8 @@ class BuildBuyDecisionGates(unittest.TestCase):
                       "approved_build":0,"items":[{"domain":"verified.test",
                       "semantic_verdict":"QUALIFIED_DD","terminal_verdict":"WATCH",
                       "product_intent_checked":True,"candidate_wedge":wedge,
-                      "site_product_review":product_review("verified.test",wedge["user_job"])}]}
+                      "site_product_review":product_review("verified.test",wedge["user_job"]),
+                      "ai_substitution_review":resilience("verified.test")}]}
             target=root/"2026-11-05-semantic-business-dd.json"
             target.write_text(json.dumps(semantic))
             row=dict(seo("verified.test"),product_intent_checked=True,
@@ -131,7 +143,8 @@ class BuildBuyDecisionGates(unittest.TestCase):
                         "finding":"A detailed independently reviewable proof for the candidate"}
         x=seo_qualification(row,{"semantic_verdict":"QUALIFIED_DD","terminal_verdict":"WATCH",
                                  "product_intent_checked":True,"candidate_wedge":wedge,
-                                 "site_product_review":product_review("example.com",wedge["user_job"])},True)
+                                 "site_product_review":product_review("example.com",wedge["user_job"]),
+                                 "ai_substitution_review":resilience("example.com")},True)
         self.assertEqual(x["category"],"BUILD_DD")
         self.assertEqual(x["build"]["state"],"DD_PENDING")
         self.assertTrue(x["evidence"]["site_product_review_complete"])
@@ -182,7 +195,8 @@ class BuildBuyDecisionGates(unittest.TestCase):
             wedge[key]={"verified":True,"evidence_ref":"stored-exact-source/fixture",
                         "finding":"A source-linked and separately reviewable finding"}
         seme={"semantic_verdict":"QUALIFIED_DD","terminal_verdict":"WATCH",
-              "product_intent_checked":True,"candidate_wedge":wedge}
+              "product_intent_checked":True,"candidate_wedge":wedge,
+              "ai_substitution_review":resilience("example.com")}
         a=seo_qualification(row,seme,True)
         self.assertEqual(a["category"],"DEFER")
         self.assertFalse(a["evidence"]["site_product_review_complete"])
@@ -258,6 +272,7 @@ class BuildBuyDecisionGates(unittest.TestCase):
                  "finding":"Public offer describes sponsored placement pricing",
                  "source_ref":"site-10/pricing#sha256:fixture"}]}
         row["site_product_review"]=review
+        row["ai_substitution_review"]=resilience("flippa:10")
         x=flippa_qualification(row,10000)
         self.assertEqual(x["category"],"BUY_DD")
         self.assertTrue(x["evidence"]["asset_site_review_complete"])
