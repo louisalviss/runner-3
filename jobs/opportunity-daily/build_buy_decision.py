@@ -13,7 +13,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit
 from ai_substitution_gate import review_for_candidate
-from reviewed_cutover import reviewed_processed_ids
+from reviewed_cutover import reviewed_processed_ids, is_reviewed_prior_listing
 
 SEO_SCAN_ROOT = pathlib.Path("/var/lib/seotrends-public/scans")
 ACTIVE_BUY_LIMIT_USD = 10000
@@ -469,7 +469,7 @@ def qualify(day: str, seo: dict, flippa: dict, root: pathlib.Path = SEO_SCAN_ROO
     for item in flippa.get("new") or []:
         if isinstance(item, dict) and item.get("identity"):
             listing_identity=str(item.get("identity") or "")
-            if listing_identity.startswith("flippa:") and listing_identity.removeprefix("flippa:") in archived_ids:
+            if is_reviewed_prior_listing(listing_identity, day):
                 archived_suppressed+=1
                 continue
             rows.append(flippa_qualification(item, max_buy_usd, as_of=day))
