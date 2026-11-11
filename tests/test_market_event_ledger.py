@@ -124,4 +124,91 @@ class MoveLedgerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"EXISTING_EVENT_LEDGER_CORRUPT"):
             m.append_unseen(json.dumps({"event_id":"BAD"})+"\n",e)
 
+
+    def test_research_intake_limits_price_only_work_without_losing_events(self):
+        session = "2026-11-10"
+        historical = {
+            "source_session_date": session,
+            "status": "RESEARCH_ONLY_PENDING_RECONCILIATION",
+            "observed_sessions": ["2026-11-06", "2026-11-09", session],
+            "severe_unique_symbols": 7,
+            "queue": [
+                {"symbol": "NEW1", "sessions": [session]},
+                {"symbol": "NEW5", "sessions": [session]},
+                {"symbol": "OLD", "sessions": ["2026-11-09", session]},
+                {"symbol": "GAP", "sessions": ["2026-11-06", session]},
+                {"symbol": "LOW", "sessions": [session]},
+                {"symbol": "CORP", "sessions": [session]},
+                {"symbol": "HISTORY", "sessions": ["2026-11-09"]},
+            ],
+        }
+        events = [
+            ("NEW1", -20, -20, 3.5, False),
+            ("NEW5", -1, -23, 2.0, False),
+            ("OLD", -19, -30, 3.0, False),
+            ("GAP", -18, -22, 2.3, False),
+            ("LOW", -23, -25, 0.7, False),
+            ("CORP", -30, -30, 8.0, True),
+        ]
+        current = {
+            "source_session_date": session,
+            "status": "DIAGNOSTIC_PENDING_CAUSAL_REVIEW",
+            "total": len(events),
+            "queue": [
+                {
+                    "event_id": f"{session}|{symbol}|SEVERE_SHOCK_TRIAGE",
+                    "symbol": symbol, "adjusted_return_1d_pct": d1,
+                    "adjusted_return_5d_pct": d5,
+                    "volume_ratio_20d": volume,
+                    "security_identity_review_required": identity,
+                    "in_capped_top80": False,
+                } for symbol, d1, d5, volume, identity in events
+            ],
+        }
+        raw_before = json.dumps(current, sort_keys=True)
+        outcome = m.research_intake_budget(historical, current, max_source_reviews=2)
+        self.assertEqual(outcome["entire_rolling_severe_preserved"], 7)
+        self.assertEqual(outcome["current_severe_preserved"], 6)
+        self.assertEqual(outcome["admitted_source_reviews"], 2)
+        self.assertEqual(outcome["deferred_eligible_episodes"], 1)
+        self.assertEqual(outcome["current_cold_watch"], 2)
+        self.assertEqual(outcome["identity_hold"], 1)
+        self.assertEqual(outcome["not_current_severe_cold_history"], 1)
+        self.assertEqual([x["symbol"] for x in outcome["admitted"]], ["NEW1", "NEW5"])
+        self.assertEqual(outcome["deferred"][0]["symbol"], "GAP")
+        self.assertEqual(outcome["deferred"][0]["event_key"], "2026-11-10|GAP|SEVERE_PRICE_EPISODE")
+        self.assertEqual(json.dumps(current, sort_keys=True), raw_before)
+        # Same-tier fresh 1D shocks: larger verified drawdown precedes smaller.
+        current["queue"][1]["adjusted_return_1d_pct"] = -24.0
+        current["queue"][1]["adjusted_return_5d_pct"] = -26.0
+        strongest = m.research_intake_budget(historical, current, max_source_reviews=1)
+        self.assertEqual(strongest["admitted"][0]["symbol"], "NEW5")
+        current["queue"][1]["adjusted_return_1d_pct"] = -1.0
+        current["queue"][1]["adjusted_return_5d_pct"] = -23.0
+        self.assertFalse(any(x["actionable"] for x in outcome["admitted"]))
+        self.assertEqual(outcome, m.research_intake_budget(historical, current, max_source_reviews=2))
+
+    def test_research_intake_fail_closed_cross_session_duplicate(self):
+        historical = {
+            "source_session_date": "2026-11-10",
+            "status": "RESEARCH_ONLY_PENDING_RECONCILIATION",
+            "observed_sessions": ["2026-11-09", "2026-11-10"],
+            "severe_unique_symbols": 1,
+            "queue": [{"symbol": "T", "sessions": ["2026-11-10"]}],
+        }
+        current = {
+            "source_session_date": "2026-11-09",
+            "status": "DIAGNOSTIC_PENDING_CAUSAL_REVIEW",
+            "total": 1,
+            "queue": [{"symbol": "T", "adjusted_return_1d_pct": -17,
+                       "volume_ratio_20d": 2}],
+        }
+        with self.assertRaisesRegex(ValueError, "SOURCE_SESSION_MISMATCH"):
+            m.research_intake_budget(historical, current)
+        current["source_session_date"] = "2026-11-10"
+        current["queue"].append(current["queue"][0])
+        current["total"] = 2
+        with self.assertRaisesRegex(ValueError, "CURRENT_SYMBOL_MISMATCH"):
+            m.research_intake_budget(historical, current)
+
 if __name__=="__main__":unittest.main()
