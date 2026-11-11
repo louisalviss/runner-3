@@ -11,6 +11,9 @@ import pathlib
 
 PATH = pathlib.Path(__file__).with_name("reviewed_cohort_20261112.json")
 CUTOVER_DAY = "2026-11-12"
+# A relisted ID is not a new business when the older listing already
+# identifies an exact redirect target. Never treat unrelated new IDs as old.
+VERIFIED_RELIST_ALIASES = {"14595704": "14215867"}
 
 
 def reviewed_processed_ids(day: str) -> frozenset[str]:
@@ -41,5 +44,8 @@ def reviewed_processed_ids(day: str) -> frozenset[str]:
 
 def is_reviewed_prior_listing(identity: str, day: str) -> bool:
     """Flippa identity only; SeoTrends discovery is not suppressed."""
-    return (isinstance(identity, str) and identity.startswith("flippa:")
-            and identity.removeprefix("flippa:") in reviewed_processed_ids(day))
+    if not isinstance(identity, str) or not identity.startswith("flippa:"):
+        return False
+    ident = identity.removeprefix("flippa:")
+    prior = reviewed_processed_ids(day)
+    return ident in prior or VERIFIED_RELIST_ALIASES.get(ident) in prior
