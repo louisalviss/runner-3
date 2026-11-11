@@ -12,6 +12,7 @@ import json
 import pathlib
 import re
 from ai_substitution_gate import review_for_candidate
+from reviewed_cutover import reviewed_processed_ids, CUTOVER_DAY
 
 ROOT = pathlib.Path('/var/lib/acquisition-radar-scan')
 OUT = pathlib.Path('/var/lib/opportunity-daily')
@@ -173,7 +174,7 @@ def historical_audits(day):
                     'observed_reserve_usd':item.get('reserve')}
     return all_rows
 
-def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
+def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None, reviewed_override=None):
     """Pure, deterministic snapshot based on source observations no later than day."""
     root=pathlib.Path(root);report_root=pathlib.Path(report_root)
     if not valid_day(day):
@@ -296,6 +297,34 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
             item['ai_substitution_evidence_refs']=ai_review['source_refs']
         active.append(item)
     active.sort(key=lambda x:(x['priority'],x['source_decision_as_of'],x['id']))
+    # User reviewed all 87 old cases on 2026-11-12. This is *research archive*
+    # only, never a Flippa sold/delisted verdict. A separate immutable manifest
+    # still blocks relisted IDs from resurfacing in future candidate queues.
+    if day >= CUTOVER_DAY:
+        if reviewed_override is not None:
+            reviewed_ids=set(reviewed_override)
+        elif root == ROOT and report_root == OUT:
+            reviewed_ids=set(reviewed_processed_ids(day))
+        else:
+            # Unit fixture sources do not load production-only review decisions.
+            reviewed_ids=set()
+    else:
+        reviewed_ids=set()
+    archived_reviewed=[]
+    fresh=[]
+    for item in active:
+        if item['id'] in reviewed_ids or item.get('effective_listing_id') in reviewed_ids:
+            archived_reviewed.append({
+                'id':item['id'], 'identity':item['identity'],
+                'name':item['name'], 'reviewed_on':CUTOVER_DAY,
+                'status':'REVIEWED_ARCHIVED', 'previous_research_lane':item['research_lane'],
+                'previous_public_listing_status':item['current_listing_status'],
+                'review_evidence':'History/2026-11-12-ai-substitution-87-full-review.md',
+                'not_marketplace_sold_or_build_rejected':True,
+                'approved_buy':False,'approved_build':False})
+        else:
+            fresh.append(item)
+    active=fresh
     closed=[{'id':ident,'name':name,'last_direct_status':status,
              'last_direct_confirmation_as_of':'2026-10-07','status':'CLOSED_HISTORICAL'}
             for ident,(name,status) in sorted(CLOSED.items())
@@ -308,6 +337,9 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
     return {'schema':'acquisition-flippa-cumulative-backlog-v1','as_of':day,
             'last_scoped_recent_scan':recent_day,'last_full_inventory_observation':BASELINE_DAY,
             'active_count':len(active),'closed_historical_count':len(closed),
+            'reviewed_archived_count':len(archived_reviewed),
+            'reviewed_archived':archived_reviewed,
+            'review_cutover_date':CUTOVER_DAY if reviewed_ids else None,
             'approved_buy':0,'approved_build':0,
             'active':active,'closed_historical':closed,
             'policy':{'no_dropping_on_recent_absence':True,'price_is_listing_claim':True,
@@ -319,16 +351,20 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None):
                       'cumulative_not_new_daily_results':True,
                       'last_full_listing_scan_not_today':True,
                       'ai_substitution_review_is_dated':True,
-                      'ai_rejection_does_not_mean_listing_sold':True}}
+                      'ai_rejection_does_not_mean_listing_sold':True,
+                      'review_archive_does_not_mean_sold_or_rejected':True,
+                      'old_reviewed_listing_not_a_new_opportunity':True}}
 
 def summarize(backlog, max_rows=18):
     lines=['## Cumulative Flippa BUY/DD/WATCH backlog (carried forward)','',
         '- Active research entries: '+str(backlog.get('active_count',0))+
         '; historical confirmed closed: '+str(backlog.get('closed_historical_count',0))+
+        '; reviewed and archived (not SOLD): '+str(backlog.get('reviewed_archived_count',0))+
         '; BUY approved: 0; BUILD approved: 0.',
         '- Last full Flippa inventory: '+str(backlog.get('last_full_inventory_observation'))+
         '; recent-window snapshot: '+str(backlog.get('last_scoped_recent_scan'))+
         '. Missing from Recent-500 is **not** SOLD/ENDED.',
+        '- Completed review cohort stays in reviewed_archived with source evidence; only new candidates after 2026-11-12 remain active. Not SOLD, not deleted, not automatically rejected.',
         '- These are historical research statuses, **not** current listing availability or verified financials.',
         '- AI substitution rejected BUY/BUILD research entries: '+
             str(sum(x.get('ai_substitution_status')=='HIGH' for x in (backlog.get('active') or [])))+
