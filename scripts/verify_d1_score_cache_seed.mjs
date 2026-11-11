@@ -104,6 +104,9 @@ const job=fs.readFileSync(".github/workflows/content-intelligence-v4-guarded-mat
 assert(job.indexOf("d1_account_quota_preflight.py")>0 && job.indexOf("--seed-score-cache-if-missing")>job.indexOf("d1_account_quota_preflight.py"),"seed bypasses quota preflight");
 assert(job.includes("id-token: write") && job.includes("--preflight-receipt-file"),"signed preflight workflow wiring missing");
 assert(job.includes("D1_READ_SAFE_CEILING: '4000000'") && job.includes("D1_SAFE_CEILING: '70000'"),"preflight ceilings changed");
+assert(job.includes("cron: '17 0,12 * * *'"),"materialization cron too frequent for D1 free-tier");
+assert(job.includes("D1_PLANNED_READ_ROWS: '1600000'"),"D1 read budget underestimates measured full recompute");
+
 const audio=fs.readFileSync("cloudflare/runner3-core/audio-entry.js","utf8");
 assert(!audio.includes("seedScoreCacheIfMissing:true"),"daily worker may seed");
 console.log("D1_SCORE_CACHE_SEED_GUARD_PASS");

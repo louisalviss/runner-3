@@ -3,7 +3,7 @@ name: Content Intelligence v4 Guarded Materialize
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 */4 * * *'
+    - cron: '17 0,12 * * *' # at most twice daily; no extra full D1 rebuild every 4h
 
 permissions:
   contents: read
@@ -26,7 +26,7 @@ jobs:
       D1_SAFE_CEILING: '70000'
       D1_PLANNED_ROWS: '25000'
       D1_READ_SAFE_CEILING: '4000000'
-      D1_PLANNED_READ_ROWS: '500000'
+      D1_PLANNED_READ_ROWS: '1600000' # reserve measured high-cost paging/profile aggregate
       D1_PREFLIGHT_RECEIPT_FILE: '/tmp/runner3-d1-cache-seed-preflight.json'
     steps:
       - uses: actions/checkout@v4
