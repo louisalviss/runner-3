@@ -12,6 +12,7 @@ on:
       - 'scripts/verify_personal_score_daily_cache.mjs'
       - 'cloudflare/runner3-core/src/content-interest-evidence.js'
       - 'cloudflare/runner3-core/src/content-intelligence.js'
+      - 'cloudflare/runner3-core/src/content-synthesis-event-aggregate.js'
       - 'cloudflare/runner3-core/src/score-cache-seed-authorization.js'
       - 'cloudflare/runner3-core/src/rss-reader-learning.js'
       - 'cloudflare/runner3-core/audio-entry.js'
@@ -41,6 +42,7 @@ on:
       - 'scripts/verify_interest_profile_promotion.mjs'
       - 'scripts/verify_interest_ontology.mjs'
       - 'scripts/verify_content_synthesis_singlepass.mjs'
+      - 'scripts/verify_synthesis_event_incremental.mjs'
       - '.github/workflows/content-intelligence-v2-test.yml'
   push:
     branches: [main]
@@ -52,6 +54,7 @@ on:
       - 'scripts/verify_personal_score_daily_cache.mjs'
       - 'cloudflare/runner3-core/src/content-interest-evidence.js'
       - 'cloudflare/runner3-core/src/content-intelligence.js'
+      - 'cloudflare/runner3-core/src/content-synthesis-event-aggregate.js'
       - 'cloudflare/runner3-core/src/score-cache-seed-authorization.js'
       - 'cloudflare/runner3-core/src/rss-reader-learning.js'
       - 'cloudflare/runner3-core/audio-entry.js'
@@ -104,6 +107,7 @@ jobs:
           node --check cloudflare/runner3-core/src/content-personalization.js
           node --check cloudflare/runner3-core/src/content-interest-evidence.js
           node --check cloudflare/runner3-core/src/content-intelligence.js
+          node --check cloudflare/runner3-core/src/content-synthesis-event-aggregate.js
           node --check cloudflare/runner3-core/src/score-cache-seed-authorization.js
           node --check cloudflare/runner3-core/src/rss-reader-learning.js
           python3 -m py_compile scripts/content_intelligence_client.py
@@ -130,6 +134,7 @@ jobs:
           node scripts/verify_interest_evidence_projection.mjs
           node scripts/verify_interest_ontology.mjs
           node scripts/verify_content_synthesis_singlepass.mjs
+          node scripts/verify_synthesis_event_incremental.mjs
           node scripts/verify_zero_weight_event_dirty_guard.mjs
           grep -q 'interest_saved' cloudflare/runner3-core/src/content-personalization.js
           grep -q 'follow_up' cloudflare/runner3-core/src/content-personalization.js

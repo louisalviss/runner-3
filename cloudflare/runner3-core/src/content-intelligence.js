@@ -15,6 +15,7 @@ import {
 import { INTEREST_ONTOLOGY_VERSION } from "./content-interest-ontology.js";
 import { authorizeScoreCacheSeed } from "./score-cache-seed-authorization.js";
 import { buildInterestEvidenceSnapshot } from "./content-interest-evidence.js";
+import { readSynthesisEventAggregate } from "./content-synthesis-event-aggregate.js";
 
 const MAX_ROWS = 100;
 const MAX_JSON = 200000;
@@ -308,7 +309,7 @@ async function handleSynthesis(request,env,url){
   const scoreLimit=Math.min(100,Math.max(5,Number.parseInt(url.searchParams.get("score_limit")||"20",10)||20));
   const [counts,eventTypes,profile,topScores,recentFeedback,recentEvents,scoreStats]=await Promise.all([
     env.DB.prepare(`SELECT (SELECT COUNT(*) FROM content_items) AS items,(SELECT COUNT(*) FROM interest_profile) AS profile_features,(SELECT COUNT(*) FROM interest_family_profile) AS family_features`).first(),
-    env.DB.prepare(`SELECT event_type,COUNT(*) AS count,MAX(event_at) AS last_event_at FROM user_content_events GROUP BY event_type ORDER BY count DESC`).all(),
+    readSynthesisEventAggregate(env.DB),
     env.DB.prepare(`SELECT feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at FROM interest_profile ORDER BY ABS(weight) DESC,confidence DESC,evidence_count DESC LIMIT ?`).bind(profileLimit).all(),
     env.DB.prepare(`SELECT s.item_id,s.score,s.confidence,s.reason_json,s.model_version,i.canonical_url,i.title,i.source_type,i.source_name,i.source_key,i.published_at FROM content_scores s JOIN content_items i ON i.item_id=s.item_id WHERE s.score_type='personal_relevance' AND s.model_version=? ORDER BY s.score DESC,i.published_at DESC LIMIT ?`).bind(PERSONAL_MODEL_VERSION,scoreLimit).all(),
     env.DB.prepare(`SELECT e.id,e.item_id,e.event_type,e.explicit_feedback,e.event_at,i.title,i.canonical_url,i.source_type,i.source_name FROM user_content_events e JOIN content_items i ON i.item_id=e.item_id WHERE e.explicit_feedback IS NOT NULL AND TRIM(e.explicit_feedback)<>'' ORDER BY e.event_at DESC LIMIT 20`).all(),
@@ -316,7 +317,7 @@ async function handleSynthesis(request,env,url){
     env.DB.prepare(`SELECT COUNT(*) AS count,MIN(score) AS min_score,MAX(score) AS max_score,AVG(score) AS avg_score,SUM(CASE WHEN score>=95 THEN 1 ELSE 0 END) AS score_95_plus,SUM(CASE WHEN score>=99 THEN 1 ELSE 0 END) AS score_99_plus FROM content_scores WHERE score_type='personal_relevance' AND model_version=?`).bind(PERSONAL_MODEL_VERSION).first()
   ]);
   // Reuse already-read aggregates rather than scanning the same tables twice.
-  const eventRows=eventTypes.results||[];
+  const eventRows=eventTypes;
   const totalEvents=eventRows.reduce((n,row)=>n+Number(row.count||0),0);
   const lastEventAt=eventRows.reduce((latest,row)=>{
     const stamp=row.last_event_at||null;
