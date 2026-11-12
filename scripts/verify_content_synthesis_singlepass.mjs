@@ -3,12 +3,16 @@ import { handleContentIntelligence } from "../cloudflare/runner3-core/src/conten
 
 function fixture(events) {
   const queries = [];
+  let cached = null;
+  const maxId = events.reduce((n, row) => n+Number(row.count||0), 0);
   const db = {
     prepare(sql) {
       queries.push(sql);
       return {
-        bind() { return this; },
+        bind(...args) { this.arguments_ = args; return this; },
         async first() {
+          if (sql.includes("SELECT detail FROM workflow_state WHERE source=?")) return cached ? {detail:cached} : null;
+          if (sql.includes("SELECT COALESCE(MAX(id),0) AS max_id FROM user_content_events")) return {max_id:maxId};
           if (sql.includes("SELECT (SELECT COUNT(*) FROM content_items) AS items")) {
             assert(!sql.includes("COUNT(*) FROM user_content_events"), "redundant event full scan");
             assert(!sql.includes("FROM content_scores"), "redundant score full scan");
@@ -18,6 +22,12 @@ function fixture(events) {
             return { count: 4, min_score: 1, max_score: 90, avg_score: 45, score_95_plus: 0, score_99_plus: 0 };
           }
           throw new Error("Unexpected first query: " + sql.slice(0, 90));
+        },
+        async run() {
+          if (sql.includes("INSERT INTO workflow_state(source,status,detail,updated_at)")) {
+            cached = this.arguments_[1]; return {meta:{changes:1}};
+          }
+          throw new Error("Unexpected run query: " + sql.slice(0, 90));
         },
         async all() {
           if (sql.includes("SELECT event_type,COUNT(*) AS count")) {
@@ -44,7 +54,10 @@ async function run(events) {
   assert.equal(resp.status, 200);
   const out = await resp.json();
   assert.equal(out.ok, true);
-  assert.equal(queries.length, 7);
+  assert.equal(queries.length, 11);
+  assert(queries.some(q => q.includes("MAX(id),0")), "D1 append-only event watermark required");
+  assert(queries.some(q => q.includes("INSERT INTO workflow_state")), "snapshot persisted");
+
   assert.equal(out.counts.items, 6);
   assert.equal(out.counts.scored_items, 4);
   assert.equal(out.counts.profile_features, 2);
@@ -60,9 +73,9 @@ const a = await run([
 ]);
 assert.equal(a.counts.events, 5);
 assert.equal(a.counts.last_event_at, "2026-10-09 15:00:00");
-assert.deepEqual(a.event_types,[{event_type:"liked",count:2},{event_type:"shown",count:3}]);
+assert.deepEqual(a.event_types,[{event_type:"shown",count:3},{event_type:"liked",count:2}]);
 const b = await run([]);
 assert.equal(b.counts.events, 0);
 assert.equal(b.counts.last_event_at, null);
 assert.deepEqual(b.event_types, []);
-console.log("CONTENT_SYNTHESIS_SINGLEPASS_PASS (2 fixtures, 7 SQL queries each)");
+console.log("CONTENT_SYNTHESIS_SINGLEPASS_PASS (2 fixtures, 11 SQL operations each, indexed highwater cache)");
