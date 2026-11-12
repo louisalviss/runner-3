@@ -7,7 +7,7 @@ A documented research no-trade / waiting closeout is not certified price causali
 from __future__ import annotations
 
 import copy
-from datetime import date
+from datetime import datetime
 from radar_bidirectional_handoff import parse_time, project_checkpoint, reverse_price_requests
 
 TERMINAL_STATES = frozenset({
@@ -67,7 +67,9 @@ def _verified_new_material_event(symbol, reviewed, forwards):
         if not update or update in linked or not isinstance(url, str) or not url.startswith("https://"):
             continue
         try:
-            source_date = parse_time(g["source_event_time_vn"]).date().isoformat()
+            source_date = datetime.fromisoformat(
+                g["source_event_time_vn"].replace("Z", "+00:00")
+            ).date().isoformat()
         except (ValueError, KeyError, TypeError):
             continue
         if source_date > latest_prior_session:
@@ -119,7 +121,10 @@ def bounded_reverse_projection_v2(checkpoint, health, prefilter, raw_events,
     immutable GitHub source event log, not a copied raw dataset.
     """
     parse_time(observed_at_vn)
-    day = parse_time(observed_at_vn).date().isoformat()
+    # Preserve the Asia/Ho_Chi_Minh calendar day, not UTC's previous day.
+    day = datetime.fromisoformat(
+        observed_at_vn.replace("Z", "+00:00")
+    ).date().isoformat()
     session = health.get("source_session_date")
     if not (health.get("complete") is True and health.get("status") == "COMPLETE"
             and session and session == health.get("expected_latest_completed_us_session")
