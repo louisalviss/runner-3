@@ -158,7 +158,19 @@ def bounded_reverse_projection_v2(checkpoint, health, prefilter, raw_events,
     latest = reverse_price_requests(raw_events, health, max_out=LOOKBACK_LIMIT)
     current = {}
     skipped_known = []
-    skipped_actions = []
+    # reverse_price_requests already rejects suspected corporate actions; the
+    # exclusion still belongs in the audit, otherwise owners cannot tell a
+    # safety exclusion from an empty candidate stream.
+    skipped_actions = sorted({
+        str(r.get("symbol")) for r in raw_events
+        if isinstance(r, dict) and r.get("source_session_date") == session
+        and str(r.get("predicate", "")).startswith(("1D_", "5D_"))
+        and r.get("symbol") in by_symbol and (
+            by_symbol[r["symbol"]].get("adjustment_verified") is not True
+            or by_symbol[r["symbol"]].get("corporate_action_unverified") is not False
+            or by_symbol[r["symbol"]].get("corporate_action_suspected") is not False
+            or r.get("corporate_action_suspected") is True)
+    })
     for record in latest:
         sym = record["symbol"]
         if record["event_id"] in known_ids:
