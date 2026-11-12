@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS content_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_content_items_source_type ON content_items(source_type);
+-- Owned-content scans: filter collector before walking primary-key pages.
+CREATE INDEX IF NOT EXISTS idx_content_items_collector_item ON content_items(json_extract(metadata_json,'$.collector'), item_id);
 -- Case-insensitive canonical-URL lookup: expression index matches LOWER(canonical_url)=LOWER(?).
 -- Added after D1 query-insights audit (2026-11-11); the existing UNIQUE URL key is case-sensitive.
 CREATE INDEX IF NOT EXISTS idx_content_items_lower_canonical_url ON content_items(LOWER(canonical_url));
@@ -57,6 +59,8 @@ CREATE TABLE IF NOT EXISTS user_content_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_content_events_item ON user_content_events(item_id);
+-- Source-ingest preference probes and scoped event aggregation.
+CREATE INDEX IF NOT EXISTS idx_user_content_events_item_type ON user_content_events(item_id, event_type);
 CREATE INDEX IF NOT EXISTS idx_user_content_events_type ON user_content_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_user_content_events_at ON user_content_events(event_at);
 CREATE INDEX IF NOT EXISTS idx_user_content_events_render ON user_content_events(render_id);
