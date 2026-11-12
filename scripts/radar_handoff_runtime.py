@@ -122,81 +122,14 @@ def pinned_reverse_price_source_fetch():
     return health, prefilter, events, commit
 
 
+from radar_queue_lifecycle import bounded_reverse_projection_v2
+
+
 def bounded_reverse_projection(checkpoint, health, prefilter, raw_events,
                                source_commit, observed_at_vn):
-    """Accept <=8 new issuer price requests per session, <=40 open total.
-
-    Keep all existing research history and a fixed-sized audit in the SAME
-    checkpoint. Symbol-level dedup avoids rescreening an issuer already open.
-    """
-    session = health.get("source_session_date")
-    if not (health.get("complete") is True and health.get("status") == "COMPLETE"
-            and session == health.get("expected_latest_completed_us_session")
-            and session == prefilter.get("source_session_date")
-            and health.get("prefilter_sha256")):
-        raise ValueError("REVERSE_MARKET_HEALTH_INVALID")
-    state = checkpoint.get("cross_radar_handoff") or {}
-    prior_packet = state.get("reverse_price_session_acceptance_v1")
-    if prior_packet and prior_packet.get("session") == session:
-        if prior_packet.get("prefilter_sha256") != health["prefilter_sha256"]:
-            raise ValueError("SAME_SESSION_PRICE_SHA_CONFLICT")
-        return checkpoint, {"reverse_added": 0, "changed": False, "already_accepted": True,
-                            "source_session": session, "capacity_skipped": 0}
-    by_symbol = {r.get("symbol"): r for r in prefilter.get("records", [])
-                 if isinstance(r, dict) and r.get("last_date") == session}
-    reviewed = state.get("opportunity_to_global") or {}
-    known_symbols = {x.get("symbol") for x in reviewed.values()}
-    unresolved = sum(x.get("intake_state") == "PENDING_CAUSAL_NEWS_VERIFICATION"
-                     for x in reviewed.values())
-    room = max(0, REVERSE_PENDING_CAP - unresolved)
-    candidates = reverse_price_requests(raw_events, health, max_out=150)
-    unique, skipped_known, skipped_actions = [], [], []
-    for c in candidates:
-        sym = c["symbol"]
-        row = by_symbol.get(sym)
-        if not row or row.get("adjustment_verified") is not True or (
-                row.get("corporate_action_unverified") is not False) or (
-                row.get("corporate_action_suspected") is not False):
-            skipped_actions.append(sym)
-            continue
-        if sym in known_symbols:
-            skipped_known.append(sym)
-            continue
-        unique.append(c)
-    limit = min(REVERSE_DAILY_NEW_LIMIT, room)
-    selected = unique[:limit]
-    projected, stat = project_checkpoint(checkpoint, [], selected,
-                                         observed_at_vn=observed_at_vn)
-    h = projected["cross_radar_handoff"]
-    for c in selected:
-        rec = h["opportunity_to_global"][c["event_id"]]
-        rec["market_packet_commit_pin"] = source_commit
-        rec["source_market_status"] = "COMPLETE_PRICE_ONLY_NO_CAUSAL_CLAIM"
-        rec["adjustments_verified_at_intake"] = True
-    accepted = {
-        "session": session,
-        "source_commit_sha": source_commit,
-        "prefilter_sha256": health["prefilter_sha256"],
-        "source_prefilter_count": len(prefilter["records"]),
-        "source_raw_event_count": len(raw_events),
-        "source_candidates_considered": len(candidates),
-        "old_pending_before": unresolved,
-        "old_source_reviewed_count": sum(bool(x.get("primary_source_triage_20261113"))
-                                         for x in reviewed.values()),
-        "new_added": stat["reverse_added"],
-        "new_symbols": [x["symbol"] for x in selected],
-        "same_issuer_already_queued": sorted(set(skipped_known)),
-        "corporate_action_or_adjustment_skipped": sorted(set(skipped_actions)),
-        "new_eligible_not_admitted_due_capacity": max(0, len(unique) - limit),
-        "outstanding_research_not_restarted": True,
-        "source_status": "PINNED_COMPLETE_NO_BUY_SHORT",
-        "no_notification_or_trade": True,
-    }
-    h["reverse_price_session_acceptance_v1"] = accepted
-    return projected, {"reverse_added": stat["reverse_added"],
-                       "changed": True, "already_accepted": False,
-                       "source_session": session,
-                       "capacity_skipped": accepted["new_eligible_not_admitted_due_capacity"]}
+    """Backward-compatible entrypoint for bounded, persistent queue v2."""
+    return bounded_reverse_projection_v2(checkpoint, health, prefilter, raw_events,
+                                         source_commit, observed_at_vn)
 
 
 def audit_projection(ledger, original, observed_at_vn, ledger_sha256):
@@ -318,6 +251,10 @@ def run_live(*, sync_reverse=False):
         "reverse_price_source_session": reverse_stats["source_session"],
         "reverse_price_source_already_accepted": reverse_stats["already_accepted"],
         "reverse_eligible_capacity_skipped": reverse_stats["capacity_skipped"],
+        "reverse_active_pending": reverse_stats.get("active_pending"),
+        "reverse_terminal_count": reverse_stats.get("terminal_count"),
+        "reverse_deferred_count": reverse_stats.get("deferred_count"),
+        "reverse_daily_budget_used": reverse_stats.get("daily_used"),
         "no_trade": True,
     }
     print(json.dumps(out, ensure_ascii=False))
