@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS user_content_events (
 CREATE INDEX IF NOT EXISTS idx_user_content_events_item ON user_content_events(item_id);
 -- Source-ingest preference probes and scoped event aggregation.
 CREATE INDEX IF NOT EXISTS idx_user_content_events_item_type ON user_content_events(item_id, event_type);
+-- shown carries zero preference weight; avoid scanning irrelevant events.
+CREATE INDEX IF NOT EXISTS idx_user_content_events_preference_signal ON user_content_events(item_id, event_type, event_at) WHERE event_type <> 'shown';
 CREATE INDEX IF NOT EXISTS idx_user_content_events_type ON user_content_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_user_content_events_at ON user_content_events(event_at);
 CREATE INDEX IF NOT EXISTS idx_user_content_events_render ON user_content_events(render_id);

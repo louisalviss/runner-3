@@ -20,6 +20,8 @@ on:
       - 'scripts/d1_account_quota_preflight.py'
       - 'tests/test_d1_account_dual_quota_guard.py'
       - 'cloudflare/runner3-core/sql/content-intelligence-d1-read-indexes.sql'
+      - 'cloudflare/runner3-core/sql/content-intelligence-d1-personal-signals-index.sql'
+      - 'tests/test_profile_projection_signal_prune.py'
       - 'cloudflare/runner3-core/content-intelligence-schema.sql'
       - 'tests/test_d1_content_intelligence_read_indexes.py'
       - 'tests/test_content_v4_guarded_materialize.py'
@@ -58,6 +60,8 @@ on:
       - 'scripts/d1_account_quota_preflight.py'
       - 'tests/test_d1_account_dual_quota_guard.py'
       - 'cloudflare/runner3-core/sql/content-intelligence-d1-read-indexes.sql'
+      - 'cloudflare/runner3-core/sql/content-intelligence-d1-personal-signals-index.sql'
+      - 'tests/test_profile_projection_signal_prune.py'
       - 'cloudflare/runner3-core/content-intelligence-schema.sql'
       - 'tests/test_d1_content_intelligence_read_indexes.py'
       - 'tests/test_content_v4_guarded_materialize.py'
@@ -107,6 +111,7 @@ jobs:
           python3 -m unittest discover -s tests -p test_personal_score_keyset.py
           python3 -m unittest discover -s tests -p test_d1_account_dual_quota_guard.py
           python3 -m unittest discover -s tests -p test_d1_content_intelligence_read_indexes.py
+          python3 -m unittest discover -s tests -p test_profile_projection_signal_prune.py
           python3 -m unittest discover -s tests -p test_content_v4_guarded_materialize.py
           python3 -m unittest discover -s tests -p test_content_intelligence_d1_usage_readonly.py
           node scripts/verify_d1_skip_redundant_heartbeat.mjs

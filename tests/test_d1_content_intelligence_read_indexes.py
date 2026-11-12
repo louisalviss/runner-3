@@ -53,6 +53,15 @@ class D1ReadIndexesTest(unittest.TestCase):
         plan = [row[3] for row in self.db.execute('EXPLAIN QUERY PLAN '+new,('auto-intelligence-vps',))]
         self.assertTrue(any('idx_content_items_collector_item' in line for line in plan),plan)
 
+    def test_preference_rollup_excludes_shown_via_partial_index(self):
+        partial = ROOT / 'cloudflare/runner3-core/sql/content-intelligence-d1-personal-signals-index.sql'
+        self.db.executescript(partial.read_text())
+        self.db.executescript(partial.read_text())
+        plan = [row[3] for row in self.db.execute('''EXPLAIN QUERY PLAN
+          SELECT item_id, MAX(event_at) FROM user_content_events
+          WHERE event_type <> 'shown' GROUP BY item_id''')]
+        self.assertTrue(any('idx_user_content_events_preference_signal' in line for line in plan),plan)
+
     def test_preference_lookup_index_available(self):
         self.db.executescript(MIGRATION.read_text())
         plan = [row[3] for row in self.db.execute("""EXPLAIN QUERY PLAN
