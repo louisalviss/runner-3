@@ -4666,6 +4666,29 @@
       "status": "notification_precommitted",
       "delivery_status": "pending_actual_delivery",
       "evidence_note": "P0 standalone ~9.5/10, COMPANY_CONFIRMED SEC Form 8-K + original NVIDIA exhibit, Reuters and AP independent. Kress retains CFO role, Harvey Jones chair, Nov17 earnings scheduled. Company expects product roadmap/operations uninterrupted, but founder-led execution and customer relationships are material risks. Allegations of espionage are unproven; AP cannot independently verify them. No actual notification receipt proved; no trade or X ACK. Exact publication minute 20:48 VN sourced from original syndicated release timestamp; SEC accepted 20:52 VN. Recipient feedback (reported in chat 2026-11-13 VN): user states they received an NVIDIA notification email. This is recipient-reported EMAIL receipt of an NVIDIA subject; exact mail/event ID and provider-delivery receipt are not independently inspected, so it must NOT be equated with native platform push confirmation, nor used to set delivery_status=delivered or ACK qualified X items."
+    },
+    "MICROSOFT|NOV12_2026_MULTI_SERVICE_OUTAGE|MO1550821_EX1550543": {
+      "label": "Microsoft confirms widespread Microsoft 365/Exchange/Outlook service disruption, also affecting Teams/Copilot and AI connectors",
+      "primary_entity": "Microsoft Corporation (MSFT) / Microsoft 365",
+      "underlying_actual_event": "Microsoft incident MO1550821 and Exchange Online incident EX1550543 caused degraded connectivity on November 12 2026; Microsoft reported unavailable server capacity and failed automated health checks. Reports independently corroborated by Reuters and AP. OpenAI and Anthropic Microsoft connectors were disrupted according to Reuters and Anthropic status.",
+      "named_paper_protocol_incident": "Microsoft 365 incident MO1550821 and Exchange Online EX1550543, November 12 2026",
+      "material_update_key": "NOV12_2026_MICROSOFT_M365_EXCHANGE_INCIDENT_MO1550821_EX1550543|MULTI_SERVICE_AVAILABILITY_DEGRADATION|AI_CONNECTOR_UPSTREAM_IMPACT|NOT_CONFIRMED_CYBER_ATTACK|RESTORATION_NOT_YET_PRIMARY_VERIFIED",
+      "last_verified_source_url": "https://status.cloud.microsoft.com/",
+      "supporting_primary_source_url": "https://mailservices.isc.upenn.edu/computing/email/penno365/alerts/ms-incidents.html?q=EX1545193",
+      "independent_reporting_url": "https://www.reuters.com/technology/microsoft-365-outlook-down-thousands-us-users-downdetector-shows-2026-11-12/",
+      "second_independent_url": "https://apnews.com/article/microsoft-outlook-outage-email-teams-6376045281feb430c0b923e3a4b251c2",
+      "source_event_date": "2026-11-12",
+      "source_event_date_vn": "2026-11-13",
+      "source_event_time_vn": "2026-11-13T01:26:10+07:00",
+      "source_event_time_note": "MO1550821 Microsoft incident starts Nov 12 18:26:10 UTC (Nov 13 01:26:10 VN); separate Exchange EX1550543 started Nov 12 16:17:27 UTC. Reuters Nov 12 18:32 UTC. Microsoft's business-tenant incident details require admin access; Penn reproduces Microsoft admin service communications. Current recovery state may change.",
+      "detected_at_vn": "2026-11-13T05:01:07+07:00",
+      "notified_at_vn": "2026-11-13T05:01:07+07:00",
+      "notification_precommitted_at_vn": "2026-11-13T05:01:07+07:00",
+      "status": "notification_precommitted",
+      "delivery_status": "pending_actual_delivery",
+      "score": 8.8,
+      "provenance": "Microsoft incident IDs MO1550821 and EX1550543 via PennO365 administrator feed; Reuters and AP independent; Anthropic public status",
+      "evidence_note": "Tech/Internet standalone availability disruption ~8.8/10. AP reported nearly 130,000 user-submitted Outlook complaints at peak; NOT the number of unique impacted customers. Reuters reported >97,000 Outlook, >38,000 M365, 4,500 Teams reports at 2:07pm ET. Microsoft incident bulletin mentions Exchange, Teams, SharePoint, Copilot and Defender; downstream Microsoft connector failures reported at OpenAI and Anthropic. The cause and remediation/active outage status remain fluid, NOT evidence of cyberattack or data theft. No financial attribution, no BUY/SHORT, no X ACK. Precommit and this interactive ChatGPT answer do NOT prove actual task-platform push delivery."
     }
   }
 }
