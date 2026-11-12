@@ -321,3 +321,87 @@ def bounded_reverse_projection_v2(checkpoint, health, prefilter, raw_events,
         "deferred_overflow": overflow,
         "daily_used": updated_queue["daily_budget"]["used"],
     }
+
+
+RESEARCH_WORKLIST_LIMIT = 8
+
+
+def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
+    """Read-only, deterministic next-stage research plan for the EXISTING owner.
+
+    A source-screened ticket is still ACTIVE. Never infer price causality,
+    valuation certification, a terminal decision or a trade from this plan.
+    """
+    if type(limit) is not int or not 1 <= limit <= ACTIVE_CAP:
+        raise ValueError("RESEARCH_WORKLIST_LIMIT_INVALID")
+    if not isinstance(checkpoint, dict):
+        raise ValueError("CHECKPOINT_INVALID")
+    state = checkpoint.get("cross_radar_handoff") or {}
+    reviewed = state.get("opportunity_to_global") or {}
+    if not isinstance(reviewed, dict):
+        raise ValueError("RESEARCH_CASE_MAP_INVALID")
+    ranked, screened, missing_source, terminal, certified = [], 0, 0, 0, 0
+    for identity, rec in reviewed.items():
+        if not isinstance(rec, dict):
+            raise ValueError("RESEARCH_CASE_INVALID")
+        if validate_research_closeout(rec):
+            terminal += 1
+            continue
+        evidence = rec.get("primary_source_triage_20261113")
+        triage = evidence if isinstance(evidence, dict) else {}
+        if triage:
+            screened += 1
+        url = triage.get("issuer_source_url") or triage.get("source_url")
+        if not isinstance(url, str) or not url.startswith("https://"):
+            url = None
+            missing_source += 1
+        if rec.get("full_numeric_deep_underwrite_certified") is True:
+            certified += 1
+        predicate = str(rec.get("price_predicate") or "")
+        kind_order = {"1D_SHOCK": 0, "1D_PUMP": 1,
+                      "5D_SHOCK": 2, "5D_PUMP": 3}
+        try:
+            severity = abs(float(rec.get("adjusted_return_pct") or 0))
+        except (TypeError, ValueError):
+            severity = 0.0
+        next_gate = ("VERIFY_DATED_PRIMARY_SOURCE" if url is None else
+                     "PIT_ISSUER_PRICE_LINK_AND_CASHFLOW_DOWNSIDE")
+        task = {
+            "event_id": rec.get("event_id") or identity,
+            "symbol": rec.get("symbol"),
+            "source_session_date": rec.get("source_session_date"),
+            "price_predicate": predicate,
+            "adjusted_return_pct": rec.get("adjusted_return_pct"),
+            "next_gate": next_gate,
+            "existing_evidence_field": ("primary_source_triage_20261113"
+                                        if triage else None),
+            "existing_source_url": url,
+            "causality_certified": False,
+            "trade_authorized_by_worklist": False,
+        }
+        ranked.append(((0 if url is None else 1,
+                        kind_order.get(predicate, 4), -severity,
+                        str(rec.get("source_session_date") or ""),
+                        str(task["event_id"])), task))
+    ranked.sort(key=lambda x: x[0])
+    queue = state.get("reverse_queue_v2") or {}
+    active = len(ranked)
+    cap = queue.get("max_active", ACTIVE_CAP)
+    day_new = queue.get("max_new_per_day", DAILY_LIMIT)
+    return {
+        "schema": "reverse-research-worklist-v1",
+        "status": "RESEARCH_BACKLOG_OPEN" if active else "NO_ACTIVE_RESEARCH_CASES",
+        "active_pending": active,
+        "terminal_cases": terminal,
+        "source_screened_active": screened,
+        "missing_dated_source_active": missing_source,
+        "full_numeric_certified_active": certified,
+        "deferred": int(queue.get("deferred_count") or 0),
+        "selected_count": min(active, limit),
+        "not_selected_active": max(0, active - limit),
+        "next_full_daily_intake_needs_closeouts": max(0, active + day_new - cap),
+        "saturates_cap_if_next_full_daily_intake": active + day_new >= cap,
+        "selection_rule": "missing source; then 1D shocks, 1D pumps, 5D shocks, 5D pumps; severity desc",
+        "worklist": [task for _, task in ranked[:limit]],
+        "no_state_write_or_trade": True,
+    }

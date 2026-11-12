@@ -122,7 +122,7 @@ def pinned_reverse_price_source_fetch():
     return health, prefilter, events, commit
 
 
-from radar_queue_lifecycle import bounded_reverse_projection_v2
+from radar_queue_lifecycle import bounded_reverse_projection_v2, bounded_research_worklist
 
 
 def bounded_reverse_projection(checkpoint, health, prefilter, raw_events,
@@ -234,6 +234,7 @@ def run_live(*, sync_reverse=False):
             # A no-op replay still confirms that the original checkpoint was read.
             written = False
             rev = metadata["rev"]
+    research_plan = bounded_research_worklist(projected) if sync_reverse else None
     out = {
         "schema": SCHEMA,
         "status": audit["end_to_end_status"],
@@ -255,6 +256,7 @@ def run_live(*, sync_reverse=False):
         "reverse_terminal_count": reverse_stats.get("terminal_count"),
         "reverse_deferred_count": reverse_stats.get("deferred_count"),
         "reverse_daily_budget_used": reverse_stats.get("daily_used"),
+        "research_worklist": research_plan,
         "no_trade": True,
     }
     print(json.dumps(out, ensure_ascii=False))
