@@ -8,6 +8,7 @@ Source -> handoff -> economic triage are audited separately from delivery.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import sys
@@ -19,7 +20,7 @@ from zoneinfo import ZoneInfo
 from radar_bidirectional_handoff import eligible_global_events, project_checkpoint, reverse_price_requests
 
 LEDGER_URL = (
-    "https://raw.githubusercontent.com/louisalviss/runner-3/main/"
+    "https://api.github.com/repos/louisalviss/runner-3/contents/"
     "ops/global-viral-radar/event-notification-ledger.json"
 )
 CHECKPOINT = (
@@ -30,13 +31,32 @@ SCHEMA = "cross-radar-live-e2e-audit-v1"
 
 
 def source_ledger_fetch(url=LEDGER_URL):
+    """Fetch the current default-branch GitHub Contents blob, not a stale raw CDN response."""
     if url != LEDGER_URL:
         raise ValueError("LEDGER_SOURCE_URL_NOT_CANONICAL")
-    req = urllib.request.Request(url, headers={"User-Agent": "Runner3-CrossRadar/1.0"})
+    req = urllib.request.Request(
+        url, headers={
+            "User-Agent": "Runner3-CrossRadar/1.0",
+            "Accept": "application/vnd.github+json",
+            "Cache-Control": "no-cache",
+        })
     with urllib.request.urlopen(req, timeout=25) as r:
-        raw = r.read(5_000_001)
+        wrapped = r.read(7_000_001)
+    if len(wrapped) > 7_000_000:
+        raise ValueError("LEDGER_API_RESPONSE_TOO_LARGE")
+    payload = json.loads(wrapped)
+    if (not isinstance(payload, dict) or payload.get("type") != "file"
+            or payload.get("encoding") != "base64"
+            or not isinstance(payload.get("content"), str)):
+        raise ValueError("LEDGER_GITHUB_CONTENTS_INVALID")
+    raw = base64.b64decode("".join(payload["content"].split()), validate=True)
     if len(raw) > 5_000_000:
         raise ValueError("LEDGER_TOO_LARGE")
+    git_blob_sha = hashlib.sha1(
+        b"blob " + str(len(raw)).encode("ascii") + b"\\0" + raw
+    ).hexdigest()
+    if git_blob_sha != payload.get("sha"):
+        raise ValueError("LEDGER_GITHUB_BLOB_SHA_MISMATCH")
     data = json.loads(raw)
     if not isinstance(data, dict) or not isinstance(data.get("entries"), dict):
         raise ValueError("LEDGER_SCHEMA_INVALID")
