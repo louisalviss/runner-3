@@ -116,6 +116,21 @@ class QueueLifecycleTests(unittest.TestCase):
         third,st3=bounded_reverse_projection_v2(with_new,*fresh,"b"*40,TOMORROW)
         self.assertEqual(st3["reverse_added"],0)
 
+    def test_v1_migration_uses_vietnam_day_not_previous_utc_day(self):
+        previous, _ = bounded_reverse_projection_v2({}, *packet(), "a"*40, NOW)
+        h=previous["cross_radar_handoff"]
+        h.pop("reverse_queue_v2")
+        h["reverse_price_session_acceptance_v1"]["new_added"]=8
+        # With local 05:10 +07 the current UTC date is still yesterday.
+        # Eight original same-VN-day admissions must consume the daily budget.
+        migrated,stats=bounded_reverse_projection_v2(previous,*packet(),"a"*40,NOW)
+        self.assertEqual(stats["daily_used"],8)
+        self.assertEqual(stats["reverse_added"],0)
+        self.assertEqual(stats["deferred_count"],12)
+        again,st=bounded_reverse_projection_v2(migrated,*packet(),"a"*40,NOW)
+        self.assertIs(again,migrated)
+        self.assertFalse(st["changed"])
+
     def test_closeout_does_not_override_causality(self):
         obj,_=bounded_reverse_projection_v2({},*packet(S12,["PAYS"]),"a"*40,NOW)
         old=next(iter(obj["cross_radar_handoff"]["opportunity_to_global"].values()))
