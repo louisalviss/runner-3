@@ -16,6 +16,7 @@ import { INTEREST_ONTOLOGY_VERSION } from "./content-interest-ontology.js";
 import { authorizeScoreCacheSeed } from "./score-cache-seed-authorization.js";
 import { buildInterestEvidenceSnapshot } from "./content-interest-evidence.js";
 import { readSynthesisEventAggregate } from "./content-synthesis-event-aggregate.js";
+import { readSynthesisItemCount } from "./content-synthesis-item-count.js";
 
 const MAX_ROWS = 100;
 const MAX_JSON = 200000;
@@ -307,8 +308,9 @@ async function handleSynthesis(request,env,url){
   if(request.method!=="GET")return Response.json({ok:false,error:"method_not_allowed"},{status:405});
   const profileLimit=Math.min(100,Math.max(5,Number.parseInt(url.searchParams.get("profile_limit")||"30",10)||30));
   const scoreLimit=Math.min(100,Math.max(5,Number.parseInt(url.searchParams.get("score_limit")||"20",10)||20));
-  const [counts,eventTypes,profile,topScores,recentFeedback,recentEvents,scoreStats]=await Promise.all([
-    env.DB.prepare(`SELECT (SELECT COUNT(*) FROM content_items) AS items,(SELECT COUNT(*) FROM interest_profile) AS profile_features,(SELECT COUNT(*) FROM interest_family_profile) AS family_features`).first(),
+  const [counts,itemsCount,eventTypes,profile,topScores,recentFeedback,recentEvents,scoreStats]=await Promise.all([
+    env.DB.prepare(`SELECT (SELECT COUNT(*) FROM interest_profile) AS profile_features,(SELECT COUNT(*) FROM interest_family_profile) AS family_features`).first(),
+    readSynthesisItemCount(env.DB),
     readSynthesisEventAggregate(env.DB),
     env.DB.prepare(`SELECT feature_type,feature_key,weight,evidence_count,positive_count,negative_count,confidence,updated_at FROM interest_profile ORDER BY ABS(weight) DESC,confidence DESC,evidence_count DESC LIMIT ?`).bind(profileLimit).all(),
     env.DB.prepare(`SELECT s.item_id,s.score,s.confidence,s.reason_json,s.model_version,i.canonical_url,i.title,i.source_type,i.source_name,i.source_key,i.published_at FROM content_scores s JOIN content_items i ON i.item_id=s.item_id WHERE s.score_type='personal_relevance' AND s.model_version=? ORDER BY s.score DESC,i.published_at DESC LIMIT ?`).bind(PERSONAL_MODEL_VERSION,scoreLimit).all(),
@@ -328,7 +330,7 @@ async function handleSynthesis(request,env,url){
     ok:true,generated_at:new Date().toISOString(),model_version:PERSONAL_MODEL_VERSION,contract_version:CONTENT_INTELLIGENCE_CONTRACT_VERSION,policy_version:PERSONAL_POLICY_VERSION,ontology_version:INTEREST_ONTOLOGY_VERSION,feature_model:FEATURE_MODEL_VERSION,
     signal_policy:"latest-explicit-wins + interaction-recency-decay",
     scoring_policy:"family-aware semantic relevance + freshness + bounded novelty",
-    counts:{items:Number(counts?.items||0),events:totalEvents,scored_items:Number(scoreStats?.count||0),profile_features:Number(counts?.profile_features||0),family_features:Number(counts?.family_features||0),leaf_features:Number(counts?.profile_features||0),last_event_at:lastEventAt},
+    counts:{items:Number(itemsCount||0),events:totalEvents,scored_items:Number(scoreStats?.count||0),profile_features:Number(counts?.profile_features||0),family_features:Number(counts?.family_features||0),leaf_features:Number(counts?.profile_features||0),last_event_at:lastEventAt},
     score_distribution:{count:Number(scoreStats?.count||0),min:Number(scoreStats?.min_score||0),max:Number(scoreStats?.max_score||0),avg:Number(scoreStats?.avg_score||0),score_95_plus:Number(scoreStats?.score_95_plus||0),score_99_plus:Number(scoreStats?.score_99_plus||0)},
     event_types:publicEventTypes,profile:profile.results||[],top_scores:topScores.results||[],recent_feedback:recentFeedback.results||[],recent_interest_events:recentEvents.results||[]
   });

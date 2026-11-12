@@ -3,7 +3,7 @@ import { handleContentIntelligence } from "../cloudflare/runner3-core/src/conten
 
 function fixture(events) {
   const queries = [];
-  let cached = null;
+  const snapshots = new Map();
   const maxId = events.reduce((n, row) => n+Number(row.count||0), 0);
   const db = {
     prepare(sql) {
@@ -11,12 +11,17 @@ function fixture(events) {
       return {
         bind(...args) { this.arguments_ = args; return this; },
         async first() {
-          if (sql.includes("SELECT detail FROM workflow_state WHERE source=?")) return cached ? {detail:cached} : null;
+          if (sql.includes("SELECT detail FROM workflow_state WHERE source=?")) {
+            const detail=snapshots.get(this.arguments_[0]); return detail ? {detail} : null;
+          }
+          if (sql.includes("SELECT COALESCE(MAX(rowid),0) AS max_rowid")) return {max_rowid:6};
+          if (sql.includes("SELECT COUNT(*) AS n FROM content_items")) return {n:6};
           if (sql.includes("SELECT COALESCE(MAX(id),0) AS max_id FROM user_content_events")) return {max_id:maxId};
-          if (sql.includes("SELECT (SELECT COUNT(*) FROM content_items) AS items")) {
-            assert(!sql.includes("COUNT(*) FROM user_content_events"), "redundant event full scan");
+          if (sql.includes("SELECT (SELECT COUNT(*) FROM interest_profile) AS profile_features")) {
+            assert(!sql.includes("FROM content_items"), "item count must use rowid checkpoint");
+            assert(!sql.includes("FROM user_content_events"), "redundant event full scan");
             assert(!sql.includes("FROM content_scores"), "redundant score full scan");
-            return { items: 6, profile_features: 2, family_features: 1 };
+            return { profile_features: 2, family_features: 1 };
           }
           if (sql.includes("MIN(score) AS min_score")) {
             return { count: 4, min_score: 1, max_score: 90, avg_score: 45, score_95_plus: 0, score_99_plus: 0 };
@@ -25,7 +30,7 @@ function fixture(events) {
         },
         async run() {
           if (sql.includes("INSERT INTO workflow_state(source,status,detail,updated_at)")) {
-            cached = this.arguments_[1]; return {meta:{changes:1}};
+            snapshots.set(this.arguments_[0],this.arguments_[1]); return {meta:{changes:1}};
           }
           throw new Error("Unexpected run query: " + sql.slice(0, 90));
         },
@@ -54,8 +59,10 @@ async function run(events) {
   assert.equal(resp.status, 200);
   const out = await resp.json();
   assert.equal(out.ok, true);
-  assert.equal(queries.length, 11);
+  assert.equal(queries.length, 16);
   assert(queries.some(q => q.includes("MAX(id),0")), "D1 append-only event watermark required");
+  assert(queries.some(q => q.includes("MAX(rowid),0")), "D1 content count highwater required");
+  assert(queries.some(q => q.includes("WHERE rowid>?"))===false, "first count uses full snapshot");
   assert(queries.some(q => q.includes("INSERT INTO workflow_state")), "snapshot persisted");
 
   assert.equal(out.counts.items, 6);
@@ -78,4 +85,4 @@ const b = await run([]);
 assert.equal(b.counts.events, 0);
 assert.equal(b.counts.last_event_at, null);
 assert.deepEqual(b.event_types, []);
-console.log("CONTENT_SYNTHESIS_SINGLEPASS_PASS (2 fixtures, 11 SQL operations each, indexed highwater cache)");
+console.log("CONTENT_SYNTHESIS_SINGLEPASS_PASS (2 fixtures, 16 SQL operations each, indexed highwater cache)");
