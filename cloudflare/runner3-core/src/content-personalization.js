@@ -214,6 +214,7 @@ export function profileProjectionCte() {
     SELECT f.item_id,f.feature_type,${canonicalKey} AS feature_key,
       MAX(f.weight) AS weight,MAX(f.confidence) AS confidence
     FROM content_features f
+    JOIN item_signal sig ON sig.item_id=f.item_id AND sig.signal<>0
     WHERE f.feature_type IN ('topic','mechanism','concept')
     GROUP BY f.item_id,f.feature_type,${canonicalKey}
   ), feature_evidence AS (
