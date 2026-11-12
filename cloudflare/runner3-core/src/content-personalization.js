@@ -207,14 +207,17 @@ const ITEM_SIGNAL_CTE = `
   )
 `;
 
+// An event-first CROSS JOIN pins the sparse preference signals as the outer
+// loop. This avoids scanning every content feature on frequent evidence reads.
+// It preserves the existing equality join and nonzero-signal predicate.
 export function profileProjectionCte() {
   const canonicalKey = canonicalInterestKeySql("f.feature_type", "f.feature_key");
   const familyId = interestFamilySql("f.feature_type", "f.feature_key");
   return `${ITEM_SIGNAL_CTE}, normalized_features AS (
     SELECT f.item_id,f.feature_type,${canonicalKey} AS feature_key,
       MAX(f.weight) AS weight,MAX(f.confidence) AS confidence
-    FROM content_features f
-    JOIN item_signal sig ON sig.item_id=f.item_id AND sig.signal<>0
+    FROM item_signal sig
+    CROSS JOIN content_features f ON f.item_id=sig.item_id AND sig.signal<>0
     WHERE f.feature_type IN ('topic','mechanism','concept')
     GROUP BY f.item_id,f.feature_type,${canonicalKey}
   ), feature_evidence AS (
