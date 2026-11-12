@@ -1,4 +1,9 @@
 import importlib.util
+import base64
+import hashlib
+import io
+import json
+from unittest import mock
 import sys
 import unittest
 from pathlib import Path
@@ -23,6 +28,37 @@ def source_event():
 L = {"entries": {"NVIDIA|CEO_DEPARTURE": source_event()}}
 
 class RuntimeAuditTest(unittest.TestCase):
+    def test_live_ledger_source_uses_current_contents_api_not_raw_cdn(self):
+        raw = json.dumps({"entries": {"NEW_EVENT": {"symbol": "MSFT"}}}).encode("utf-8")
+        blob_sha = hashlib.sha1(
+            b"blob " + str(len(raw)).encode("ascii") + bytes([0]) + raw
+        ).hexdigest()
+        payload = json.dumps({
+            "type": "file", "encoding": "base64",
+            "content": base64.b64encode(raw).decode("ascii"), "sha": blob_sha,
+        }).encode("utf-8")
+        with mock.patch.object(m.urllib.request, "urlopen", return_value=io.BytesIO(payload)) as op:
+            ledger, digest = m.source_ledger_fetch()
+        self.assertIn("api.github.com/repos/", op.call_args.args[0].full_url)
+        self.assertIn("NEW_EVENT", ledger["entries"])
+        self.assertEqual(digest, hashlib.sha256(raw).hexdigest())
+
+    def test_live_ledger_source_rejects_stale_raw_payload(self):
+        stale = json.dumps({"entries": {"OLD": {}}}).encode("utf-8")
+        with mock.patch.object(m.urllib.request, "urlopen", return_value=io.BytesIO(stale)):
+            with self.assertRaises(ValueError):
+                m.source_ledger_fetch()
+
+    def test_live_ledger_source_rejects_sha_mismatch(self):
+        raw = b'{"entries":{}}'
+        payload = json.dumps({
+            "type": "file", "encoding": "base64",
+            "content": base64.b64encode(raw).decode("ascii"), "sha": "0" * 40,
+        }).encode("utf-8")
+        with mock.patch.object(m.urllib.request, "urlopen", return_value=io.BytesIO(payload)):
+            with self.assertRaises(ValueError):
+                m.source_ledger_fetch()
+
     def test_no_false_delivery_and_no_trade(self):
         projection,s,a,changed = m.audit_projection(L,{},NOW,"ledger_sha")
         self.assertEqual(s["forward_added"],1)
