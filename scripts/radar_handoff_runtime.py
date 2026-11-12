@@ -12,10 +12,11 @@ import hashlib
 import json
 import sys
 import urllib.request
+from datetime import timezone
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from radar_bidirectional_handoff import eligible_global_events, project_checkpoint
+from radar_bidirectional_handoff import eligible_global_events, project_checkpoint, reverse_price_requests
 
 LEDGER_URL = (
     "https://raw.githubusercontent.com/louisalviss/runner-3/main/"
@@ -40,6 +41,142 @@ def source_ledger_fetch(url=LEDGER_URL):
     if not isinstance(data, dict) or not isinstance(data.get("entries"), dict):
         raise ValueError("LEDGER_SCHEMA_INVALID")
     return data, hashlib.sha256(raw).hexdigest()
+
+
+PRICE_REPO = "louisalviss/runner-3"
+PRICE_API = "https://api.github.com/repos/" + PRICE_REPO + "/commits/main"
+PRICE_SOURCE_FILES = {
+    "health": "data/opportunity-radar/market-health.json",
+    "prefilter": "data/opportunity-radar/market-prefilter.json",
+    "events": "data/opportunity-radar/market-move-events.jsonl",
+}
+REVERSE_DAILY_NEW_LIMIT = 8
+REVERSE_PENDING_CAP = 40
+
+
+def _read_https_capped(url, cap):
+    if not url.startswith("https://"):
+        raise ValueError("NON_HTTPS_SOURCE")
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Runner3-CrossRadar/1.0", "Accept": "application/json,text/plain"
+    })
+    with urllib.request.urlopen(req, timeout=45) as response:
+        raw = response.read(cap + 1)
+    if len(raw) > cap:
+        raise ValueError("SOURCE_SIZE_BOUND_EXCEEDED")
+    return raw
+
+
+def pinned_reverse_price_source_fetch():
+    """Use same immutable GitHub commit for market health, prefilter, and event log.
+
+    This is a read of the EXISTING market scanner, not a new scan of equities.
+    Called exclusively on the Opportunity owner path (--sync-reverse).
+    """
+    commit = json.loads(_read_https_capped(PRICE_API, 500_000)).get("sha", "")
+    if len(commit) != 40 or not all(c in "0123456789abcdef" for c in commit):
+        raise ValueError("GITHUB_PRICE_COMMIT_SHA_INVALID")
+    base = ("https://raw.githubusercontent.com/" + PRICE_REPO + "/" + commit + "/")
+    blobs = {key: _read_https_capped(base + path, 30_000_000 if key == "events" else 18_000_000)
+             for key, path in PRICE_SOURCE_FILES.items()}
+    health = json.loads(blobs["health"])
+    prefilter = json.loads(blobs["prefilter"])
+    session = health.get("source_session_date")
+    if not (health.get("status") == "COMPLETE" and health.get("complete") is True
+            and session and session == health.get("expected_latest_completed_us_session")
+            and float(health.get("fresh_history_coverage") or 0) >= 0.8
+            and prefilter.get("status") == "COMPLETE" and prefilter.get("complete") is True
+            and prefilter.get("source_session_date") == session):
+        raise ValueError("MARKET_PRICE_SOURCE_NOT_COMPLETE_OR_MATCHED")
+    if hashlib.sha256(blobs["prefilter"]).hexdigest() != health.get("prefilter_sha256"):
+        raise ValueError("PRICE_PREFILTER_SHA_MISMATCH")
+    if len(prefilter.get("records") or []) != health.get("prefilter_count"):
+        raise ValueError("PRICE_PREFILTER_COUNT_MISMATCH")
+    time = datetime.fromisoformat(str(health.get("generated_at", "")).replace("Z", "+00:00"))
+    if time.tzinfo is None:
+        raise ValueError("PRICE_PACKET_NAIVE_GENERATED_AT")
+    age = (datetime.now(timezone.utc) - time.astimezone(timezone.utc)).total_seconds()
+    if age < -300 or age > 6 * 86400:
+        raise ValueError("PRICE_PACKET_STALE_OR_FUTURE")
+    events = [json.loads(line) for line in blobs["events"].splitlines() if line.strip()]
+    return health, prefilter, events, commit
+
+
+def bounded_reverse_projection(checkpoint, health, prefilter, raw_events,
+                               source_commit, observed_at_vn):
+    """Accept <=8 new issuer price requests per session, <=40 open total.
+
+    Keep all existing research history and a fixed-sized audit in the SAME
+    checkpoint. Symbol-level dedup avoids rescreening an issuer already open.
+    """
+    session = health.get("source_session_date")
+    if not (health.get("complete") is True and health.get("status") == "COMPLETE"
+            and session == health.get("expected_latest_completed_us_session")
+            and session == prefilter.get("source_session_date")
+            and health.get("prefilter_sha256")):
+        raise ValueError("REVERSE_MARKET_HEALTH_INVALID")
+    state = checkpoint.get("cross_radar_handoff") or {}
+    prior_packet = state.get("reverse_price_session_acceptance_v1")
+    if prior_packet and prior_packet.get("session") == session:
+        if prior_packet.get("prefilter_sha256") != health["prefilter_sha256"]:
+            raise ValueError("SAME_SESSION_PRICE_SHA_CONFLICT")
+        return checkpoint, {"reverse_added": 0, "changed": False, "already_accepted": True,
+                            "source_session": session, "capacity_skipped": 0}
+    by_symbol = {r.get("symbol"): r for r in prefilter.get("records", [])
+                 if isinstance(r, dict) and r.get("last_date") == session}
+    reviewed = state.get("opportunity_to_global") or {}
+    known_symbols = {x.get("symbol") for x in reviewed.values()}
+    unresolved = sum(x.get("intake_state") == "PENDING_CAUSAL_NEWS_VERIFICATION"
+                     for x in reviewed.values())
+    room = max(0, REVERSE_PENDING_CAP - unresolved)
+    candidates = reverse_price_requests(raw_events, health, max_out=150)
+    unique, skipped_known, skipped_actions = [], [], []
+    for c in candidates:
+        sym = c["symbol"]
+        row = by_symbol.get(sym)
+        if not row or row.get("adjustment_verified") is not True or (
+                row.get("corporate_action_unverified") is not False) or (
+                row.get("corporate_action_suspected") is not False):
+            skipped_actions.append(sym)
+            continue
+        if sym in known_symbols:
+            skipped_known.append(sym)
+            continue
+        unique.append(c)
+    limit = min(REVERSE_DAILY_NEW_LIMIT, room)
+    selected = unique[:limit]
+    projected, stat = project_checkpoint(checkpoint, [], selected,
+                                         observed_at_vn=observed_at_vn)
+    h = projected["cross_radar_handoff"]
+    for c in selected:
+        rec = h["opportunity_to_global"][c["event_id"]]
+        rec["market_packet_commit_pin"] = source_commit
+        rec["source_market_status"] = "COMPLETE_PRICE_ONLY_NO_CAUSAL_CLAIM"
+        rec["adjustments_verified_at_intake"] = True
+    accepted = {
+        "session": session,
+        "source_commit_sha": source_commit,
+        "prefilter_sha256": health["prefilter_sha256"],
+        "source_prefilter_count": len(prefilter["records"]),
+        "source_raw_event_count": len(raw_events),
+        "source_candidates_considered": len(candidates),
+        "old_pending_before": unresolved,
+        "old_source_reviewed_count": sum(bool(x.get("primary_source_triage_20261113"))
+                                         for x in reviewed.values()),
+        "new_added": stat["reverse_added"],
+        "new_symbols": [x["symbol"] for x in selected],
+        "same_issuer_already_queued": sorted(set(skipped_known)),
+        "corporate_action_or_adjustment_skipped": sorted(set(skipped_actions)),
+        "new_eligible_not_admitted_due_capacity": max(0, len(unique) - limit),
+        "outstanding_research_not_restarted": True,
+        "source_status": "PINNED_COMPLETE_NO_BUY_SHORT",
+        "no_notification_or_trade": True,
+    }
+    h["reverse_price_session_acceptance_v1"] = accepted
+    return projected, {"reverse_added": stat["reverse_added"],
+                       "changed": True, "already_accepted": False,
+                       "source_session": session,
+                       "capacity_skipped": accepted["new_eligible_not_admitted_due_capacity"]}
 
 
 def audit_projection(ledger, original, observed_at_vn, ledger_sha256):
@@ -113,18 +250,25 @@ def audit_projection(ledger, original, observed_at_vn, ledger_sha256):
     return projected, stats, audit, changed
 
 
-def run_live():
+def run_live(*, sync_reverse=False):
     try:
         from vps_dropbox import DropboxService
     except ImportError as e:
         raise RuntimeError("APPROVED_DROPBOX_SERVICE_NOT_IN_PYTHONPATH") from e
     svc = DropboxService()  # env loaded by caller: only /etc/vps-control/dropbox.env
     ledger, sha = source_ledger_fetch()
+    price_sources = pinned_reverse_price_source_fetch() if sync_reverse else None
     observed = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).isoformat(timespec="seconds")
     with svc.path_lock(CHECKPOINT):
         current, metadata = svc.download_text(CHECKPOINT)
         source = json.loads(current)
+        reverse_stats = {"reverse_added": 0, "changed": False, "already_accepted": False,
+                         "source_session": None, "capacity_skipped": 0}
+        if price_sources is not None:
+            source, reverse_stats = bounded_reverse_projection(
+                source, *price_sources, observed_at_vn=observed)
         projected, stats, audit, changed = audit_projection(ledger, source, observed, sha)
+        changed = changed or reverse_stats["changed"]
         if changed:
             serialized = json.dumps(projected, ensure_ascii=False, separators=(",", ":")) + "\n"
             result = svc.upload_text(CHECKPOINT, serialized, expected_rev=metadata["rev"])
@@ -150,6 +294,10 @@ def run_live():
         "reverse_requests_total": audit["reverse_price_requests_total"],
         "delivery_receipt_confirmed": audit["actual_deliveries_receipt_confirmed"],
         "underwrites_certified": audit["underwrites_certified"],
+        "reverse_added_this_run": reverse_stats["reverse_added"],
+        "reverse_price_source_session": reverse_stats["source_session"],
+        "reverse_price_source_already_accepted": reverse_stats["already_accepted"],
+        "reverse_eligible_capacity_skipped": reverse_stats["capacity_skipped"],
         "no_trade": True,
     }
     print(json.dumps(out, ensure_ascii=False))
@@ -159,10 +307,12 @@ def run_live():
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--live", action="store_true", help="run existing source+checkpoint synchronization")
+    p.add_argument("--sync-reverse", action="store_true",
+                   help="Opportunity owner only: bounded latest-session price reverse intake")
     args = p.parse_args()
     if not args.live:
         p.error("--live required (offline regression via unittest)")
-    return run_live()
+    return run_live(sync_reverse=args.sync_reverse)
 
 
 if __name__ == "__main__":
