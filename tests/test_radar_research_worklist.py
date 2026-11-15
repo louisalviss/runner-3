@@ -22,13 +22,46 @@ class ResearchWorklistTests(unittest.TestCase):
             "reverse_queue_v2":{"deferred_count":126,"max_active":40,"max_new_per_day":8}}}
         before=copy.deepcopy(src)
         plan=bounded_research_worklist(src,limit=4)
-        self.assertEqual([x["symbol"] for x in plan["worklist"]],["E","C","B","D"])
+        self.assertEqual([x["symbol"] for x in plan["worklist"]],["C","B","D","A"])
         self.assertEqual(plan["active_pending"],5)
         self.assertEqual(plan["source_screened_active"],4)
         self.assertEqual(plan["missing_dated_source_active"],1)
         self.assertTrue(plan["no_state_write_or_trade"])
         self.assertEqual(src,before)
         self.assertEqual(plan,bounded_research_worklist(src,limit=4))
+
+    def test_pit_economics_is_not_rediscovered_as_missing_source(self):
+        economics=rec("NMAX","1D_PUMP",31.4,with_source=False)
+        economics["issuer_economic_event_review_20261115_v1"]={
+            "source_verified_pit": True,
+            "issuer_economic_mechanism_evaluated": True,
+            "sec_exhibit_or_full_primary_text_url":"https://www.sec.gov/Archives/nmax.htm",
+        }
+        dated=rec("CECO","5D_PUMP",48.7,with_source=False)
+        dated["pit_primary_source_stage_20261115_v1"]={
+            "stage":"OFFICIAL_SEC_FILING_ACCEPTED_IN_PRICE_WINDOW__FULL_EXHIBIT_PENDING",
+            "issuer_sec_acceptance_ny":"2026-11-09T07:54:41-05:00",
+            "primary_url":"https://www.sec.gov/Archives/ceco.htm",
+        }
+        missing=rec("MOD","1D_PUMP",27.8,with_source=False)
+        src={"cross_radar_handoff":{"opportunity_to_global":{
+            "n":economics,"c":dated,"m":missing},
+            "reverse_queue_v2":{"deferred_count":249}}}
+        before=copy.deepcopy(src)
+        plan=bounded_research_worklist(src)
+        self.assertEqual([x["symbol"] for x in plan["worklist"]],
+                         ["NMAX","CECO","MOD"])
+        self.assertEqual([x["next_gate"] for x in plan["worklist"]],[
+            "NORMALIZED_FCF_BEAR_UPSIDE_NET_RR_VENUE",
+            "ISSUER_EXHIBIT_SEMANTICS_AND_PIT_PRICE_LINK",
+            "VERIFY_DATED_PRIMARY_SOURCE"])
+        self.assertEqual(plan["source_screened_active"],1)
+        self.assertEqual(plan["missing_dated_source_active"],1)
+        self.assertEqual(plan["active_pending"],3)
+        self.assertTrue(all(not x["causality_certified"]
+                            and not x["trade_authorized_by_worklist"]
+                            for x in plan["worklist"]))
+        self.assertEqual(src,before)
 
     def test_requires_real_terminal_proof(self):
         case=rec("C","1D_SHOCK",-20,state="RESEARCHED_NO_TRADE")
