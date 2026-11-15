@@ -347,11 +347,33 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
         if validate_research_closeout(rec):
             terminal += 1
             continue
+        # Prefer immutable event-level PIT economics over the 2026-11-13
+        # source triage. Timely filings alone remain non-causal evidence.
+        economic = rec.get("issuer_economic_event_review_20261115_v1")
+        economic = economic if isinstance(economic, dict) else {}
+        economic_ready = (economic.get("source_verified_pit") is True and
+                          economic.get("issuer_economic_mechanism_evaluated") is True)
         evidence = rec.get("primary_source_triage_20261113")
         triage = evidence if isinstance(evidence, dict) else {}
-        if triage:
+        if economic_ready:
+            field = "issuer_economic_event_review_20261115_v1"
+            url = (economic.get("sec_exhibit_or_full_primary_text_url") or
+                   economic.get("sec_primary_issuer_filing_url"))
             screened += 1
-        url = triage.get("issuer_source_url") or triage.get("source_url")
+        else:
+            field = "primary_source_triage_20261113" if triage else None
+            url = triage.get("issuer_source_url") or triage.get("source_url")
+            if triage:
+                screened += 1
+            if not url:
+                stage = rec.get("pit_primary_source_stage_20261115_v1")
+                stage = stage if isinstance(stage, dict) else {}
+                if (stage.get("stage") ==
+                        "OFFICIAL_SEC_FILING_ACCEPTED_IN_PRICE_WINDOW__FULL_EXHIBIT_PENDING"
+                        and stage.get("issuer_sec_acceptance_ny")):
+                    url = stage.get("primary_url")
+                    if url:
+                        field = "pit_primary_source_stage_20261115_v1"
         if not isinstance(url, str) or not url.startswith("https://"):
             url = None
             missing_source += 1
@@ -364,7 +386,11 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
             severity = abs(float(rec.get("adjusted_return_pct") or 0))
         except (TypeError, ValueError):
             severity = 0.0
-        next_gate = ("VERIFY_DATED_PRIMARY_SOURCE" if url is None else
+        next_gate = ("NORMALIZED_FCF_BEAR_UPSIDE_NET_RR_VENUE"
+                     if economic_ready else
+                     "VERIFY_DATED_PRIMARY_SOURCE" if url is None else
+                     "ISSUER_EXHIBIT_SEMANTICS_AND_PIT_PRICE_LINK"
+                     if field == "pit_primary_source_stage_20261115_v1" else
                      "PIT_ISSUER_PRICE_LINK_AND_CASHFLOW_DOWNSIDE")
         task = {
             "event_id": rec.get("event_id") or identity,
@@ -373,13 +399,12 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
             "price_predicate": predicate,
             "adjusted_return_pct": rec.get("adjusted_return_pct"),
             "next_gate": next_gate,
-            "existing_evidence_field": ("primary_source_triage_20261113"
-                                        if triage else None),
+            "existing_evidence_field": field,
             "existing_source_url": url,
             "causality_certified": False,
             "trade_authorized_by_worklist": False,
         }
-        ranked.append(((0 if url is None else 1,
+        ranked.append(((0 if economic_ready else 1 if url is not None else 2,
                         kind_order.get(predicate, 4), -severity,
                         str(rec.get("source_session_date") or ""),
                         str(task["event_id"])), task))
@@ -401,7 +426,7 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
         "not_selected_active": max(0, active - limit),
         "next_full_daily_intake_needs_closeouts": max(0, active + day_new - cap),
         "saturates_cap_if_next_full_daily_intake": active + day_new >= cap,
-        "selection_rule": "missing source; then 1D shocks, 1D pumps, 5D shocks, 5D pumps; severity desc",
+        "selection_rule": "PIT economics -> numeric valuation; reusable source -> semantic PIT; genuinely missing source last; each tier 1D before 5D, severity desc",
         "worklist": [task for _, task in ranked[:limit]],
         "no_state_write_or_trade": True,
     }
