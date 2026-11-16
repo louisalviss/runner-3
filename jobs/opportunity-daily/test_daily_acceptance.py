@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import datetime,hashlib,json,pathlib,tempfile,unittest
-from daily_acceptance import check
+from daily_acceptance import check, qualified_rows_match
+from unittest.mock import patch
 from daily_publish import render_current
 DAY='2026-10-15'
 class AcceptTests(unittest.TestCase):
@@ -15,7 +16,7 @@ class AcceptTests(unittest.TestCase):
   self.put(self.out/(DAY+'-manifest.json'),{'date':DAY,'approved_buy':0,'approved_build':0})
   f={'profile_id':'c97a7500-3b11-403f-ac43-2566cdcd3fa2','first_done':True,'recent_done':True,'recent_ids':[str(x) for x in range(500)],'pages':[{'status':200,'challenge':'NONE'}]}
   self.put(self.root/'flippa-20261015-daily-state.json',f)
-  self.payload={'schema':'opportunity-daily-v2','date_vn':DAY,'overall':'RESEARCH_PENDING','generated_at':'2026-10-15T09:15:00+07:00','seo':{'source_complete':True,'provider_status':'PASS','terminal_status':'PASS'},'flippa':{'status':'PASS','new':[]},'flippa_detail':{'status':'PASS_EMPTY'},'flippa_semrush':{'status':'PASS_EMPTY'},'qualification':{'approved_buy':0,'approved_build':0,'candidates':[{'title':'Example','source':'SEOTRENDS','category':'DROP','buy':{'state':'NOT_LISTED'},'build':{'state':'DROP'}}]}}
+  self.payload={'schema':'opportunity-daily-v2','date_vn':DAY,'overall':'RESEARCH_PENDING','generated_at':'2026-10-15T09:15:00+07:00','seo':{'source_complete':True,'provider_status':'PASS','terminal_status':'PASS'},'flippa':{'status':'PASS','new':[]},'flippa_detail':{'status':'PASS_EMPTY'},'flippa_semrush':{'status':'PASS_EMPTY'},'qualification':{'archived_reviewed_suppressed':0,'approved_buy':0,'approved_build':0,'candidates':[{'identity':'example.com','title':'Example','source':'SEOTRENDS','category':'DROP','buy':{'state':'NOT_LISTED'},'build':{'state':'DROP'}}]}}
   self.report='# daily\n\n## qualification\nReady'
   (self.out/(DAY+'-report.md')).write_text(self.report*20)
   self.sync()
@@ -80,4 +81,35 @@ class AcceptTests(unittest.TestCase):
  def test_report_empty_fails(self):
   (self.out/(DAY+'-report.md')).write_text('x')
   self.assertFalse(self.run_check()['checks']['report_complete'])
+
+class CohortGateTests(unittest.TestCase):
+ def setUp(self):
+  self.rows=[{'domain':'domain.test'}]
+  self.payload={'schema':'opportunity-daily-v2','seo':{'source_complete':True},
+    'flippa':{'new':[{'identity':'flippa:100'}, {'identity':'flippa:200'}]},
+    'qualification':{'archived_reviewed_suppressed':1,'candidates':[
+      {'source':'SEOTRENDS','identity':'domain.test'},
+      {'source':'FLIPPA','identity':'flippa:200'}]}}
+ def accepted(self):
+  with patch('daily_acceptance.is_reviewed_prior_listing',
+             side_effect=lambda identity,day: identity=='flippa:100' and day>='2026-11-12'):
+   return qualified_rows_match('2026-11-13',self.rows,self.payload)
+ def test_proven_reviewed_suppression_passes(self):
+  self.assertTrue(self.accepted())
+ def test_unknown_missing_listing_fails(self):
+  self.payload['flippa']['new'].append({'identity':'flippa:300'})
+  self.assertFalse(self.accepted())
+ def test_bad_suppression_count_fails(self):
+  self.payload['qualification']['archived_reviewed_suppressed']=0
+  self.assertFalse(self.accepted())
+ def test_fake_candidate_fails(self):
+  self.payload['qualification']['candidates'].append({'source':'FLIPPA','identity':'flippa:100'})
+  self.assertFalse(self.accepted())
+ def test_missing_source_candidate_fails(self):
+  self.payload['qualification']['candidates']=self.payload['qualification']['candidates'][1:]
+  self.assertFalse(self.accepted())
+ def test_duplicated_new_listing_fails(self):
+  self.payload['flippa']['new'].append({'identity':'flippa:200'})
+  self.assertFalse(self.accepted())
+
 if __name__=='__main__':unittest.main(verbosity=2)
