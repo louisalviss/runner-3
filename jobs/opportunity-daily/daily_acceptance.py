@@ -4,6 +4,37 @@ from __future__ import annotations
 import argparse, datetime,hashlib,json,pathlib,os,sys
 from zoneinfo import ZoneInfo
 
+from reviewed_cutover import is_reviewed_prior_listing
+
+
+def qualified_rows_match(day: str, source_items: list, payload: dict) -> bool:
+    """Exact source identity reconciliation, including the immutable reviewed cohort."""
+    if payload.get('schema') != 'opportunity-daily-v2' or payload.get('seo', {}).get('source_complete') is not True:
+        return False
+    new = (payload.get('flippa') or {}).get('new') or []
+    candidates = (payload.get('qualification') or {}).get('candidates') or []
+    if not all(isinstance(x, dict) for x in source_items + new + candidates):
+        return False
+    input_seo = [str(x.get('domain') or '').lower() for x in source_items]
+    input_flippa = [str(x.get('identity') or '') for x in new]
+    if not all(input_seo) or not all(x.startswith('flippa:') for x in input_flippa):
+        return False
+    expected_flippa = [x for x in input_flippa if not is_reviewed_prior_listing(x, day)]
+    actual_seo = [str(x.get('identity') or '').lower() for x in candidates if x.get('source') == 'SEOTRENDS']
+    actual_flippa = [str(x.get('identity') or '') for x in candidates if x.get('source') == 'FLIPPA']
+    q = payload.get('qualification') or {}
+    expected_suppressed = len(input_flippa) - len(expected_flippa)
+    return bool(
+        len(input_seo) == len(set(input_seo))
+        and len(input_flippa) == len(set(input_flippa))
+        and len(actual_seo) == len(set(actual_seo))
+        and len(actual_flippa) == len(set(actual_flippa))
+        and len(candidates) == len(actual_seo) + len(actual_flippa)
+        and set(actual_seo) == set(input_seo)
+        and set(actual_flippa) == set(expected_flippa)
+        and q.get('archived_reviewed_suppressed', 0) == expected_suppressed
+    )
+
 SEO=pathlib.Path('/var/lib/seotrends-public/scans')
 ROOT=pathlib.Path('/var/lib/acquisition-radar-scan')
 OUT=pathlib.Path('/var/lib/opportunity-daily')
@@ -34,7 +65,7 @@ def check(day,seo=SEO,root=ROOT,out=OUT):
     checks['flippa_daily_source']=f.get('profile_id')==FLIPPA_PROFILE_ID and f.get('recent_done') is True and f.get('first_done') is True and len(set(f.get('recent_ids') or []))==500 and bool(all_pages) and all(x.get('status')==200 and x.get('challenge')=='NONE' for x in all_pages)
     checks['flippa_detail_stage']=payload.get('flippa_detail',{}).get('status') in ('PASS','PASS_EMPTY')
     checks['flippa_semrush_stage']=cross.get('status') in ('PASS','PASS_EMPTY')
-    checks['qualified_rows_match']=bool(payload.get('schema')=='opportunity-daily-v2' and payload.get('seo',{}).get('source_complete') is True and len((payload.get('qualification') or {}).get('candidates') or [])==len(items)+len((payload.get('flippa') or {}).get('new') or []))
+    checks['qualified_rows_match']=qualified_rows_match(day, items, payload)
     checks['buy_build_guard']=payload.get('qualification',{}).get('approved_buy')==0 and payload.get('qualification',{}).get('approved_build')==0 and manifest.get('approved_buy')==0 and manifest.get('approved_build')==0
     report=out/(day+'-report.md')
     current=out/(day+'-current.md')
