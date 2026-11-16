@@ -22,7 +22,7 @@ GLOBAL_BLOCKERS = (
     # server-side session. This is a shared auth failure, not 14 bad domains.
     'Session expired, access again from Dashboard',
     'SEMRUSH_AUTO_RECOVERY_FAILED', 'SEMRUSH_AUTO_RECOVERY_RETRY_FAILED',
-    '-2004', 'Report limit reached',
+    '-2004', '-32098', 'Report limit reached',
 )
 
 
