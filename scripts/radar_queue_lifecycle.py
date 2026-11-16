@@ -212,9 +212,14 @@ def bounded_reverse_projection_v2(checkpoint, health, prefilter, raw_events,
         all_candidates.setdefault(x["event_id"], dict(x))
     linked_keys = {x.get("linked_global_material_update_key") for x in reviewed.values()}
     valid = []
+    preserved_prior_deferred = []
     for c in all_candidates.values():
         if ready(c, linked_keys):
             valid.append(c)
+        elif c["event_id"] in older:
+            # A known issuer may have a separately recorded historic price event.
+            # It is not admissible without new material, but it must not vanish.
+            preserved_prior_deferred.append(c)
     # Preserve FIFO between sessions; preserve original rank within session.
     older_valid = [c for c in valid if c["source_session_date"] < session]
     current_valid = [c for c in valid if c["source_session_date"] >= session]
@@ -246,6 +251,7 @@ def bounded_reverse_projection_v2(checkpoint, health, prefilter, raw_events,
 
     # Keep compact deferred index, never a duplicated full market archive.
     remaining = [x for x in valid if x["event_id"] not in selected_ids]
+    remaining.extend(preserved_prior_deferred)
     # Deterministic backpressure: oldest session first, preserving rank.
     remaining.sort(key=lambda x: x["source_session_date"])
     frontier = remaining[:FRONTIER_LIMIT]
@@ -305,6 +311,13 @@ def bounded_reverse_projection_v2(checkpoint, health, prefilter, raw_events,
     if prev_queue and not selected and prev_queue.get("deferred") == frontier and (
             prev_queue.get("latest_completed_price_session") == session):
         updated_queue["daily_budget"] = prev_queue["daily_budget"]
+    # Fail closed if any previously persisted deferred identity is lost during
+    # the bounded projection. Earlier entries are durable historical evidence.
+    projected_ids = set(h["opportunity_to_global"]) | {
+        row["event_id"] for row in frontier
+    }
+    if set(older) - projected_ids:
+        raise ValueError("REVERSE_DEFERRED_ID_LOSS")
     h["reverse_queue_v2"] = updated_queue
     changed = (stats["reverse_added"] > 0 or
                srcstate.get("reverse_queue_v2") != updated_queue or
