@@ -225,6 +225,7 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
             self.assertIn("SEMRUSH_REPORT_LIMIT",report["global_blocker"])
 
     def test_semrush_auth_is_named_global_blocker(self):
+        self.assertIn("-32098", daily.GLOBAL_BLOCKERS)
         self.assertIn("SEMRUSH_LIVE_AUTH_UNAVAILABLE", daily.GLOBAL_BLOCKERS)
         self.assertIn("Session expired, access again from Dashboard", daily.GLOBAL_BLOCKERS)
 
