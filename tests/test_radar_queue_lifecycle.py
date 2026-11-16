@@ -142,5 +142,41 @@ class QueueLifecycleTests(unittest.TestCase):
         self.assertEqual(st["reverse_added"],0)
 
 
+    def test_duplicate_symbol_deferred_ids_survive_new_admissions(self):
+        obj, _ = bounded_reverse_projection_v2({}, *packet(), "a"*40, NOW)
+        state = obj["cross_radar_handoff"]
+        queue = state["reverse_queue_v2"]
+        # Six prior deferred price events share symbols with reviewed cases.
+        # Preserve them without authorizing new active or trades.
+        for i in range(6):
+            row = copy.deepcopy(queue["deferred"][i])
+            row["symbol"] = f"X{i:02d}"
+            row["source_session_date"] = "2026-11-11"
+            row["event_id"] = f"2026-11-11|X{i:02d}|5D_SHOCK"
+            row["price_event_id"] = row["event_id"]
+            queue["deferred"].append(row)
+        queue["deferred_count"] = 18
+        def event_ids(checkpoint):
+            state = checkpoint["cross_radar_handoff"]
+            return (set(state["opportunity_to_global"]) |
+                    {r["event_id"] for r in state["reverse_queue_v2"]["deferred"]})
+        before_ids = event_ids(obj)
+        self.assertEqual(len(before_ids), 26)
+        projected, stats = bounded_reverse_projection_v2(
+            obj, *packet(), "a"*40, TOMORROW)
+        self.assertEqual(stats["reverse_added"], 8)
+        self.assertEqual(stats["deferred_count"], 10)
+        self.assertEqual(stats["active_pending"], 16)
+        self.assertEqual(event_ids(projected), before_ids)
+        remaining = {r["event_id"] for r in
+                     projected["cross_radar_handoff"]["reverse_queue_v2"]["deferred"]}
+        for i in range(6):
+            self.assertIn(f"2026-11-11|X{i:02d}|5D_SHOCK", remaining)
+        replay, replay_stats = bounded_reverse_projection_v2(
+            projected, *packet(), "a"*40, TOMORROW)
+        self.assertIs(replay, projected)
+        self.assertFalse(replay_stats["changed"])
+        self.assertEqual(event_ids(replay), before_ids)
+
 if __name__ == "__main__":
     unittest.main()
