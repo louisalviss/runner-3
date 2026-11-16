@@ -197,6 +197,33 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
             report=json.loads((temp/"2026-10-17-semrush-results.json").read_text())
             self.assertEqual([r["status"] for r in report["items"]],["FAIL","NOT_RUN"])
 
+    def test_dpa_report_limit_stops_batch_and_preserves_cached(self):
+        with tempfile.TemporaryDirectory() as td:
+            temp=Path(td)
+            day="2026-11-17"
+            (temp/f"{day}-semrush-queue.json").write_text(json.dumps({
+                "items":[{"domain":x} for x in ("cached.com","limit.com","later.com")]}))
+            out=temp/f"{day}-semrush"
+            out.mkdir()
+            (out/"cached.com.json").write_text(json.dumps({"domain":"cached.com","rows":[]}))
+            calls=[]
+            def exporter(domain, output, timeout, page_size=10000):
+                calls.append(domain)
+                return {"status":"BLOCKED_QUOTA_LIMIT","reason":
+                        "RuntimeError:SEMRUSH_REPORT_LIMIT:DPA_LIMIT_EXCEEDED"}
+            with patch.object(daily,"SCANS",temp), patch.object(daily,"run_export",exporter), \
+                 patch.object(daily,"recover_expired_session",
+                              side_effect=AssertionError("provider limit is not an auth failure")), \
+                 patch("sys.argv",["semrush_daily.py","--date",day]):
+                rc=daily.main()
+            self.assertEqual(rc,3)
+            self.assertEqual(calls,["limit.com"])
+            report=json.loads((temp/f"{day}-semrush-results.json").read_text())
+            self.assertEqual(report["status"],"BLOCKED")
+            self.assertEqual([r["status"] for r in report["items"]],["PASS","FAIL","NOT_RUN"])
+            self.assertEqual((report["pass_count"],report["fail_count"],report["not_run_count"]),(1,1,1))
+            self.assertIn("SEMRUSH_REPORT_LIMIT",report["global_blocker"])
+
     def test_semrush_auth_is_named_global_blocker(self):
         self.assertIn("SEMRUSH_LIVE_AUTH_UNAVAILABLE", daily.GLOBAL_BLOCKERS)
         self.assertIn("Session expired, access again from Dashboard", daily.GLOBAL_BLOCKERS)
