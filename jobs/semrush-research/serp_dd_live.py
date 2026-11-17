@@ -177,6 +177,9 @@ def main():
             state['runtime_preflight']={'status':'SKIPPED_NO_PENDING'}
             persist_state(statep,state)
         shard_refresh_used=False
+        # One unknown RPC error may be isolated; never treat its missing SERP
+        # as verified evidence. Quota, rate, and auth failures hard-stop above.
+        unverified=[]
         with rawp.open('a',encoding='utf-8') as f:
             for i in range(0,len(pending),1):
                 if i > 0:
@@ -206,11 +209,24 @@ def main():
                 # A provider error is not a completed SERP. Never seal errors
                 # into raw-serps.jsonl, where later retries would treat them
                 # as already checked and could produce a false terminal PASS.
-                if batch_errors or any(cid+'\t'+kw not in by for cid,kw in batch):
-                    state.update(stage='BLOCKED_PROVIDER_RPC',blocker='SERP_RPC_UNVERIFIED',updated_at=ts())
+                nonverified=(batch_errors or
+                             any(cid+'\t'+kw not in by for cid,kw in batch) or
+                             any(not isinstance(v,dict) or v.get('status') != 200
+                                 or not isinstance(v.get('result'),list) for v in vals))
+                if nonverified:
+                    unverified.append({'cluster_id':batch[0][0],
+                                       'keyword':batch[0][1]})
+                    if len(unverified)>1:
+                        state.update(stage='BLOCKED_PROVIDER_RPC',
+                                     blocker='SERP_RPC_UNVERIFIED',
+                                     unverified_queries=len(unverified),updated_at=ts())
+                        persist_state(statep,state)
+                        print(json.dumps({'status':'BLOCKED','reason':'SERP_RPC_UNVERIFIED','state':state},ensure_ascii=False))
+                        return 8
+                    state.update(stage='SERP_RPC_PARTIAL_CONTINUE',
+                                 unverified_queries=1,updated_at=ts())
                     persist_state(statep,state)
-                    print(json.dumps({'status':'BLOCKED','reason':'SERP_RPC_UNVERIFIED','state':state},ensure_ascii=False))
-                    return 8
+                    continue
                 for cid,kw in batch:
                     v=by.get(cid+'\t'+kw,{})
                     rec={'cluster_id':cid,'keyword':kw,'status':v.get('status'),'rows':v.get('result') or [],'error':v.get('error')}
@@ -228,11 +244,25 @@ def main():
                 if not rec: continue
                 if rec.get('error'): errors.append({'keyword':kw,'error':rec.get('error')})
                 else: serps.append(classify_serp(kw,rec.get('rows') or []))
-            g=gate(serps); avg_tool=round(sum(x['exact_tool_top10'] for x in serps)/len(serps),2) if serps else None
+            # Missing even one required SERP means this cluster remains BLOCKED.
+            missing=[kw for kw in kws if (r['cluster_id'],kw) not in done]
+            g='BLOCKED_INCOMPLETE_SERP' if missing or errors else gate(serps)
+            if missing:
+                errors.extend({'keyword':kw,'error':'SERP_RPC_UNVERIFIED'} for kw in missing)
+            avg_tool=round(sum(x['exact_tool_top10'] for x in serps)/len(serps),2) if serps else None
             output.append({**r,'serp_gate':g,'avg_exact_tool_top10':avg_tool,'serps':serps,'errors':errors})
         atomic(resultp,{'created_at':ts(),'source_queue':str(pathlib.Path(a.queue)),'transport':'semrush-rpc-broker-v1','cluster_count':len(output),'results':output})
-        counts=dict(Counter(x['serp_gate'] for x in output)); state.update(stage='SERP_DD_READY',cluster_done=len(output),gate_counts=counts,results=str(resultp),updated_at=ts()); persist_state(statep,state)
-        print(json.dumps({'status':'PASS','stage':'SERP_DD_READY','clusters':len(output),'gate_counts':counts,'results':str(resultp),'transport':'semrush-rpc-broker-v1'},ensure_ascii=False)); return 0
+        counts=dict(Counter(x['serp_gate'] for x in output))
+        incomplete=bool(unverified or any(str(x['serp_gate']).startswith('BLOCKED_') for x in output))
+        stage='SERP_DD_PARTIAL' if incomplete else 'SERP_DD_READY'
+        state.update(stage=stage,cluster_done=len(output),gate_counts=counts,
+                     unverified_queries=len(unverified),results=str(resultp),updated_at=ts())
+        if incomplete:state['blocker']='SERP_RPC_UNVERIFIED' if unverified else 'SERP_INCOMPLETE'
+        persist_state(statep,state)
+        print(json.dumps({'status':'BLOCKED' if incomplete else 'PASS',
+                          'stage':stage,'clusters':len(output),'gate_counts':counts,
+                          'results':str(resultp),'transport':'semrush-rpc-broker-v1'},ensure_ascii=False))
+        return 8 if incomplete else 0
     except Exception as e:
         state.update(stage='FAILED',error=type(e).__name__+':'+str(e)[:400],updated_at=ts()); persist_state(statep,state); print(json.dumps({'status':'FAIL','state':state},ensure_ascii=False)); return 1
 if __name__=='__main__': raise SystemExit(main())
