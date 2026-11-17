@@ -74,13 +74,52 @@ def main():
     sr=SCANS/f'{day}-semrush-results.json'; outj=SCANS/f'{day}-terminal-verdicts{suffix}.json'; outm=SCANS/f'{day}-terminal-verdicts{suffix}.md'
     if not sr.exists():
         payload={'date':day,'status':'BLOCKED','reason':'NO_SEMRUSH_RESULTS','completed_at':now_iso(),'verdicts':[]}; atomic(outj,payload); outm.write_text(f'# SeoTrends terminal — {day}\n\n- status: BLOCKED\n- reason: NO_SEMRUSH_RESULTS\n',encoding='utf-8'); print(json.dumps(payload)); return 3
-    semrush=load(sr)
-    if semrush.get('status') not in ('PASS','PASS_EMPTY'):
-        payload={'date':day,'status':'BLOCKED','reason':'SEMRUSH_'+str(semrush.get('status')),'completed_at':now_iso(),'verdicts':[]}; atomic(outj,payload); outm.write_text(f'# SeoTrends terminal — {day}\n\n- status: BLOCKED\n- reason: {payload["reason"]}\n',encoding='utf-8'); print(json.dumps(payload)); return 3
+    source=load(sr)
+    source_status=str(source.get('status') or 'MISSING')
     allowed={x.strip().lower() for x in args.domains.split(',') if x.strip()}
+    semrush=source
     if allowed:
-        semrush={**semrush,'items':[x for x in semrush.get('items',[]) if str(x.get('domain') or '').lower() in allowed]}
-        if {str(x.get('domain')).lower() for x in semrush['items']}!=allowed: ap.error('Scoped domain missing from Semrush batch')
+        # Scoped audit has its own suffixed output and may operate on independently
+        # verified PASS exports from a PARTIAL day, but never seal the full day PASS.
+        queue_path=SCANS/f'{day}-semrush-queue.json'
+        try: queue=load(queue_path)
+        except (OSError,ValueError): queue={}
+        inputs=queue.get('items') or []
+        eligible=source.get('items') or []
+        selected=[x for x in eligible if isinstance(x,dict)
+                  and str(x.get('domain') or '').lower() in allowed]
+        in_ids=[str(x.get('domain') or '').lower() for x in inputs if isinstance(x,dict)]
+        ids=[str(x.get('domain') or '').lower() for x in selected]
+        queue_ok=bool(queue.get('date')==day and queue.get('scan_terminal') is True
+                      and queue.get('scanned')==queue.get('added_total')
+                      and queue.get('count')==len(inputs)
+                      and len(in_ids)==len(set(in_ids))
+                      and len(ids)==len(allowed) and set(ids)==allowed
+                      and set(ids)<=set(in_ids) and all(x.get('status')=='PASS' for x in selected))
+        export_ok=queue_ok
+        if export_ok:
+            for domain in ids:
+                try: raw=load(SCANS/f'{day}-semrush'/f'{domain}.json')
+                except (OSError,ValueError): export_ok=False;break
+                if str(raw.get('domain') or '').lower()!=domain or not isinstance(raw.get('rows'),list):
+                    export_ok=False;break
+        if not export_ok:
+            payload={'date':day,'status':'BLOCKED','reason':'SCOPED_EXPORT_PROVENANCE_UNVERIFIED',
+                     'source_overall_status':source_status,'scope':sorted(allowed),
+                     'completed_at':now_iso(),'verdicts':[]}
+            atomic(outj,payload)
+            outm.write_text(f'# SeoTrends terminal scoped — {day}\\n\\n- status: BLOCKED\\n- reason: SCOPED_EXPORT_PROVENANCE_UNVERIFIED\\n',encoding='utf-8')
+            print(json.dumps(payload,ensure_ascii=False))
+            return 3
+        semrush={**source,'status':'PASS_SCOPED_SOURCE','items':selected,
+                 'source_overall_status':source_status}
+    elif source_status not in ('PASS','PASS_EMPTY'):
+        payload={'date':day,'status':'BLOCKED','reason':'SEMRUSH_'+source_status,
+                 'completed_at':now_iso(),'verdicts':[]}
+        atomic(outj,payload)
+        outm.write_text(f'# SeoTrends terminal — {day}\\n\\n- status: BLOCKED\\n- reason: {payload["reason"]}\\n',encoding='utf-8')
+        print(json.dumps(payload))
+        return 3
     q=build_serp_queue(day,semrush); qp=SCANS/f'{day}-serp-dd-queue{suffix}.json'; atomic(qp,q); serpdir=SCANS/f'{day}-serp-dd-{args.suffix or "product-v2"}'
     srun={'status':'PASS','stage':'EMPTY'} if not q['queue'] else run_serp(qp,serpdir,args.serp_timeout)
     serp_map={}; rp=serpdir/'results.json'
@@ -96,11 +135,11 @@ def main():
             v,reason,metrics=('WATCH','NO_MATCHED_PRODUCT_INTENT_KEYWORD',{'traffic':float(m.get('estimated_traffic_sum') or 0),'organic_keywords':kws})
         else: v,reason,metrics=verdict_for(item,serp_map.get(domain))
         verdicts.append({'domain':domain,'verdict':v,'reason':reason,'metrics':metrics,'serp_gate':(serp_map.get(domain) or {}).get('serp_gate'),'product_intent_checked':domain in matched})
-    counts=Counter(x['verdict'] for x in verdicts); status='PASS' if not counts.get('BLOCKED') and str(srun.get('status')).upper()=='PASS' else 'DEGRADED'
-    payload={'date':day,'status':status,'completed_at':now_iso(),'source':'seotrends-daily-terminal-product-v2','semrush_status':semrush.get('status'),'serp_run':srun,'counts':{k:counts.get(k,0) for k in ('BUILD','WATCH','DROP','BLOCKED')},'verdicts':verdicts,'policy':{'auto_build':False,'serp_pass':'WATCH until semantic/business DD','product_intent':'required; unmatched stays WATCH','scope':sorted(allowed) if allowed else 'all'}}
+    counts=Counter(x['verdict'] for x in verdicts); status=('PASS_SCOPED' if allowed else 'PASS') if not counts.get('BLOCKED') and str(srun.get('status')).upper()=='PASS' else 'DEGRADED'
+    payload={'date':day,'status':status,'completed_at':now_iso(),'source':'seotrends-daily-terminal-product-v2','semrush_status':semrush.get('status'),'source_overall_status':source_status,'serp_run':srun,'counts':{k:counts.get(k,0) for k in ('BUILD','WATCH','DROP','BLOCKED')},'verdicts':verdicts,'policy':{'auto_build':False,'serp_pass':'WATCH until semantic/business DD','product_intent':'required; unmatched stays WATCH','scope':sorted(allowed) if allowed else 'all'}}
     atomic(outj,payload)
     lines=[f'# SeoTrends terminal — {day}','',f'- status: {status}',f'- BUILD: {counts.get("BUILD",0)}',f'- WATCH: {counts.get("WATCH",0)}',f'- DROP: {counts.get("DROP",0)}',f'- BLOCKED: {counts.get("BLOCKED",0)}','- auto BUILD: disabled; SERP pass remains WATCH until semantic/business DD','', '## Verdicts','']
     for x in verdicts: lines.append(f'- **{x["domain"]}** — {x["verdict"]} — {x["reason"]}')
-    outm.write_text('\n'.join(lines)+'\n',encoding='utf-8'); print(json.dumps({'status':status,'date':day,'counts':payload['counts'],'output':str(outj)},ensure_ascii=False)); return 0 if status=='PASS' else 3
+    outm.write_text('\n'.join(lines)+'\n',encoding='utf-8'); print(json.dumps({'status':status,'date':day,'counts':payload['counts'],'output':str(outj)},ensure_ascii=False)); return 0 if status in ('PASS','PASS_SCOPED') else 3
 
 if __name__=='__main__': raise SystemExit(main())
