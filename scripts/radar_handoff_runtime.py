@@ -203,6 +203,38 @@ def audit_projection(ledger, original, observed_at_vn, ledger_sha256):
     return projected, stats, audit, changed
 
 
+
+# Historical source-backed identity baseline restored Nov17; all subsequent
+# writer paths must retain each known old event before accepting a CAS.
+IMMUTABLE_PRICE_EVENT_FLOOR = 295
+
+
+def _price_event_ids(checkpoint):
+    state = checkpoint.get("cross_radar_handoff") or {}
+    cases = state.get("opportunity_to_global") or {}
+    deferred = (state.get("reverse_queue_v2") or {}).get("deferred") or []
+    if not isinstance(cases, dict) or not isinstance(deferred, list):
+        raise ValueError("REVERSE_INVENTORY_SCHEMA_INVALID")
+    ids = list(cases)
+    for row in deferred:
+        if not isinstance(row, dict) or not isinstance(row.get("event_id"), str):
+            raise ValueError("REVERSE_DEFERRED_ID_INVALID")
+        ids.append(row["event_id"])
+    if len(ids) != len(set(ids)):
+        raise ValueError("REVERSE_DUPLICATE_IMMUTABLE_ID")
+    return set(ids)
+
+
+def assert_price_event_identity_nonloss(previous, projected):
+    original_ids = _price_event_ids(previous)
+    if len(original_ids) < IMMUTABLE_PRICE_EVENT_FLOOR:
+        raise ValueError("REVERSE_HISTORICAL_295_ID_BASELINE_MISSING")
+    new_ids = _price_event_ids(projected)
+    if not original_ids.issubset(new_ids):
+        raise ValueError("REVERSE_HISTORICAL_ID_LOSS")
+    return len(original_ids), len(new_ids)
+
+
 def run_live(*, sync_reverse=False):
     try:
         from vps_dropbox import DropboxService
@@ -215,6 +247,7 @@ def run_live(*, sync_reverse=False):
     with svc.path_lock(CHECKPOINT):
         current, metadata = svc.download_text(CHECKPOINT)
         source = json.loads(current)
+        original_checkpoint = source
         reverse_stats = {"reverse_added": 0, "changed": False, "already_accepted": False,
                          "source_session": None, "capacity_skipped": 0}
         if price_sources is not None:
@@ -222,12 +255,19 @@ def run_live(*, sync_reverse=False):
                 source, *price_sources, observed_at_vn=observed)
         projected, stats, audit, changed = audit_projection(ledger, source, observed, sha)
         changed = changed or reverse_stats["changed"]
+        # Validate both inherited 295 identities and any new admissions
+        # before any production writer or report can advance.
+        assert_price_event_identity_nonloss(original_checkpoint, projected)
         if changed:
             serialized = json.dumps(projected, ensure_ascii=False, separators=(",", ":")) + "\n"
             result = svc.upload_text(CHECKPOINT, serialized, expected_rev=metadata["rev"])
             check, checkmeta = svc.download_text(CHECKPOINT)
             if check != serialized or checkmeta.get("rev") != result.get("rev"):
                 raise RuntimeError("DROPBOX_CAS_READBACK_FAILED")
+            assert_price_event_identity_nonloss(original_checkpoint, json.loads(check))
+            # Exact byte and revision checks above remain mandatory.
+            # This second parse verifies the immutable ID union after CAS.
+
             written = True
             rev = result["rev"]
         else:
