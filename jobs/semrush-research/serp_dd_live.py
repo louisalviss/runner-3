@@ -210,7 +210,7 @@ def main():
                 # into raw-serps.jsonl, where later retries would treat them
                 # as already checked and could produce a false terminal PASS.
                 nonverified=(batch_errors or
-                             any(cid+'\\t'+kw not in by for cid,kw in batch) or
+                             any(cid+'\t'+kw not in by for cid,kw in batch) or
                              any(not isinstance(v,dict) or v.get('status') != 200
                                  or not isinstance(v.get('result'),list) for v in vals))
                 if nonverified:
