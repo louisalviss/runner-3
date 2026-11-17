@@ -213,8 +213,16 @@ def main() -> int:
             if recovery['ok']:
                 exp = run_export(domain, out, args.per_domain_timeout, args.export_page_size)
                 if str(exp.get('status') or '').upper() != 'PASS':
-                    exp = {'status': 'FAIL', 'reason': 'SEMRUSH_AUTO_RECOVERY_RETRY_FAILED:'
-                           + str(exp.get('reason') or 'UNVERIFIED')[:250]}
+                    retry_reason = str(exp.get('reason') or 'UNVERIFIED')
+                    # A successful broker login does not make a subsequent
+                    # DPA fetch/network TypeError a shared authentication outage.
+                    # Preserve its individual failure and check later domains.
+                    # True auth, quota and rate failures still stop the batch.
+                    still_global = any(marker in retry_reason for marker in GLOBAL_BLOCKERS
+                                       if marker != 'SEMRUSH_AUTO_RECOVERY_RETRY_FAILED')
+                    if still_global:
+                        exp = {'status': 'FAIL', 'reason': 'SEMRUSH_AUTO_RECOVERY_RETRY_FAILED:'
+                               + retry_reason[:250]}
             else:
                 exp = {'status': 'FAIL', 'reason': 'SEMRUSH_AUTO_RECOVERY_FAILED:' + recovery['state']}
         if str(exp.get('status') or '').upper() == 'PASS':
