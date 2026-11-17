@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""Resume the SAME day's stored Semrush shortlist only after a verified human handoff.
-Never refresh the discovery corpus, bypass CAPTCHA, auto-login or replay a previous day.
+"""Resume the same-day stored Semrush shortlist after verified auth evidence.
+A proven, exact no-challenge expired session gets one bounded existing-broker
+login-helper attempt; real CAPTCHA requires a verified human handoff.
+Never refresh the discovery corpus, bypass CAPTCHA, or replay older dates.
 """
 from __future__ import annotations
 import datetime,json,pathlib,subprocess,hashlib,fcntl,os,time,argparse
@@ -59,6 +61,19 @@ def decision(day):
         last_attempt=s
     else:
         return {'state':'NOT_AUTH_BLOCKED','reason':r.get('status')}
+    # Unlike a real challenge, an expired broker session may be renewed
+    # through the existing Bitwarden-backed NoxTools helper without a person.
+    # One attempt per *same day* is fenced in MARKER; a failure never grants
+    # an exception to provider/report caps or a CAPTCHA challenge.
+    auto_auth = (age_days == 0 and mode == 'EXPORT_THEN_SERP' and
+                 str(r.get('global_blocker') or '').strip() ==
+                 'RuntimeError:BROKER_DPA:SEMRUSH_LIVE_AUTH_UNAVAILABLE')
+    if auto_auth:
+        ticket = hashlib.sha256(('EXPIRED_BROKER_SESSION|' + day).encode()).hexdigest()
+        if load(MARKER).get('ticket') == ticket:
+            return {'state':'AUTO_RECOVERY_ALREADY_ATTEMPTED'}
+        return {'state':'READY_AUTO_AUTH','ticket':ticket,'items':len(z['items']),
+                'mode':mode,'auth_proof':'EXACT_EXPIRED_BROKER_SESSION'}
     if not LOG.is_file() or not last_attempt.is_file() or LOG.stat().st_mtime <= last_attempt.stat().st_mtime:
         return {'state':'NO_NEW_HUMAN_HANDOFF'}
     events=[]
@@ -267,20 +282,20 @@ def resume(day,dry_run=False):
     if check['state']=='ALREADY_PASS':
         follow=post_recovery(day,dry_run=dry_run)
         return {'day':day,'state':'ALREADY_PASS','post_recovery':follow}
-    if check['state']!='READY' or dry_run:
+    if check['state'] not in ('READY','READY_AUTO_AUTH') or dry_run:
         return {'day':day,**check}
     LOCK.parent.mkdir(exist_ok=True,parents=True)
     with LOCK.open('a+') as lock:
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:return {'day':day,'state':'SOURCE_SCANNER_BUSY'}
         recheck=decision(day)
-        if recheck['state']!='READY':return {'day':day,**recheck}
+        if recheck['state'] not in ('READY','READY_AUTO_AUTH'):return {'day':day,**recheck}
         MARKER.parent.mkdir(exist_ok=True,parents=True)
         pending={'day':day,'ticket':check['ticket'],'state':'ATTEMPT_STARTED','started_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}
         temp=MARKER.with_suffix('.tmp');temp.write_text(json.dumps(pending)+'\n');temp.replace(MARKER)
         result={'day':day,'ticket':check['ticket'],'mode':check['mode'],'state':'AUTH_RECOVERY_FAILED'}
         try:
-            # One broker-owned recovery after a verified human CAPTCHA event.
+            # Same existing broker-owned helper; no browser/profile duplication.
             auth=subprocess.run(['/usr/local/bin/semrush-noxtools-login'],capture_output=True,text=True,timeout=210,check=False)
             try: outcome=json.loads((auth.stdout or '').strip())
             except ValueError: outcome={}

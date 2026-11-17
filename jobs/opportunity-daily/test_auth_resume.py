@@ -30,12 +30,15 @@ class SafeAuthResumeGates(unittest.TestCase):
   a.SEO,a.LOG,a.MARKER=self.orig
   self.t.cleanup()
  def test_accepted_same_day_ready(self):
+  self.r.write_text(json.dumps({'status':'BLOCKED','global_blocker':'NOX_DASHBOARD_CHALLENGE'}))
+  self.write_log(self.log)
   self.assertEqual(a.decision(DAY)['state'],'READY')
  def test_never_restart_after_pass(self):
   self.r.write_text(json.dumps({'status':'PASS'}))
   (self.root/(DAY+'-terminal-verdicts.json')).write_text(json.dumps({'status':'PASS'}))
   self.assertEqual(a.decision(DAY)['state'],'ALREADY_PASS')
  def test_no_human_checkbox_event_not_ready(self):
+  self.r.write_text(json.dumps({'status':'BLOCKED','global_blocker':'NOX_DASHBOARD_CHALLENGE'}))
   self.write_log({'event':'HUMAN_HANDOFF_RESULT','ok':False,'status':'TIMEOUT','same_session':True})
   self.assertEqual(a.decision(DAY)['state'],'NO_ACCEPTED_SAME_SESSION_HANDOFF')
  def test_first_error_not_auth_must_not_resume(self):
@@ -47,13 +50,35 @@ class SafeAuthResumeGates(unittest.TestCase):
  def test_same_day_replay_guard(self):
   ticket=a.decision(DAY)['ticket']
   a.MARKER.write_text(json.dumps({'ticket':ticket,'state':'ATTEMPT_STARTED'}))
-  self.assertEqual(a.decision(DAY)['state'],'ALREADY_ATTEMPTED_AFTER_HANDOFF')
+  self.assertEqual(a.decision(DAY)['state'],'AUTO_RECOVERY_ALREADY_ATTEMPTED')
  def test_stale_handoff_does_not_retry(self):
+  self.r.write_text(json.dumps({'status':'BLOCKED','global_blocker':'NOX_DASHBOARD_CHALLENGE'}))
+  self.write_log(self.log)
   daybefore=(datetime.datetime.now(ZoneInfo('Asia/Ho_Chi_Minh'))-datetime.timedelta(days=1)).timestamp()
   os.utime(a.LOG,(daybefore,daybefore))
   self.assertEqual(a.decision(DAY)['state'],'NO_NEW_HUMAN_HANDOFF')
  def test_dry_run_never_mutates(self):
-  self.assertEqual(a.resume(DAY,dry_run=True)['state'],'READY')
+  self.assertEqual(a.resume(DAY,dry_run=True)['state'],'READY_AUTO_AUTH')
   self.assertFalse(a.MARKER.exists())
+
+ def test_expired_broker_without_human_has_one_auto_attempt(self):
+  a.LOG.unlink()
+  check=a.decision(DAY)
+  self.assertEqual(check['state'],'READY_AUTO_AUTH')
+  self.assertEqual(check['mode'],'EXPORT_THEN_SERP')
+  a.MARKER.write_text(json.dumps({'ticket':check['ticket'],'state':'AUTH_RECOVERY_FAILED'}))
+  self.assertEqual(a.decision(DAY)['state'],'AUTO_RECOVERY_ALREADY_ATTEMPTED')
+ def test_real_challenge_does_not_trigger_auto(self):
+  self.r.write_text(json.dumps({'status':'BLOCKED','global_blocker':'NOX_DASHBOARD_CHALLENGE'}))
+  a.LOG.unlink()
+  self.assertEqual(a.decision(DAY)['state'],'NO_NEW_HUMAN_HANDOFF')
+ def test_provider_limit_does_not_trigger_auto(self):
+  self.r.write_text(json.dumps({'status':'BLOCKED','global_blocker':'SEMRUSH_REPORT_LIMIT:DPA_LIMIT_EXCEEDED'}))
+  a.LOG.unlink()
+  self.assertEqual(a.decision(DAY)['state'],'NOT_HUMAN_AUTH_BLOCKER')
+ def test_auto_is_not_activated_by_partial_source(self):
+  self.r.write_text(json.dumps({'status':'PARTIAL','global_blocker':'RuntimeError:BROKER_DPA:SEMRUSH_LIVE_AUTH_UNAVAILABLE'}))
+  a.LOG.unlink()
+  self.assertEqual(a.decision(DAY)['state'],'NOT_AUTH_BLOCKED')
 
 if __name__=='__main__':unittest.main(verbosity=2)
