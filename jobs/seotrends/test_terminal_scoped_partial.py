@@ -35,8 +35,8 @@ class ScopedPartialSourceTest(unittest.TestCase):
         if domains:args+=['--domains',domains]
         if suffix:args+=['--suffix',suffix]
         out=io.StringIO()
-        with patch.object(m,'SCANS',self.root),patch.object(sys,'argv',args), \\
-             patch.object(m,'build_serp_queue',return_value={'status':'PENDING','date':self.day,'queue':[]}), \\
+        with patch.object(m,'SCANS',self.root),patch.object(sys,'argv',args), \
+             patch.object(m,'build_serp_queue',return_value={'status':'PENDING','date':self.day,'queue':[]}), \
              contextlib.redirect_stdout(out):
             rc=m.main()
         path=self.root/(f'{self.day}-terminal-verdicts'+('-'+suffix if suffix else '')+'.json')
@@ -77,7 +77,7 @@ class ScopedPartialSourceTest(unittest.TestCase):
         self.assertEqual(payload['status'],'BLOCKED')
     def test_no_scoped_overwrite_without_suffix(self):
         out=io.StringIO()
-        with patch.object(m,'SCANS',self.root),patch.object(sys,'argv',['terminal','--date',self.day,'--domains','a.example']), \\
+        with patch.object(m,'SCANS',self.root),patch.object(sys,'argv',['terminal','--date',self.day,'--domains','a.example']), \
              contextlib.redirect_stdout(out),self.assertRaises(SystemExit) as ctx:
             m.main()
         self.assertEqual(ctx.exception.code,2)
