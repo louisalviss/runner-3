@@ -180,5 +180,37 @@ class RuntimeAuditTest(unittest.TestCase):
         self.assertEqual(out["cross_radar_handoff"]["reverse_price_session_acceptance_v1"]
                          ["corporate_action_or_adjustment_skipped"],["A"])
 
+
+    def test_nonloss_live_writer_gate_preserves_original_295_and_new_events(self):
+        original = {"cross_radar_handoff": {
+            "opportunity_to_global": {f"O2G|A{i}": {} for i in range(230)},
+            "reverse_queue_v2": {"deferred": [
+                {"event_id": f"O2G|D{i}"} for i in range(65)]}}}
+        proposed = json.loads(json.dumps(original))
+        proposed["cross_radar_handoff"]["opportunity_to_global"]["O2G|NEW"] = {}
+        self.assertEqual(m.assert_price_event_identity_nonloss(original, proposed), (295, 296))
+
+        # A replacement ID is not a valid repair, even if the raw count rises.
+        replaced = json.loads(json.dumps(proposed))
+        replaced["cross_radar_handoff"]["reverse_queue_v2"]["deferred"].pop(0)
+        with self.assertRaisesRegex(ValueError, "REVERSE_HISTORICAL_ID_LOSS"):
+            m.assert_price_event_identity_nonloss(original, replaced)
+
+    def test_nonloss_live_writer_gate_denies_duplicate_or_regressed_baseline(self):
+        original = {"cross_radar_handoff": {
+            "opportunity_to_global": {f"O2G|A{i}": {} for i in range(230)},
+            "reverse_queue_v2": {"deferred": [
+                {"event_id": f"O2G|D{i}"} for i in range(65)]}}}
+        duplicate = json.loads(json.dumps(original))
+        duplicate["cross_radar_handoff"]["reverse_queue_v2"]["deferred"].append(
+            {"event_id": "O2G|A0"})
+        with self.assertRaisesRegex(ValueError, "REVERSE_DUPLICATE_IMMUTABLE_ID"):
+            m.assert_price_event_identity_nonloss(original, duplicate)
+        damaged = json.loads(json.dumps(original))
+        damaged["cross_radar_handoff"]["reverse_queue_v2"]["deferred"] = damaged[
+            "cross_radar_handoff"]["reverse_queue_v2"]["deferred"][:-6]
+        with self.assertRaisesRegex(ValueError, "REVERSE_HISTORICAL_295_ID_BASELINE_MISSING"):
+            m.assert_price_event_identity_nonloss(damaged, original)
+
 if __name__ == "__main__":
     unittest.main()
