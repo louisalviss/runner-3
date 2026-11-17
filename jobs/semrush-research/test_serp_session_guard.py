@@ -71,12 +71,12 @@ class SerpSessionGuardTests(unittest.TestCase):
 
     def test_rpc_error_never_sealed_as_completed(self):
         rc,state,cache=self._run_scoped_main([{'tag':'a\tkeyword','error':{'message':'Not verified'}}])
-        self.assertEqual(rc,8);self.assertEqual(state['stage'],'BLOCKED_PROVIDER_RPC')
+        self.assertEqual(rc,8);self.assertEqual(state['stage'],'SERP_DD_PARTIAL')
         self.assertEqual(cache,'')
 
     def test_missing_tag_never_sealed_as_completed(self):
         rc,state,cache=self._run_scoped_main([])
-        self.assertEqual(rc,8);self.assertEqual(state['stage'],'BLOCKED_PROVIDER_RPC')
+        self.assertEqual(rc,8);self.assertEqual(state['stage'],'SERP_DD_PARTIAL')
         self.assertEqual(cache,'')
 
     def test_expired_session_never_sealed_as_completed(self):
@@ -106,6 +106,72 @@ class SerpSessionGuardTests(unittest.TestCase):
             v=recovery.refresh_expired_proxy_session(timeout=20)
         self.assertTrue(v['ok'])
         fn.assert_called_once_with(timeout=20,refresh_shard=True)
+
+
+    def _run_independent_keywords(self, statuses):
+        with tempfile.TemporaryDirectory() as td:
+            root=pathlib.Path(td)
+            queue=root/'queue.json'
+            queue.write_text(json.dumps({'queue':[
+                {'cluster_id':'a','top_keywords':[{'keyword':'first'}]},
+                {'cluster_id':'b','top_keywords':[{'keyword':'second'}]}]}))
+            output=root/'serps'
+            tag=lambda c,k:c+chr(9)+k
+            def reply(c,k,status):
+                if status=='bad':
+                    return [{'tag':tag(c,k),'status':502,
+                             'result':None,'error':{'message':'Transient upstream error'}}]
+                if status=='http_but_empty':
+                    return [{'tag':tag(c,k),'status':503,
+                             'result':[],'error':None}]
+                return [{'tag':tag(c,k),'status':200,'error':None,
+                         'result':[{'position':i+1,'domain':f'site{i}.example',
+                                    'url':f'https://site{i}.example/tool'} for i in range(10)]}]
+            answers=[(reply('a','first',statuses[0]),False,None),
+                     (reply('b','second',statuses[1]),False,None)]
+            with patch.object(sys,'argv',['serp_dd_live.py','--queue',str(queue),
+                                          '--output-dir',str(output)]), \
+                 patch.object(serp,'cooldown_remaining',return_value=0), \
+                 patch.object(serp,'require_semrush_preflight',
+                              return_value={'shallow':{'payload':{'checks':{'broker':{'ok':True}}}}}), \
+                 patch.object(serp,'ensure_with_one_shot_recovery',
+                              return_value=({'ok':True,'server':'test'},{})), \
+                 patch.object(serp,'rpc_many_with_one_shard_refresh',
+                              side_effect=answers) as rpc, \
+                 patch.object(serp.time,'sleep',return_value=None):
+                rc=serp.main()
+            state=json.loads((output/'state.json').read_text())
+            raw=(output/'raw-serps.jsonl').read_text().splitlines()
+            results=json.loads((output/'results.json').read_text()) if (output/'results.json').exists() else None
+            return rc,state,raw,results,rpc.call_count
+
+    def test_one_unknown_rpc_does_not_block_independent_cluster(self):
+        rc,state,raw,results,calls=self._run_independent_keywords(('bad','good'))
+        self.assertEqual(rc,8)
+        self.assertEqual(state['stage'],'SERP_DD_PARTIAL')
+        self.assertEqual(state['unverified_queries'],1)
+        self.assertEqual(calls,2)
+        self.assertEqual(len(raw),1)
+        self.assertEqual(results['cluster_count'],2)
+        self.assertEqual(results['results'][0]['serp_gate'],'BLOCKED_INCOMPLETE_SERP')
+        self.assertNotEqual(results['results'][1]['serp_gate'],'BLOCKED_INCOMPLETE_SERP')
+        self.assertTrue(results['results'][0]['errors'])
+
+    def test_two_unknown_rpcs_hard_stop_not_export(self):
+        rc,state,raw,results,calls=self._run_independent_keywords(('bad','bad'))
+        self.assertEqual(rc,8)
+        self.assertEqual(state['stage'],'BLOCKED_PROVIDER_RPC')
+        self.assertEqual(state['unverified_queries'],2)
+        self.assertEqual(calls,2)
+        self.assertEqual(raw,[])
+        self.assertIsNone(results)
+
+    def test_http_non200_without_error_is_unverified(self):
+        rc,state,raw,results,calls=self._run_independent_keywords(('http_but_empty','good'))
+        self.assertEqual(rc,8)
+        self.assertEqual(state['stage'],'SERP_DD_PARTIAL')
+        self.assertEqual(len(raw),1)
+        self.assertEqual(results['results'][0]['serp_gate'],'BLOCKED_INCOMPLETE_SERP')
 
 if __name__ == '__main__':
     unittest.main()
