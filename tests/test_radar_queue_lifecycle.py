@@ -178,5 +178,34 @@ class QueueLifecycleTests(unittest.TestCase):
         self.assertFalse(replay_stats["changed"])
         self.assertEqual(event_ids(replay), before_ids)
 
+
+    def test_deferred_prior_fifo_stays_stable_when_same_symbol_is_not_admissible(self):
+        # A previously persisted old price identity may share a ticker with
+        # an ACTIVE researched case. It must keep its original FIFO position
+        # without causing an extra CAS write or drifting on same-day replay.
+        source = packet()
+        obj, _ = bounded_reverse_projection_v2({}, *source, "a"*40, NOW)
+        q = obj["cross_radar_handoff"]["reverse_queue_v2"]
+        historical = copy.deepcopy(q["deferred"][1])
+        historical.update({
+            "event_id": "O2G|historical-priority-preservation",
+            "price_event_id": S12 + "|X00|5D_SHOCK",
+            "symbol": "X00",
+        })
+        q["deferred"].insert(2, historical)
+        q["deferred_count"] = len(q["deferred"])
+        before = [r["event_id"] for r in q["deferred"]]
+        projected, stats = bounded_reverse_projection_v2(
+            obj, *source, "a"*40, NOW)
+        after = [r["event_id"] for r in
+                 projected["cross_radar_handoff"]["reverse_queue_v2"]["deferred"]]
+        self.assertEqual(before, after)
+        self.assertIs(projected, obj)
+        self.assertFalse(stats["changed"])
+        replay, replay_stats = bounded_reverse_projection_v2(
+            projected, *source, "a"*40, NOW)
+        self.assertIs(replay, projected)
+        self.assertFalse(replay_stats["changed"])
+
 if __name__ == "__main__":
     unittest.main()
