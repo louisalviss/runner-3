@@ -9,7 +9,9 @@ import sys
 NETWORK = 'browser-stack_default'
 LISTEN_PORT = 18889
 UPSTREAM_HOST = '127.0.0.1'
-UPSTREAM_PORT = 8888
+# FAST2 general HTTP egress: fastest responsive non-VN-only existing route.
+# Keep legacy Flippa bridge at :18889 so the authenticated profile is unchanged.
+UPSTREAM_PORT = 18896
 
 
 def docker_network_info() -> tuple[str, str, str]:
