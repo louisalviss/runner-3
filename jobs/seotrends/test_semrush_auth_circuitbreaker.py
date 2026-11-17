@@ -186,6 +186,63 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
             self.assertEqual(report["status"],"BLOCKED")
             self.assertIn("SEMRUSH_AUTO_RECOVERY_RETRY_FAILED",report["global_blocker"])
 
+    def test_recovered_login_then_dpa_fetch_typeerror_is_domain_only(self):
+        with tempfile.TemporaryDirectory() as td:
+            temp=Path(td)
+            day='2026-11-18'
+            (temp/f'{day}-semrush-queue.json').write_text(json.dumps(
+                {'items':[{'domain':d} for d in ('cached.com','fetchbad.com','good.com')]}))
+            exports=temp/f'{day}-semrush'
+            exports.mkdir()
+            (exports/'cached.com.json').write_text(json.dumps({'domain':'cached.com','rows':[]}))
+            calls=[]
+            logins=[]
+            def exporter(domain, path, timeout, page_size=10000):
+                calls.append(domain)
+                if domain=='fetchbad.com' and calls.count(domain)==1:
+                    return {'status':'FAIL','reason':'Session expired, access again from Dashboard'}
+                if domain=='fetchbad.com':
+                    return {'status':'FAIL','reason':'RuntimeError:BROKER_DPA:SEMRUSH_DPA_FETCH_FAILED:TypeError'}
+                path.write_text(json.dumps({'domain':domain,'rows':[{'phrase':'verified'}]}))
+                return {'status':'PASS','domain':domain}
+            def recover():
+                logins.append('login')
+                return {'ok':True,'state':'RECOVERED'}
+            with patch.object(daily,'SCANS',temp),patch.object(daily,'run_export',exporter), \
+                 patch.object(daily,'recover_expired_session',recover), \
+                 patch('sys.argv',['semrush_daily.py','--date',day]):
+                rc=daily.main()
+            self.assertEqual(rc,0)
+            self.assertEqual(logins,['login'])
+            self.assertEqual(calls,['fetchbad.com','fetchbad.com','good.com'])
+            result=json.loads((temp/f'{day}-semrush-results.json').read_text())
+            self.assertEqual(result['status'],'PARTIAL')
+            self.assertEqual([r['status'] for r in result['items']],['PASS','FAIL','PASS'])
+            self.assertEqual((result['pass_count'],result['fail_count'],result['not_run_count']),(2,1,0))
+            self.assertIsNone(result['global_blocker'])
+            self.assertFalse((exports/'fetchbad.com.json').exists())
+
+    def test_recovered_login_then_dpa_quota_stays_global(self):
+        with tempfile.TemporaryDirectory() as td:
+            temp=Path(td);day='2026-11-18'
+            (temp/f'{day}-semrush-queue.json').write_text(json.dumps(
+                {'items':[{'domain':d} for d in ('quota.com','later.com')]}))
+            calls=[]
+            def exporter(domain,path,timeout,page_size=10000):
+                calls.append(domain)
+                if len(calls)==1:
+                    return {'status':'FAIL','reason':'Session expired, access again from Dashboard'}
+                return {'status':'BLOCKED_QUOTA_LIMIT','reason':'RuntimeError:SEMRUSH_REPORT_LIMIT:DPA_LIMIT_EXCEEDED'}
+            with patch.object(daily,'SCANS',temp),patch.object(daily,'run_export',exporter), \
+                 patch.object(daily,'recover_expired_session',return_value={'ok':True,'state':'RECOVERED'}), \
+                 patch('sys.argv',['semrush_daily.py','--date',day]):
+                rc=daily.main()
+            self.assertEqual(rc,3)
+            self.assertEqual(calls,['quota.com','quota.com'])
+            report=json.loads((temp/f'{day}-semrush-results.json').read_text())
+            self.assertEqual([x['status'] for x in report['items']],['FAIL','NOT_RUN'])
+            self.assertIn('SEMRUSH_REPORT_LIMIT',report['global_blocker'])
+
     def test_cloudflare_does_not_trigger_credentialed_refresh(self):
         with tempfile.TemporaryDirectory() as td:
             temp=Path(td)
