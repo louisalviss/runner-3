@@ -210,6 +210,7 @@ def bounded_reverse_projection_v2(checkpoint, health, prefilter, raw_events,
     # Older case identities take priority over same identifiers seen again.
     for x in list(older.values()) + list(current.values()):
         all_candidates.setdefault(x["event_id"], dict(x))
+    candidate_rank = {event_id: rank for rank, event_id in enumerate(all_candidates)}
     linked_keys = {x.get("linked_global_material_update_key") for x in reviewed.values()}
     valid = []
     preserved_prior_deferred = []
@@ -253,7 +254,7 @@ def bounded_reverse_projection_v2(checkpoint, health, prefilter, raw_events,
     remaining = [x for x in valid if x["event_id"] not in selected_ids]
     remaining.extend(preserved_prior_deferred)
     # Deterministic backpressure: oldest session first, preserving rank.
-    remaining.sort(key=lambda x: x["source_session_date"])
+    remaining.sort(key=lambda x: (x["source_session_date"], candidate_rank[x["event_id"]]))
     frontier = remaining[:FRONTIER_LIMIT]
     overflow = len(remaining) - len(frontier)
     projected, stats = project_checkpoint(
