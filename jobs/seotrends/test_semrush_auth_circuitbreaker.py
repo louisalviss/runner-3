@@ -212,7 +212,8 @@ class SemrushCircuitBreakerTests(unittest.TestCase):
                  patch.object(daily,'recover_expired_session',recover), \
                  patch('sys.argv',['semrush_daily.py','--date',day]):
                 rc=daily.main()
-            self.assertEqual(rc,0)
+            # The whole day remains incomplete even when the next domain PASSes.
+            self.assertEqual(rc,3)
             self.assertEqual(logins,['login'])
             self.assertEqual(calls,['fetchbad.com','fetchbad.com','good.com'])
             result=json.loads((temp/f'{day}-semrush-results.json').read_text())
