@@ -65,17 +65,35 @@ def eligible_global_events(ledger, *, as_of, max_age_days=14):
         material_key = event.get("material_update_key")
         source = event.get("last_verified_source_url")
         stamp = event.get("source_event_time_vn")
-        if not (symbol and material_key and source and stamp):
+        source_date = event.get("source_event_date")
+        if not (symbol and material_key and source and (stamp or source_date)):
             continue
         if not str(source).startswith("https://"):
             continue
         try:
             t = parse_time(stamp)
         except (ValueError, TypeError):
-            continue
-        age = now - t
-        if age < -timedelta(minutes=10) or age > timedelta(days=max_age_days):
-            continue
+            # Accept an issuer-verified DATE when its exact release clock is not
+            # published; never fabricate a time or silently drop the event.
+            # A malformed timestamp-looking value still fails closed.
+            if isinstance(stamp, str) and re.match(r"^\d{4}-\d{2}-\d{2}T", stamp):
+                continue
+            if not isinstance(source_date, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", source_date):
+                continue
+            try:
+                dated = datetime.strptime(source_date, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            days_old = (now.astimezone(timezone(timedelta(hours=7))).date() - dated).days
+            if days_old < 0 or days_old > max_age_days:
+                continue
+            stamp = source_date  # Source-local calendar DATE only, not a VN clock.
+            source_precision = "DATE_ONLY_SOURCE_LOCAL_NOT_VERIFIED_VN_CLOCK"
+        else:
+            age = now - t
+            if age < -timedelta(minutes=10) or age > timedelta(days=max_age_days):
+                continue
+            source_precision = "VERIFIED_TIMESTAMP"
         event_id = "G2O|" + key_hash(source_key, str(material_key))
         out.append({
             "event_id": event_id,
@@ -84,6 +102,7 @@ def eligible_global_events(ledger, *, as_of, max_age_days=14):
             "material_update_key": material_key,
             "symbol": symbol,
             "source_event_time_vn": stamp,
+            "source_event_time_precision": source_precision,
             "primary_source_url": source,
             "headline": event.get("label") or event.get("named_event") or "",
             "verified_source": True,
