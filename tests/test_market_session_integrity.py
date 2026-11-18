@@ -35,6 +35,30 @@ def frame(last: str):
 
 
 class MarketSessionIntegrityTests(unittest.TestCase):
+    def test_vendor_market_cap_is_never_validated_by_matching_close_alone(self):
+        listing = {"symbol": "T", "name": "Ticker", "exchange": "NASDAQ"}
+        matched = scanner.enriched_record(
+            listing, {"lastsale": "100", "marketCap": "8000000000"},
+            {"price": 100.0, "last_date": "2026-11-17"},
+        )
+        self.assertEqual(matched["market_cap"], 8000000000.0)
+        self.assertIsNone(matched["market_cap_for_valuation_usd"])
+        self.assertEqual(matched["market_cap_valuation_status"], "VENDOR_ASOF_AND_SHARE_BASIS_UNVERIFIED")
+        self.assertFalse(matched["market_cap_quote_date_verified"])
+        signal = scanner.signal_from(matched, "2026-11-18T00:00:00Z")
+        self.assertEqual(signal["source"]["market_cap_valuation_status"], matched["market_cap_valuation_status"])
+        self.assertIsNone(signal["source"]["market_cap_for_valuation_usd"])
+
+    def test_vendor_market_cap_mixed_quote_timestamp_is_quarantined(self):
+        listing = {"symbol": "T", "name": "Ticker", "exchange": "NASDAQ"}
+        stale = scanner.enriched_record(
+            listing, {"lastsale": "110", "marketCap": "8800000000"},
+            {"price": 100.0, "last_date": "2026-11-17"},
+        )
+        self.assertEqual(stale["market_cap_valuation_status"], "SNAPSHOT_QUOTE_CLOSE_MISMATCH")
+        self.assertAlmostEqual(stale["snapshot_vs_completed_close_gap_pct"], 10.0)
+        self.assertIsNone(stale["market_cap_for_valuation_usd"])
+
     def test_filter_uses_each_symbols_actual_close_date(self):
         history = {"NEW": frame("2026-10-07"), "STALE": frame("2026-10-06")}
         fresh, stale = scanner.partition_fresh_market_history(history, "2026-10-07")

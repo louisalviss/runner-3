@@ -617,6 +617,23 @@ def enriched_record(listing: dict[str, Any], snap: dict[str, Any] | None, metric
     snapshot_price = num(snap.get("lastsale"))
     snapshot_volume = num(snap.get("volume"))
     market_cap = num(snap.get("marketCap") if "marketCap" in snap else snap.get("marketcap"))
+    completed_close = num(metrics.get("price"))
+    quote_close_gap_pct = (
+        100.0 * (snapshot_price / completed_close - 1.0)
+        if snapshot_price is not None and snapshot_price > 0
+        and completed_close is not None and completed_close > 0
+        else None
+    )
+    # Nasdaq's undated snapshot cap is not a verified completed-session
+    # market capitalization. Its share basis may also differ from SEC shares.
+    # Preserve the legacy raw field for universe triage; never certify it
+    # for issuer valuation without independent PIT share verification.
+    market_cap_valuation_status = (
+        "MISSING_VENDOR_CAP" if market_cap is None
+        else "SNAPSHOT_QUOTE_CLOSE_MISMATCH"
+        if quote_close_gap_pct is not None and abs(quote_close_gap_pct) > 1.0
+        else "VENDOR_ASOF_AND_SHARE_BASIS_UNVERIFIED"
+    )
     rec = {
         "symbol": listing["symbol"],
         "name": str(snap.get("name") or listing["name"]).strip(),
@@ -626,6 +643,10 @@ def enriched_record(listing: dict[str, Any], snap: dict[str, Any] | None, metric
         "snapshot_price": snapshot_price,
         "snapshot_volume": snapshot_volume,
         "market_cap": market_cap,
+        "market_cap_for_valuation_usd": None,
+        "market_cap_valuation_status": market_cap_valuation_status,
+        "market_cap_quote_date_verified": False,
+        "snapshot_vs_completed_close_gap_pct": quote_close_gap_pct,
         "snapshot_dollar_volume": snapshot_price * snapshot_volume if snapshot_price and snapshot_volume else None,
     }
     rec.update(metrics)
@@ -896,6 +917,10 @@ def signal_from(rec: dict[str, Any], generated_at: str, prior: dict[str, Any] | 
             "sector": rec.get("sector"),
             "industry": rec.get("industry"),
             "market_cap": rec.get("market_cap"),
+            "market_cap_for_valuation_usd": rec.get("market_cap_for_valuation_usd"),
+            "market_cap_valuation_status": rec.get("market_cap_valuation_status"),
+            "market_cap_quote_date_verified": rec.get("market_cap_quote_date_verified"),
+            "snapshot_vs_completed_close_gap_pct": rec.get("snapshot_vs_completed_close_gap_pct"),
             "price": rec.get("price"),
             "adjusted_price": rec.get("adjusted_price"),
             "ret_1d_pct": rec.get("ret_1d_pct"),
