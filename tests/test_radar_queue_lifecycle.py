@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from radar_queue_lifecycle import bounded_reverse_projection_v2
+from radar_queue_lifecycle import bounded_reverse_projection_v2, screen_full_inventory_cheap_v1
 
 S12 = "2026-11-12"
 S13 = "2026-11-13"
@@ -206,6 +206,122 @@ class QueueLifecycleTests(unittest.TestCase):
             projected, *source, "a"*40, NOW)
         self.assertIs(replay, projected)
         self.assertFalse(replay_stats["changed"])
+
+
+
+class FullInventoryCheapScreenTests(unittest.TestCase):
+    @staticmethod
+    def inventory(size=507):
+        # 40 active + 263 deferred + 204 signed terminal; identities never reused.
+        active, deferred, terminal = 40, 263, size-303
+        reviewed = {
+            f"ACTIVE|{i:03d}": {"symbol": f"S{i:03d}", "event_id": f"ACTIVE|{i:03d}",
+                                "source_session_date": S12,
+                                "intake_state": "PENDING_CAUSAL_NEWS_VERIFICATION"}
+            for i in range(active)}
+        for i in range(terminal):
+            rec = {"symbol": f"T{i:03d}", "event_id": f"TERM|{i:03d}",
+                   "source_session_date": S12, "signal_state": "NOT_AUTHORIZED"}
+            close(rec, "RESEARCHED_NO_TRADE")
+            reviewed[rec["event_id"]] = rec
+        wait = [{"event_id": f"DEFERRED|{i:03d}", "symbol": f"D{i:03d}",
+                 "source_session_date": S12} for i in range(deferred)]
+        q = {"schema": "reverse-research-queue-v2",
+             "latest_completed_price_session": S13,
+             "latest_prefilter_sha256": "sha",
+             "active_count": active, "deferred_count": deferred,
+             "terminal_case_count": terminal, "deferred": wait}
+        symbols = [f"S{i:03d}" for i in range(active)] + [
+            f"D{i:03d}" for i in range(deferred)] + [
+            f"T{i:03d}" for i in range(terminal)]
+        h = {"status": "COMPLETE", "complete": True,
+             "source_session_date": S13,
+             "expected_latest_completed_us_session": S13,
+             "prefilter_sha256": "sha"}
+        p = {"source_session_date": S13, "records": [
+            {"symbol": s, "price": 10.0, "last_date": S13,
+             "adjustment_verified": True,
+             "corporate_action_suspected": False,
+             "corporate_action_unverified": False} for s in symbols]}
+        return {"cross_radar_handoff": {
+            "opportunity_to_global": reviewed,
+            "reverse_queue_v2": q}}, h, p
+
+    def test_all_507_classified_in_single_pass_and_unchanged(self):
+        obj, h, p = self.inventory()
+        # Exactly one source+mechanism review qualified for numeric deep work.
+        row = obj["cross_radar_handoff"]["opportunity_to_global"]["ACTIVE|000"]
+        row["issuer_economic_event_review_20261115_v1"] = {
+            "source_verified_pit": True,
+            "issuer_economic_mechanism_evaluated": True,
+            "sec_primary_issuer_filing_url": "https://www.sec.gov/exact"}
+        before = copy.deepcopy(obj)
+        result = screen_full_inventory_cheap_v1(obj, h, p)
+        self.assertEqual(result["all_immutable_event_ids"], 507)
+        self.assertEqual(len(result["all_ids_stage"]), 507)
+        self.assertEqual((result["active"], result["deferred"], result["terminal"]),
+                         (40, 263, 204))
+        self.assertEqual(result["deep_underwrite_selected_n"], 1)
+        self.assertEqual(result["deep_underwrite_due_ids"], ["ACTIVE|000"])
+        self.assertEqual(result["auto_terminal_added"], 0)
+        self.assertEqual(result["new_buy_short_or_orders"], 0)
+        self.assertEqual(obj, before)
+        self.assertEqual(result, screen_full_inventory_cheap_v1(obj, h, p))
+
+    def test_source_only_and_price_only_never_auto_close_or_enter_deep(self):
+        obj, h, p = self.inventory()
+        rows = obj["cross_radar_handoff"]["opportunity_to_global"]
+        rows["ACTIVE|000"]["primary_source_triage_20261113"] = {
+            "issuer_source_url": "https://www.sec.gov/evidence"}
+        rows["ACTIVE|001"]["issuer_economic_event_review_20261115_v1"] = {
+            "source_verified_pit": True,
+            "issuer_economic_mechanism_evaluated": True}
+        result = screen_full_inventory_cheap_v1(obj, h, p)
+        self.assertEqual(result["deep_underwrite_selected_n"], 0)
+        self.assertEqual(result["source_investigation_selected_n"], 8)
+        self.assertEqual(result["active"], 40)
+        self.assertEqual(result["all_ids_stage"]["ACTIVE|000"]["stage"],
+                         "ACTIVE_CAUSAL_PIT_OR_MARK_REVIEW")
+        self.assertEqual(result["all_ids_stage"]["ACTIVE|001"]["stage"],
+                         "ACTIVE_INDEPENDENT_DATED_ISSUER_SOURCE_GAP")
+
+    def test_corporate_action_or_stale_price_blocks_deep(self):
+        obj, h, p = self.inventory()
+        row = obj["cross_radar_handoff"]["opportunity_to_global"]["ACTIVE|000"]
+        row["issuer_economic_event_review_20261115_v1"] = {
+            "source_verified_pit": True,
+            "issuer_economic_mechanism_evaluated": True,
+            "sec_exhibit_or_full_primary_text_url": "https://www.sec.gov/evidence"}
+        p["records"][0]["corporate_action_suspected"] = True
+        x = screen_full_inventory_cheap_v1(obj, h, p)
+        self.assertEqual(x["deep_underwrite_selected_n"], 0)
+        self.assertFalse(x["all_ids_stage"]["ACTIVE|000"]["price_session_validated"])
+        p["records"][0]["corporate_action_suspected"] = False
+        p["records"][0]["last_date"] = S12
+        self.assertEqual(screen_full_inventory_cheap_v1(obj, h, p)
+                         ["deep_underwrite_selected_n"], 0)
+
+    def test_identity_loss_duplicate_count_and_wrong_sha_fail_closed(self):
+        obj, h, p = self.inventory()
+        obj["cross_radar_handoff"]["reverse_queue_v2"]["deferred"][0]["event_id"] = "ACTIVE|000"
+        with self.assertRaisesRegex(ValueError, "FULL_INVENTORY_DUPLICATE_ID"):
+            screen_full_inventory_cheap_v1(obj, h, p)
+        obj, h, p = self.inventory()
+        obj["cross_radar_handoff"]["reverse_queue_v2"]["active_count"] = 39
+        with self.assertRaisesRegex(ValueError, "FULL_INVENTORY_ACTIVE_TERMINAL_COUNT_MISMATCH"):
+            screen_full_inventory_cheap_v1(obj, h, p)
+        obj, h, p = self.inventory()
+        h["prefilter_sha256"] = "unmatched"
+        with self.assertRaisesRegex(ValueError, "FULL_INVENTORY_QUEUE_PACKET_SHA_MISMATCH"):
+            screen_full_inventory_cheap_v1(obj, h, p)
+
+    def test_no_source_index_needed_and_missing_quote_retained(self):
+        obj, h, p = self.inventory()
+        p["records"] = p["records"][:10]
+        x = screen_full_inventory_cheap_v1(obj, h, p)
+        self.assertEqual(x["all_immutable_event_ids"], 507)
+        self.assertEqual(x["cached_sec_issuer_provenance_n"], 0)
+        self.assertEqual(x["stage_counts"]["DEFERRED_PRICE_SOURCE_NOT_CURRENT"], 263)
 
 if __name__ == "__main__":
     unittest.main()
