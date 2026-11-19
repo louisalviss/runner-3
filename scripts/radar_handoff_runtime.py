@@ -122,7 +122,10 @@ def pinned_reverse_price_source_fetch():
     return health, prefilter, events, commit
 
 
-from radar_queue_lifecycle import bounded_reverse_projection_v2, bounded_research_worklist
+from radar_queue_lifecycle import (bounded_reverse_projection_v2,
+                                   bounded_research_worklist,
+                                   screen_full_inventory_cheap_v1,
+                                   apply_signed_research_closeouts_v1)
 
 
 def bounded_reverse_projection(checkpoint, health, prefilter, raw_events,
@@ -248,13 +251,23 @@ def run_live(*, sync_reverse=False):
         current, metadata = svc.download_text(CHECKPOINT)
         source = json.loads(current)
         original_checkpoint = source
+        source, signed_closeouts = (apply_signed_research_closeouts_v1(source)
+                                    if price_sources is not None else (source, 0))
         reverse_stats = {"reverse_added": 0, "changed": False, "already_accepted": False,
                          "source_session": None, "capacity_skipped": 0}
         if price_sources is not None:
             source, reverse_stats = bounded_reverse_projection(
                 source, *price_sources, observed_at_vn=observed)
         projected, stats, audit, changed = audit_projection(ledger, source, observed, sha)
-        changed = changed or reverse_stats["changed"]
+        changed = changed or reverse_stats["changed"] or signed_closeouts > 0
+        cheap_screen = None
+        if price_sources is not None:
+            cheap_screen = screen_full_inventory_cheap_v1(
+                projected, price_sources[0], price_sources[1])
+            state = projected["cross_radar_handoff"]
+            if state.get("full_inventory_cheap_screen_v1") != cheap_screen:
+                state["full_inventory_cheap_screen_v1"] = cheap_screen
+                changed = True
         # Validate both inherited 295 identities and any new admissions
         # before any production writer or report can advance.
         assert_price_event_identity_nonloss(original_checkpoint, projected)
@@ -297,6 +310,19 @@ def run_live(*, sync_reverse=False):
         "reverse_deferred_count": reverse_stats.get("deferred_count"),
         "reverse_daily_budget_used": reverse_stats.get("daily_used"),
         "research_worklist": research_plan,
+        "cheap_inventory_screen": ({
+            "classified_ids": cheap_screen["all_immutable_event_ids"],
+            "unique_symbols": cheap_screen["unique_symbols"],
+            "active": cheap_screen["active"],
+            "deferred": cheap_screen["deferred"],
+            "terminal": cheap_screen["terminal"],
+            "source_investigation_selected_n":
+                cheap_screen["source_investigation_selected_n"],
+            "deep_underwrite_selected_n":
+                cheap_screen["deep_underwrite_selected_n"],
+            "automatic_terminal_added": signed_closeouts,
+            "trade_authorized": False,
+        } if cheap_screen else None),
         "no_trade": True,
     }
     print(json.dumps(out, ensure_ascii=False))

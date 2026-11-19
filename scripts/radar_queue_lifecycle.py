@@ -7,6 +7,9 @@ A documented research no-trade / waiting closeout is not certified price causali
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
+from collections import Counter
 from datetime import datetime
 from radar_bidirectional_handoff import parse_time, project_checkpoint, reverse_price_requests
 
@@ -336,6 +339,203 @@ def bounded_reverse_projection_v2(checkpoint, health, prefilter, raw_events,
         "daily_used": updated_queue["daily_budget"]["used"],
     }
 
+
+
+
+def screen_full_inventory_cheap_v1(checkpoint, health, prefilter, *, deep_budget=8):
+    """Classify EVERY existing research event; this is not deep underwriting.
+
+    Cheap pass: reuse the accepted market packet and saved issuer-source proofs.
+    All 40 active + all deferred + all terminal event IDs are included once.
+    An unverified source or a price-only move never becomes a terminal case,
+    causal certification, BUY/SHORT, or automatic trade authorization.
+
+    No network, no new scanner, no quota consumption, no closeout mutation.
+    The caller persists only one same-session replacement snapshot.
+    """
+    if type(deep_budget) is not int or not 0 <= deep_budget <= ACTIVE_CAP:
+        raise ValueError("FULL_INVENTORY_DEEP_BUDGET_INVALID")
+    session = health.get("source_session_date")
+    if not (health.get("complete") is True and health.get("status") == "COMPLETE"
+            and session and session == health.get("expected_latest_completed_us_session")
+            and session == prefilter.get("source_session_date")
+            and isinstance(health.get("prefilter_sha256"), str)
+            and health.get("prefilter_sha256")):
+        raise ValueError("FULL_INVENTORY_PRICE_PACKET_UNVERIFIED")
+    state = checkpoint.get("cross_radar_handoff") or {}
+    reviewed = state.get("opportunity_to_global") or {}
+    queue = state.get("reverse_queue_v2") or {}
+    deferred = queue.get("deferred") or []
+    if not isinstance(reviewed, dict) or not isinstance(deferred, list):
+        raise ValueError("FULL_INVENTORY_SCHEMA_INVALID")
+    if queue and (queue.get("latest_completed_price_session") != session or
+                  queue.get("latest_prefilter_sha256") != health["prefilter_sha256"]):
+        raise ValueError("FULL_INVENTORY_QUEUE_PACKET_SHA_MISMATCH")
+    seen = set()
+    rows = {}
+    counters = Counter()
+    unique_symbols = set()
+    available = {}
+    for quote in prefilter.get("records", []):
+        if not isinstance(quote, dict) or not isinstance(quote.get("symbol"), str):
+            continue
+        symbol = quote["symbol"]
+        if (quote.get("last_date") == session
+                and quote.get("adjustment_verified") is True
+                and quote.get("corporate_action_unverified") is False
+                and quote.get("corporate_action_suspected") is False
+                and isinstance(quote.get("price"), (int, float))
+                and quote["price"] > 0):
+            available[symbol] = quote
+    # Source index is reused only as HISTORICAL issuer provenance. There is
+    # no implicit SEC freshness, document materiality, or price causality.
+    prior_index = state.get("orv3_full_507_live_sec_pit_source_delta_20261119_v1") or {}
+    index_issuers = (prior_index.get("issuer_index") or {}
+                     if isinstance(prior_index, dict) else {})
+    source_ready = []
+    source_first = []
+    active = terminal = 0
+    for identity in sorted(reviewed):
+        rec = reviewed[identity]
+        if not isinstance(rec, dict):
+            raise ValueError("FULL_INVENTORY_CASE_INVALID")
+        if identity in seen:
+            raise ValueError("FULL_INVENTORY_DUPLICATE_ID")
+        seen.add(identity)
+        symbol = str(rec.get("symbol") or "")
+        unique_symbols.add(symbol)
+        quote_ok = symbol in available
+        closed = validate_research_closeout(rec)
+        if closed:
+            terminal += 1
+            stage = "EVIDENCE_TERMINAL_EXCLUDED"
+        else:
+            active += 1
+            econ = rec.get("issuer_economic_event_review_20261115_v1") or {}
+            econ = econ if isinstance(econ, dict) else {}
+            triage = rec.get("primary_source_triage_20261113") or {}
+            triage = triage if isinstance(triage, dict) else {}
+            pit = rec.get("pit_primary_source_stage_20261115_v1") or {}
+            pit = pit if isinstance(pit, dict) else {}
+            url = (econ.get("sec_exhibit_or_full_primary_text_url")
+                   or econ.get("sec_primary_issuer_filing_url")
+                   or triage.get("issuer_source_url")
+                   or triage.get("source_url")
+                   or pit.get("primary_url"))
+            valid_url = isinstance(url, str) and url.startswith("https://")
+            economic_ready = (econ.get("source_verified_pit") is True
+                              and econ.get("issuer_economic_mechanism_evaluated") is True
+                              and valid_url)
+            if economic_ready and quote_ok:
+                stage = "ACTIVE_SOURCE_ECONOMIC_READY_FOR_DEEP_REVIEW"
+                # Numeric review is still REQUIRED and not certified.
+                source_ready.append((str(rec.get("source_session_date") or ""),
+                                     symbol, identity))
+            elif valid_url:
+                stage = ("ACTIVE_CAUSAL_PIT_OR_MARK_REVIEW"
+                         if quote_ok else "ACTIVE_NO_CURRENT_VALIDATED_PRICE")
+                source_first.append((str(rec.get("source_session_date") or ""),
+                                     symbol, identity))
+            else:
+                stage = "ACTIVE_INDEPENDENT_DATED_ISSUER_SOURCE_GAP"
+                source_first.append((str(rec.get("source_session_date") or ""),
+                                     symbol, identity))
+        counters[stage] += 1
+        rows[identity] = {"symbol": symbol, "stage": stage,
+                          "price_session_validated": quote_ok}
+    if queue and (queue.get("active_count") != active or
+                  queue.get("terminal_case_count") != terminal):
+        raise ValueError("FULL_INVENTORY_ACTIVE_TERMINAL_COUNT_MISMATCH")
+    for rec in deferred:
+        if not isinstance(rec, dict) or not isinstance(rec.get("event_id"), str):
+            raise ValueError("FULL_INVENTORY_DEFERRED_INVALID")
+        identity = rec["event_id"]
+        if identity in seen:
+            raise ValueError("FULL_INVENTORY_DUPLICATE_ID")
+        seen.add(identity)
+        symbol = str(rec.get("symbol") or "")
+        unique_symbols.add(symbol)
+        quote_ok = symbol in available
+        # A SEC index record (even new) does NOT warrant automatically
+        # promoting a deferred event into one of the 40 deep-research slots.
+        stage = ("DEFERRED_PRICE_ONLY_COLD"
+                 if quote_ok else "DEFERRED_PRICE_SOURCE_NOT_CURRENT")
+        counters[stage] += 1
+        rows[identity] = {"symbol": symbol, "stage": stage,
+                          "price_session_validated": quote_ok}
+    if queue and queue.get("deferred_count") != len(deferred):
+        raise ValueError("FULL_INVENTORY_DEFERRED_COUNT_MISMATCH")
+    source_ready.sort()
+    source_first.sort()
+    deep_ids = [x[2] for x in source_ready[:deep_budget]]
+    # Source investigations are separate from full numeric underwriting.
+    source_ids = [x[2] for x in source_first[:deep_budget]]
+    ids_sha = hashlib.sha256(json.dumps(sorted(seen), separators=(",", ":")).encode()).hexdigest()
+    return {
+        "schema": "opportunity-cheap-complete-inventory-v1",
+        "market_session": session,
+        "prefilter_sha256": health["prefilter_sha256"],
+        "all_immutable_event_ids": len(seen),
+        "ids_sha256": ids_sha,
+        "active": active, "terminal": terminal, "deferred": len(deferred),
+        "unique_symbols": len(unique_symbols),
+        "market_records_in_packet": len(prefilter.get("records", [])),
+        "cached_sec_issuer_provenance_n": sum(
+            isinstance(index_issuers.get(s), dict)
+            and index_issuers[s].get("status") == "SEC_SUBMISSION_INDEX_VERIFIED"
+            for s in unique_symbols),
+        "sec_index_only_historical_not_fresh": True,
+        "stage_counts": dict(sorted(counters.items())),
+        "all_ids_stage": rows,
+        "deep_underwrite_due_ids": deep_ids,
+        "source_investigation_due_ids": source_ids,
+        "deep_underwrite_selected_n": len(deep_ids),
+        "source_investigation_selected_n": len(source_ids),
+        "auto_terminal_added": 0,
+        "full_numeric_certified_by_cheap_screen": 0,
+        "new_buy_short_or_orders": 0,
+        "source_screen_not_price_causality": True,
+        "no_event_status_mutated": True,
+    }
+
+
+
+def apply_signed_research_closeouts_v1(checkpoint):
+    """Apply an ALREADY recorded final research decision; invent no decisions.
+
+    Some owners may persist a complete research_closeout_v2 proof before its
+    intake_state is finalized. Only such explicit, independently attributable
+    terminal decisions release an ACTIVE slot; missing source, poor score,
+    stale price, or hypothetical FCF stress NEVER count as a closeout.
+    """
+    state = checkpoint.get("cross_radar_handoff") or {}
+    reviewed = state.get("opportunity_to_global") or {}
+    if not isinstance(reviewed, dict):
+        raise ValueError("RESEARCH_CASE_MAP_INVALID")
+    candidates = {}
+    for identity, rec in reviewed.items():
+        if not isinstance(rec, dict):
+            raise ValueError("RESEARCH_CASE_INVALID")
+        if validate_research_closeout(rec):
+            continue
+        proof = rec.get("research_closeout_v2")
+        if not isinstance(proof, dict):
+            continue
+        # A dated, explicit final decision is a prerequisite. Never derive
+        # terminal disposition from a financial metric or source count.
+        decision = proof.get("decision")
+        if decision not in TERMINAL_STATES:
+            continue
+        amended = copy.deepcopy(rec)
+        amended["intake_state"] = decision
+        if not validate_research_closeout(amended):
+            raise ValueError("SIGNATURE_CLOSEOUT_REJECTED")
+        candidates[identity] = amended
+    if not candidates:
+        return checkpoint, 0
+    updated = copy.deepcopy(checkpoint)
+    updated["cross_radar_handoff"]["opportunity_to_global"].update(candidates)
+    return updated, len(candidates)
 
 RESEARCH_WORKLIST_LIMIT = 8
 
