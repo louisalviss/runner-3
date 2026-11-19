@@ -124,7 +124,8 @@ def pinned_reverse_price_source_fetch():
 
 from radar_queue_lifecycle import (bounded_reverse_projection_v2,
                                    bounded_research_worklist,
-                                   screen_full_inventory_cheap_v1)
+                                   screen_full_inventory_cheap_v1,
+                                   apply_signed_research_closeouts_v1)
 
 
 def bounded_reverse_projection(checkpoint, health, prefilter, raw_events,
@@ -250,13 +251,15 @@ def run_live(*, sync_reverse=False):
         current, metadata = svc.download_text(CHECKPOINT)
         source = json.loads(current)
         original_checkpoint = source
+        source, signed_closeouts = (apply_signed_research_closeouts_v1(source)
+                                    if price_sources is not None else (source, 0))
         reverse_stats = {"reverse_added": 0, "changed": False, "already_accepted": False,
                          "source_session": None, "capacity_skipped": 0}
         if price_sources is not None:
             source, reverse_stats = bounded_reverse_projection(
                 source, *price_sources, observed_at_vn=observed)
         projected, stats, audit, changed = audit_projection(ledger, source, observed, sha)
-        changed = changed or reverse_stats["changed"]
+        changed = changed or reverse_stats["changed"] or signed_closeouts > 0
         cheap_screen = None
         if price_sources is not None:
             cheap_screen = screen_full_inventory_cheap_v1(
@@ -317,7 +320,7 @@ def run_live(*, sync_reverse=False):
                 cheap_screen["source_investigation_selected_n"],
             "deep_underwrite_selected_n":
                 cheap_screen["deep_underwrite_selected_n"],
-            "automatic_terminal_added": 0,
+            "automatic_terminal_added": signed_closeouts,
             "trade_authorized": False,
         } if cheap_screen else None),
         "no_trade": True,

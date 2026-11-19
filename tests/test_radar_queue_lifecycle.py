@@ -4,7 +4,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from radar_queue_lifecycle import bounded_reverse_projection_v2, screen_full_inventory_cheap_v1
+from radar_queue_lifecycle import (bounded_reverse_projection_v2,
+                                   screen_full_inventory_cheap_v1,
+                                   apply_signed_research_closeouts_v1)
 
 S12 = "2026-11-12"
 S13 = "2026-11-13"
@@ -246,6 +248,49 @@ class FullInventoryCheapScreenTests(unittest.TestCase):
         return {"cross_radar_handoff": {
             "opportunity_to_global": reviewed,
             "reverse_queue_v2": q}}, h, p
+
+    def test_only_explicit_final_closeout_proof_releases_slots(self):
+        obj, h, p = self.inventory()
+        rows = obj["cross_radar_handoff"]["opportunity_to_global"]
+        rec = rows["ACTIVE|000"]
+        rec["signal_state"] = "NOT_AUTHORIZED"
+        rec["research_closeout_v2"] = {
+            "decision": "WAITING_NEW_EVIDENCE",
+            "signal_state": "NOT_AUTHORIZED",
+            "reviewed_at_vn": NOW,
+            "reason": "Independent issuer source did not establish investable mispricing.",
+            "evidence_source_urls": ["https://www.sec.gov/Archives/verified"],
+            "reopen_condition": "Distinct, later verified issuer economic event",
+            "new_buy_short": False}
+        original = copy.deepcopy(obj)
+        closed, count = apply_signed_research_closeouts_v1(obj)
+        self.assertEqual(count, 1)
+        self.assertEqual(original, obj)  # no in-place mutation
+        self.assertEqual(closed["cross_radar_handoff"]["opportunity_to_global"]
+                         ["ACTIVE|000"]["intake_state"], "WAITING_NEW_EVIDENCE")
+        # Projection, not the closeout helper, recomputes queue counts.
+        closed["cross_radar_handoff"]["reverse_queue_v2"]["active_count"] = 39
+        closed["cross_radar_handoff"]["reverse_queue_v2"]["terminal_case_count"] = 205
+        screen = screen_full_inventory_cheap_v1(closed, h, p)
+        self.assertEqual((screen["terminal"], screen["active"]), (205, 39))
+        self.assertEqual(apply_signed_research_closeouts_v1(closed)[1], 0)
+
+    def test_provisional_or_invalid_proof_never_auto_closes(self):
+        obj, _, _ = self.inventory()
+        rows = obj["cross_radar_handoff"]["opportunity_to_global"]
+        rows["ACTIVE|000"]["research_closeout_v2"] = {
+            "reason": "Stale price only, no signed terminal decision"}
+        self.assertEqual(apply_signed_research_closeouts_v1(obj), (obj, 0))
+        rows["ACTIVE|001"]["research_closeout_v2"] = {
+            "decision": "RESEARCHED_NO_TRADE",
+            "reviewed_at_vn": NOW,
+            "reason": "Only market price movement. No independent source proof.",
+            "evidence_source_urls": [],
+            "reopen_condition": "Independent issuer economic source",
+            "new_buy_short": False,
+            "signal_state": "NOT_AUTHORIZED"}
+        with self.assertRaisesRegex(ValueError, "TERMINAL_RESEARCH_PROOF_INVALID"):
+            apply_signed_research_closeouts_v1(obj)
 
     def test_all_507_classified_in_single_pass_and_unchanged(self):
         obj, h, p = self.inventory()

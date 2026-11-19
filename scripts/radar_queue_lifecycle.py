@@ -498,6 +498,45 @@ def screen_full_inventory_cheap_v1(checkpoint, health, prefilter, *, deep_budget
         "no_event_status_mutated": True,
     }
 
+
+
+def apply_signed_research_closeouts_v1(checkpoint):
+    """Apply an ALREADY recorded final research decision; invent no decisions.
+
+    Some owners may persist a complete research_closeout_v2 proof before its
+    intake_state is finalized. Only such explicit, independently attributable
+    terminal decisions release an ACTIVE slot; missing source, poor score,
+    stale price, or hypothetical FCF stress NEVER count as a closeout.
+    """
+    state = checkpoint.get("cross_radar_handoff") or {}
+    reviewed = state.get("opportunity_to_global") or {}
+    if not isinstance(reviewed, dict):
+        raise ValueError("RESEARCH_CASE_MAP_INVALID")
+    candidates = {}
+    for identity, rec in reviewed.items():
+        if not isinstance(rec, dict):
+            raise ValueError("RESEARCH_CASE_INVALID")
+        if validate_research_closeout(rec):
+            continue
+        proof = rec.get("research_closeout_v2")
+        if not isinstance(proof, dict):
+            continue
+        # A dated, explicit final decision is a prerequisite. Never derive
+        # terminal disposition from a financial metric or source count.
+        decision = proof.get("decision")
+        if decision not in TERMINAL_STATES:
+            continue
+        amended = copy.deepcopy(rec)
+        amended["intake_state"] = decision
+        if not validate_research_closeout(amended):
+            raise ValueError("SIGNATURE_CLOSEOUT_REJECTED")
+        candidates[identity] = amended
+    if not candidates:
+        return checkpoint, 0
+    updated = copy.deepcopy(checkpoint)
+    updated["cross_radar_handoff"]["opportunity_to_global"].update(candidates)
+    return updated, len(candidates)
+
 RESEARCH_WORKLIST_LIMIT = 8
 
 
