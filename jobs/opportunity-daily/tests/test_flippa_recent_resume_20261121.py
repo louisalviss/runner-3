@@ -23,7 +23,7 @@ class FakeSkill:
 class RecentResumeTests(unittest.TestCase):
     def state(self):
         return {"first_done":True,"first_ids":["1"],"recent_done":False,
-                "recent_ids":[],"recent_rows":{},"pages":[],"errors":[],"status":"PAUSED"}
+                "recent_ids":[],"recent_rows":{},"pages":[],"errors":[],"status":"PAUSED","next_main_page":1}
 
     @staticmethod
     def cards(page,count=100):
