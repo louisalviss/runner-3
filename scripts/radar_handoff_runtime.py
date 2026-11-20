@@ -267,7 +267,7 @@ def run_live(*, sync_reverse=False):
             # Same bounded owner worklist; keep a durable source-catalyst
             # bridge in the existing cheap-screen snapshot for next owner
             # execution. No new writer, state machine, BUY or quota.
-            due_plan = bounded_research_worklist(projected)
+            due_plan = bounded_research_worklist(projected, cheap_screen=cheap_screen)
             cheap_screen["source_catalyst_bridge_v1"] = {
                 "source_only_catalyst_due": due_plan["source_only_catalyst_due"],
                 "source_only_catalyst_selected": due_plan["source_only_catalyst_selected"],
@@ -301,7 +301,8 @@ def run_live(*, sync_reverse=False):
             # A no-op replay still confirms that the original checkpoint was read.
             written = False
             rev = metadata["rev"]
-    research_plan = bounded_research_worklist(projected) if sync_reverse else None
+    research_plan = (bounded_research_worklist(projected, cheap_screen=cheap_screen)
+                     if sync_reverse else None)
     out = {
         "schema": SCHEMA,
         "status": audit["end_to_end_status"],
