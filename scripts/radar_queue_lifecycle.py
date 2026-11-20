@@ -647,7 +647,7 @@ def _due_source_catalysts(state, latest_market_session):
     return [task for _, task in ranked]
 
 
-def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
+def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, cheap_screen=None):
     """Read-only, deterministic next-stage research plan for the EXISTING owner.
 
     A source-screened ticket is still ACTIVE. Never infer price causality,
@@ -662,6 +662,14 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
     if not isinstance(reviewed, dict):
         raise ValueError("RESEARCH_CASE_MAP_INVALID")
     ranked, screened, missing_source, terminal, certified = [], 0, 0, 0, 0
+    market_stage = {}
+    if cheap_screen is not None:
+        if (not isinstance(cheap_screen, dict) or
+                cheap_screen.get("schema") != "opportunity-cheap-complete-inventory-v1"):
+            raise ValueError("RESEARCH_CURRENT_CHEAP_SCREEN_INVALID")
+        market_stage = cheap_screen.get("all_ids_stage") or {}
+        if not isinstance(market_stage, dict):
+            raise ValueError("RESEARCH_CURRENT_PRICE_STAGE_INVALID")
     for identity, rec in reviewed.items():
         if not isinstance(rec, dict):
             raise ValueError("RESEARCH_CASE_INVALID")
@@ -674,6 +682,14 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
         economic = economic if isinstance(economic, dict) else {}
         economic_ready = (economic.get("source_verified_pit") is True and
                           economic.get("issuer_economic_mechanism_evaluated") is True)
+        if cheap_screen is not None:
+            actual_stage = market_stage.get(identity) or {}
+            # A numeric slot requires valid CURRENT price, not stale issuer
+            # economics from an old market session.
+            economic_ready = (
+                economic_ready and actual_stage.get("stage") ==
+                "ACTIVE_SOURCE_ECONOMIC_READY_FOR_DEEP_REVIEW" and
+                actual_stage.get("price_session_validated") is True)
         evidence = rec.get("primary_source_triage_20261113")
         triage = evidence if isinstance(evidence, dict) else {}
         if economic_ready:
@@ -756,6 +772,7 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
                       isinstance(x, dict) and
                       x.get("source_session_date") == newest_session]
     fresh_deferred.sort(key=lambda x: (
+        0 if float(x.get("adjusted_return_pct") or 0) < 0 else 1,
         -abs(float(x.get("adjusted_return_pct") or 0)),
         str(x.get("event_id") or "")))
     deferred_price_watch = [{
