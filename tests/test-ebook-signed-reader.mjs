@@ -17,6 +17,19 @@ const url = origin+"/artifact-library/read-signed?file="+encodeURIComponent(deli
 const parsed = parseSignedEpub(url,now);
 assert.equal(parsed?.name,"Foreword.vi.epub");
 assert.equal(parsed?.key,"core/ebook/bataille-test/final/Foreword.vi.epub");
+
+const pathOnly = origin + "/artifact-library/r/bataille-test/Foreword.vi.epub/" + exp + "/" + sig;
+assert.equal(parseSignedEpub(pathOnly,now)?.key,parsed?.key,"path-only link preserves signed artifact identity");
+assert.equal(parseSignedEpub(pathOnly,exp+1),null,"path-only expired");
+assert.equal(parseSignedEpub(pathOnly+"?extra=1",now),null,"path-only refuses query");
+assert.equal(parseSignedEpub(pathOnly.replace("bataille-test","%2E%2E%2Fsecret"),now),null,"path-only refuses traversal");
+assert.equal(parseSignedEpub(pathOnly.replace("Foreword.vi.epub","not-an-epub.txt"),now),null,"path-only forbids non EPUB");
+assert.equal(parseSignedEpub(pathOnly.replace(sig, "A".repeat(43)),now)?.key,parsed?.key,"parse does not confer authority without signature verification");
+const fromPath = await handleSignedEpubReader(new Request(pathOnly),{RUNNER3_CORE_TOKEN:secret,ARTIFACTS:{head:async key=>key==="core/ebook/bataille-test/final/Foreword.vi.epub"?{size:52000,httpMetadata:{contentType:"application/epub+zip"}}:null}});
+assert.equal(fromPath.status,200,"path-only HMAC-validated reader opens EPUB");
+const invalidPathSig=await handleSignedEpubReader(new Request(pathOnly.replace(sig,"A".repeat(43))),{RUNNER3_CORE_TOKEN:secret,ARTIFACTS:{head:async()=>({size:52000})}});
+assert.equal(invalidPathSig.status,403,"path-only bad HMAC denied");
+
 const flat = origin + "/artifact-library/read-signed?scope=bataille-test&name=Foreword.vi.epub&exp=" + exp + "&sig=" + sig;
 assert.equal(parseSignedEpub(flat,now)?.key,parsed?.key,"flat link is equivalent");
 assert.equal(parseSignedEpub(flat,exp+1),null,"flat expired");
