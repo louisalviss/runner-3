@@ -15,8 +15,8 @@ export function parseSignedEpub(input, now = Math.floor(Date.now()/1000)) {
       ["scope", "name", "exp", "sig"].every(k => u.searchParams.getAll(k).length === 1)) {
     const scope = u.searchParams.get("scope") || "";
     const name = u.searchParams.get("name") || "";
-    if (!/^[\\w.-]{1,180}$/.test(scope) ||
-        !/^[^\\/\\\\\\u0000-\\u001f]{1,180}\\.epub$/i.test(name)) return null;
+    if (!/^[\w.-]{1,180}$/.test(scope) ||
+        !/^[^\/\\\u0000-\u001f]{1,180}\.epub$/i.test(name)) return null;
     signed = new URL("/delivery/ebook/" + encodeURIComponent(scope) +
       "/final/" + encodeURIComponent(name), u.origin);
     signed.searchParams.set("exp", u.searchParams.get("exp"));
