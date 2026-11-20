@@ -28,7 +28,7 @@ const TOPIC_RULES = [
   ["ecommerce", [" ecommerce "," e-commerce "," shopify "," online retail "]],
   ["industrial-policy", [" industrial park "," industrial parks "," manufacturing "," supply chain "," factory "," khu cong nghiep "]],
   ["quantitative-trading", [" backtest "," backtesting "," trading strategy "," trading strategies "," trading bot "," algo trading "," systematic trading "," quantitative trading "," trend following "," vwap "," ema200 "," rsi "," mql5 "," funding rate "," intraday anomaly "," forex "," usdjpy "," arbitrage "]],
-  ["banking-payments", [" bank account "," banking "," bank transfer "," virtual account "," iban "," ach "," swift "," remittance "," payment rail "," fiat rail "," payments "," mastercard "," visa card "," e-residency "," er esidency "]],
+  ["banking-payments", [" bank account "," banking "," bank transfer "," virtual account "," iban "," ach "," swift "," remittance "," payment rail "," fiat rail "," payments "," mastercard "," visa card "," e-residency "," e-residency "]],
   ["asset-management", [" portfolio "," dca "," etf "," qqq "," nasdaq "," index fund "," asset allocation "," risk parity "," buy and hold "," investment thesis "," s p 500 "]],
   ["game-development", [" game engine "," game development "," pixel art "," pixel-art "," sprite "," sprites "," shader "," roguelike "," vfx "," game world "," world compiler "," gamepad "," 2.5d "]],
   ["privacy-tools", [" vpn "," ech "," censorship "," anti-detect "," fingerprinting "," browser fingerprint "," anonymity "," anonymize "," ip masking "," ssh honeypot "]],
