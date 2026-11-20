@@ -98,8 +98,10 @@ function page(item) {
 // is recorded in D1. Reader never receives the Library owner's cookie.
 export function parsePermanentEpub(input) {
   const u = input instanceof URL ? input : new URL(input);
-  if (u.search || u.hash) return null;
-  const match = /^\/r\/([A-Za-z0-9_-]{43})$/.exec(u.pathname);
+  // Browsers and link-openers may append analytics query parameters or a
+  // trailing slash. Neither changes the 256-bit bearer token. Ignore them;
+  // the D1-backed capability is still independently checked by delivery.js.
+  const match = /^\/r\/([A-Za-z0-9_-]{43})\/?$/.exec(u.pathname);
   if (!match) return null;
   return {
     token: match[1],
