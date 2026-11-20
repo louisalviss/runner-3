@@ -367,7 +367,7 @@ export async function recomputePersonalScores(env, modelVersion = PERSONAL_MODEL
     const seek = cursor ? "AND (f.item_id,f.feature_type,f.feature_key) > (?,?,?)" : "";
     const query = env.DB.prepare(`
       SELECT f.item_id,f.feature_type,f.feature_key,f.weight,f.confidence,i.published_at
-      FROM content_features f
+      FROM content_features f INDEXED BY sqlite_autoindex_content_features_1
       JOIN content_items i ON i.item_id=f.item_id
       WHERE f.feature_type IN ('topic','mechanism','concept') ${seek}
       ORDER BY f.item_id,f.feature_type,f.feature_key
