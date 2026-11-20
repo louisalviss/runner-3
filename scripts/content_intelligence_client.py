@@ -248,6 +248,122 @@ def cmd_guarded_recompute(args: argparse.Namespace) -> int:
     return 0 if result.get("ok") is True else 1
 
 
+
+
+# Same-owner, bounded enrichment consumer. Raw Interest events remain immutable;
+# /content-intelligence/items is the existing semantic-bridge-v4 feature owner.
+MAX_SEMANTIC_BACKFILL = 25
+SEMANTIC_MODEL = "semantic-bridge-v4"
+D1_DATABASE_NAME = "runner3-content-intelligence"
+
+
+def cloudflare_d1_api(path: str, payload: dict[str, Any] | None = None) -> Any:
+    token, account = os.environ.get("CF_TOKEN", ""), os.environ.get("CF_ACCOUNT", "")
+    if not token or not account:
+        raise RuntimeError("CF_TOKEN and CF_ACCOUNT required for bounded semantic enrichment")
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account}{path}"
+    body = json.dumps(payload, separators=(",", ":")).encode() if payload is not None else None
+    req = urllib.request.Request(
+        url, data=body, method="POST" if payload is not None else "GET",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            result = json.load(resp)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"Cloudflare D1 API HTTP {exc.code}") from exc
+    if result.get("success") is not True:
+        raise RuntimeError("Cloudflare D1 API reported failure")
+    return result.get("result")
+
+
+def cloudflare_d1_id() -> str:
+    inventory = cloudflare_d1_api("/d1/database?page=1&per_page=1000")
+    matching = [str(db["uuid"]) for db in inventory if db.get("name") == D1_DATABASE_NAME and db.get("uuid")]
+    if len(matching) != 1:
+        raise RuntimeError("Canonical D1 database not uniquely resolved")
+    return matching[0]
+
+
+def cloudflare_d1_query(database_id: str, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
+    result = cloudflare_d1_api(
+        f"/d1/database/{database_id}/query", {"sql": sql, "params": params or []},
+    )
+    if not isinstance(result, list) or len(result) != 1 or result[0].get("success") is not True:
+        raise RuntimeError("Canonical D1 SQL query failed")
+    return result[0].get("results") or []
+
+
+def pending_semantic_interest(database_id: str, limit: int) -> list[dict[str, Any]]:
+    # Most recent evidence first; completed items disappear from future queries.
+    # No offset pagination or repetitive scanning of processed evidence.
+    return cloudflare_d1_query(database_id, """
+      SELECT i.item_id, i.canonical_url, i.source_type, i.source_name, i.source_key,
+             i.title, i.published_at, i.language, i.raw_ref, i.content_hash, i.metadata_json
+      FROM content_items i
+      JOIN (SELECT item_id, MAX(id) AS latest_event_id
+            FROM user_content_events WHERE event_type='interest_saved'
+            GROUP BY item_id) e ON e.item_id=i.item_id
+      WHERE i.source_type != 'internal_canary'
+        AND NOT EXISTS (SELECT 1 FROM content_features f
+                        WHERE f.item_id=i.item_id AND f.model_version=?)
+      ORDER BY e.latest_event_id DESC
+      LIMIT ?
+    """, [SEMANTIC_MODEL, limit])
+
+
+def existing_semantic_features(database_id: str, item_ids: list[str], *, durable_only: bool = False) -> set[str]:
+    if not item_ids or len(item_ids) > MAX_SEMANTIC_BACKFILL:
+        raise RuntimeError("Invalid semantic readback batch size")
+    predicates = " AND feature_type IN ('topic','mechanism','concept')" if durable_only else ""
+    marks = ",".join("?" for _ in item_ids)
+    rows = cloudflare_d1_query(database_id,
+        f"SELECT DISTINCT item_id FROM content_features WHERE model_version=?{predicates} AND item_id IN ({marks})",
+        [SEMANTIC_MODEL, *item_ids])
+    return {str(row["item_id"]) for row in rows}
+
+
+def reconstruct_interest_item(row: dict[str, Any]) -> dict[str, Any]:
+    keys = ("item_id", "canonical_url", "source_type", "source_name", "source_key",
+            "title", "published_at", "language", "raw_ref", "content_hash")
+    item = {key: row[key] for key in keys if row.get(key) is not None}
+    if row.get("metadata_json"):
+        metadata = json.loads(row["metadata_json"])
+        if not isinstance(metadata, dict):
+            raise RuntimeError("Invalid canonical item metadata")
+        item["metadata"] = metadata
+    return item
+
+
+def cmd_enrich_pending(args: argparse.Namespace) -> int:
+    # Called only inside the existing quota-prefighted v4 materialization job.
+    if not 1 <= args.limit <= MAX_SEMANTIC_BACKFILL or not 1 <= args.batch_size <= 5:
+        raise RuntimeError("Semantic backfill hard limits exceeded")
+    if not os.environ.get("RUNNER3_CORE_TOKEN", "").strip():
+        raise RuntimeError("RUNNER3_CORE_TOKEN required")
+    database_id = cloudflare_d1_id()
+    pending = pending_semantic_interest(database_id, args.limit)
+    enriched = semantic_items = 0
+    for batch in batches(pending, args.batch_size):
+        items = [reconstruct_interest_item(row) for row in batch]
+        result = request_json("POST", "/content-intelligence/items", {"rows": items},
+                              core_url=args.core_url, timeout_seconds=35)
+        if result.get("ok") is not True or result.get("feature_model") != SEMANTIC_MODEL or int(result.get("applied") or 0) != len(items):
+            raise RuntimeError("Canonical semantic enrichment endpoint rejected batch")
+        ids = [str(item["item_id"]) for item in items]
+        proof = existing_semantic_features(database_id, ids)
+        if proof != set(ids):
+            raise RuntimeError("Canonical semantic D1 readback incomplete")
+        semantic_items += len(existing_semantic_features(database_id, ids, durable_only=True))
+        enriched += len(items)
+    print(json.dumps({"ok": True, "source": "existing-interest-evidence", "model_version": SEMANTIC_MODEL,
+                      "requested_limit": args.limit, "attempted": len(pending),
+                      "d1_verified_items": enriched, "semantic_items": semantic_items,
+                      "events_added": 0, "complete": len(pending) < args.limit},
+                     sort_keys=True))
+    return 0
+
+
 def cmd_profile(args: argparse.Namespace) -> int:
     result = request_json("GET", f"/content-intelligence/profile?limit={args.limit}", core_url=args.core_url)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
@@ -324,6 +440,11 @@ def build_parser() -> argparse.ArgumentParser:
     gguard.add_argument("--preflight-receipt-file",
                         help="Successful same-run D1 account quota preflight JSON, required for seed")
     gguard.set_defaults(func=cmd_guarded_recompute)
+
+    sem = sub.add_parser("enrich-pending")
+    sem.add_argument("--limit", type=int, default=25)
+    sem.add_argument("--batch-size", type=int, default=5)
+    sem.set_defaults(func=cmd_enrich_pending)
 
     g = sub.add_parser("profile")
     g.add_argument("--limit", type=int, default=100)
