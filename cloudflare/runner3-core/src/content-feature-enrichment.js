@@ -8,25 +8,33 @@ const STOP = new Set([
 const ENTITY_ACRONYM_BLOCK = new Set(["AI","API","GPU","CPU","GDP","US","USA","EU","VN","RSS","HTTP","HTTPS","LLM","SaaS"]);
 
 const TOPIC_RULES = [
-  ["ai", [" artificial intelligence "," tri tue nhan tao "," machine learning "," llm "," generative ai "," openai "," gpt "," ai agent "," ai agents "]],
+  ["ai", [" artificial intelligence "," tri tue nhan tao "," machine learning "," llm "," generative ai "," openai "," gpt "," ai "," ai agent "," ai agents "]],
   ["ai-agents", [" agent orchestration "," agentic "," multi agent "," multi-agent "," ai agent "," ai agents "," tac nhan ai "]],
   ["ai-infrastructure", [" inference "," gpu "," compute "," data center "," datacenter "," model serving "," accelerator "]],
   ["semiconductors", [" semiconductor "," chip "," nvidia "," amd "," tsmc "," foundry "]],
   ["cloud-infrastructure", [" cloudflare "," cloud computing "," edge computing "," serverless "," cdn "," cloud infrastructure "]],
   ["developer-tools", [" developer tool "," developer tools "," github "," coding "," code generation "," framework "," api platform "," open source "]],
-  ["cybersecurity", [" cybersecurity "," cyber security "," security breach "," malware "," ransomware "," zero trust "," hack "," hacked "]],
-  ["crypto", [" bitcoin "," ethereum "," crypto "," blockchain "," stablecoin "," tokenization "," tokenised "," tokenized "]],
+  ["cybersecurity", [" cybersecurity "," cyber security "," security breach "," malware "," ransomware "," zero trust "," hack "," hacked "," phishing "," 2fa "," ssh "]],
+  ["crypto", [" bitcoin "," btc "," eth "," usdt "," usdc "," xmr "," ethereum "," crypto "," blockchain "," stablecoin "," tokenization "," tokenised "," tokenized "]],
   ["markets", [" stock market "," stocks "," equity "," equities "," trading "," investing "," capital market "," thi truong von "," chung khoan "," co phieu "]],
   ["macroeconomics", [" inflation "," interest rate "," central bank "," gdp "," economy "," economic growth "," recession "," kinh te "," lam phat "," lai suat "]],
   ["vietnam", [" vietnam "," viet nam "," vietnamese "]],
   ["geopolitics", [" geopolitics "," geopolitical "," sanctions "," diplomacy "," election "," china us "," us china "," war "," conflict "]],
   ["hardware", [" hardware "," camera "," laptop "," smartphone "," phone "," device "," wearable "," headset "]],
   ["robotics", [" robot "," robotics "," drone "," autonomous "," humanoid "]],
-  ["science", [" science "," physics "," astronomy "," space "," biology "," quantum "]],
+  ["science", [" science "," mathematics "," riemann hypothesis "," physics "," astronomy "," space "," biology "," quantum "]],
   ["saas", [" saas "," startup "," founder "," b2b software "," subscription software "]],
   ["wordpress", [" wordpress "," woocommerce "," plugin "," wp "]],
   ["ecommerce", [" ecommerce "," e-commerce "," shopify "," online retail "]],
-  ["industrial-policy", [" industrial park "," industrial parks "," manufacturing "," supply chain "," factory "," khu cong nghiep "]]
+  ["industrial-policy", [" industrial park "," industrial parks "," manufacturing "," supply chain "," factory "," khu cong nghiep "]],
+  ["quantitative-trading", [" backtest "," backtesting "," trading strategy "," trading strategies "," trading bot "," algo trading "," systematic trading "," quantitative trading "," trend following "," vwap "," ema200 "," rsi "," mql5 "," funding rate "," intraday anomaly "," forex "," usdjpy "," arbitrage "]],
+  ["banking-payments", [" bank account "," banking "," bank transfer "," virtual account "," iban "," ach "," swift "," remittance "," payment rail "," fiat rail "," payments "," mastercard "," visa card "," e-residency "," er esidency "]],
+  ["asset-management", [" portfolio "," dca "," etf "," qqq "," nasdaq "," index fund "," asset allocation "," risk parity "," buy and hold "," investment thesis "," s p 500 "]],
+  ["game-development", [" game engine "," game development "," pixel art "," pixel-art "," sprite "," sprites "," shader "," roguelike "," vfx "," game world "," world compiler "," gamepad "," 2.5d "]],
+  ["privacy-tools", [" vpn "," ech "," censorship "," anti-detect "," fingerprinting "," browser fingerprint "," anonymity "," anonymize "," ip masking "," ssh honeypot "]],
+  ["crypto-custody", [" cold wallet "," seed phrase "," hardware wallet "," wallet recovery "," self custody "," self-custody "," ledger nano "," 24 word seed "," utxo "," key compromise "]],
+  ["media-production", [" video editing "," text to speech "," tts "," voice cloning "," short film "," capcut "," video production "," motion graphics "," explainer video "," image-to-video "," animation "," footage "]],
+  ["behavioral-science", [" cognitive "," psychology "," human behavior "," decision making "," romantic love "," cognitive ability "," psychological "," parental conflict "]]
 ];
 
 const CONCEPT_RULES = [
