@@ -14,6 +14,17 @@ on:
           - '25'
           - '50'
           - '75'
+      backfill_batches:
+        description: 'Manual-only semantic backlog: 0=normal, 1..4=25 items each, no profile rebuild'
+        type: choice
+        required: false
+        default: '0'
+        options:
+          - '0'
+          - '1'
+          - '2'
+          - '3'
+          - '4'
   schedule:
     - cron: '17 0,12 * * *' # at most twice daily; no extra full D1 rebuild every 4h
 
@@ -34,6 +45,7 @@ jobs:
     env:
       RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
       REFRESH_OFFSET: ${{ inputs.refresh_recent_offset || 'none' }}
+      BACKFILL_BATCHES: ${{ inputs.backfill_batches || '0' }}
       CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       D1_SAFE_CEILING: '70000'
@@ -51,27 +63,49 @@ jobs:
         run: |
           set -euo pipefail
           rm -f "$D1_PREFLIGHT_RECEIPT_FILE"
-          if [ "$REFRESH_OFFSET" != "none" ]; then
+          # Never combine manual bounded modes or accept uncontrolled fanout.
+          case "$BACKFILL_BATCHES" in 0|1|2|3|4) ;; *) echo 'BACKFILL_BATCHES_INVALID'; exit 2;; esac
+          if [ "$REFRESH_OFFSET" != "none" ] && [ "$BACKFILL_BATCHES" != "0" ]; then
+            echo 'ONLY_ONE_MANUAL_INTEREST_MODE_PER_RUN'; exit 2
+          fi
+          if [ "$BACKFILL_BATCHES" != "0" ]; then
+            # Hard bound at 100 existing items/run, no profile aggregation.
+            export D1_PLANNED_ROWS=$((1200 * BACKFILL_BATCHES))
+            export D1_PLANNED_READ_ROWS=$((50000 * BACKFILL_BATCHES))
+          elif [ "$REFRESH_OFFSET" != "none" ]; then
             # Manual refresh is at most 25 items and does not recompute the full profile.
             export D1_PLANNED_ROWS=1500
             export D1_PLANNED_READ_ROWS=40000
           fi
           python3 scripts/d1_account_quota_preflight.py
       - name: Bounded semantic enrichment of committed Interest evidence
-        if: ${{ env.REFRESH_OFFSET == 'none' }}
+        if: ${{ env.REFRESH_OFFSET == 'none' && env.BACKFILL_BATCHES == '0' }}
         id: semantic_enrich
         run: |
           set -euo pipefail
           test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN missing'; exit 2; }
           python3 scripts/content_intelligence_client.py enrich-pending --limit 25 --batch-size 5
+      - name: Manual bounded drain of existing Interest semantic backlog
+        if: ${{ env.BACKFILL_BATCHES != '0' }}
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN missing'; exit 2; }
+          for ((batch=1; batch<=BACKFILL_BATCHES; batch++)); do
+            result="$(python3 scripts/content_intelligence_client.py enrich-pending --limit 25 --batch-size 5)"
+            echo "$result"
+            # Stop immediately when the canonical D1 query has exhausted evidence.
+            if [ "$(python3 -c 'import json,sys; print("done" if json.load(sys.stdin).get("complete") else "continue")' <<< "$result")" = "done" ]; then
+              break
+            fi
+          done
       - name: One-off bounded refresh of previously processed Interest evidence
-        if: ${{ env.REFRESH_OFFSET != 'none' }}
+        if: ${{ env.REFRESH_OFFSET != 'none' && env.BACKFILL_BATCHES == '0' }}
         run: |
           set -euo pipefail
           test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN missing'; exit 2; }
           python3 scripts/content_intelligence_client.py refresh-recent-interest --offset "$REFRESH_OFFSET"
       - name: Guarded canonical personal-v4 materialization
-        if: ${{ always() && steps.quota_preflight.outcome == 'success' && env.REFRESH_OFFSET == 'none' }}
+        if: ${{ always() && steps.quota_preflight.outcome == 'success' && env.REFRESH_OFFSET == 'none' && env.BACKFILL_BATCHES == '0' }}
         run: |
           set -euo pipefail
           test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN missing'; exit 2; }
