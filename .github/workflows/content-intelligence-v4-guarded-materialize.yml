@@ -34,16 +34,19 @@ jobs:
           ref: main
           persist-credentials: false
       - name: Stop before account-wide D1 read/write budget breach
+        id: quota_preflight
         run: |
           set -euo pipefail
           rm -f "$D1_PREFLIGHT_RECEIPT_FILE"
           python3 scripts/d1_account_quota_preflight.py
       - name: Bounded semantic enrichment of committed Interest evidence
+        id: semantic_enrich
         run: |
           set -euo pipefail
           test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN missing'; exit 2; }
           python3 scripts/content_intelligence_client.py enrich-pending --limit 25 --batch-size 5
       - name: Guarded canonical personal-v4 materialization
+        if: ${{ always() && steps.quota_preflight.outcome == 'success' }}
         run: |
           set -euo pipefail
           test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN missing'; exit 2; }
