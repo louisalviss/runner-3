@@ -16,7 +16,7 @@ const artifact={project:"ebook",scope:"test-book",name:"final/Bataille-Foreword.
 const state={lookup:0,head:0};
 const env={
  DB:{prepare(sql){assert.match(sql,/SELECT project, scope, name, object_key FROM delivery_permalinks/);
-   return {bind(hash){assert.match(hash,/^[a-f0-9]{64}$/);return {async first(){state.lookup++;return {...artifact}}}}}}},
+   return {bind(hash){assert.match(hash,/^[a-f0-9]{64}$/);return {async first(){state.lookup++;return {...artifact,object_key:artifact.key}}}}}}},
  ARTIFACTS:{async head(key){assert.equal(key,artifact.key);state.head++;return {
    size:64000,httpEtag:"test",
    writeHttpMetadata(headers){headers.set("content-type","application/epub+zip")}
