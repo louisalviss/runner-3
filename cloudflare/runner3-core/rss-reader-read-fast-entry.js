@@ -1,4 +1,5 @@
 import { handleRssReader } from "./src/rss-reader.js";
+import { handleSignedEpubReader } from "./src/ebook-signed-reader.js";
 import { handleRssReaderPlus } from "./src/rss-reader-plus.js";
 import { handleRssReaderAudio } from "./src/rss-reader-audio.js";
 import { handleRssReaderLearning, recordReaderStateLearning, reconcileLibraryLearning } from "./src/rss-reader-learning.js";
@@ -415,6 +416,7 @@ async function loadFallbackApp() {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname === "/artifact-library/read-signed") return handleSignedEpubReader(request, env, url);
     if (url.pathname.startsWith("/reddit/deep-sweep/")) {
       return Response.json({
         ok: false,
