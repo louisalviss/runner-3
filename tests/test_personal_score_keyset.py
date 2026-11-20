@@ -11,6 +11,7 @@ SOURCE = (ROOT / "cloudflare/runner3-core/src/content-personalization.js").read_
 PAGE_SIZE = 1000
 COLUMNS = "f.item_id,f.feature_type,f.feature_key,f.weight,f.confidence,i.published_at"
 FROM = "FROM content_features f JOIN content_items i ON i.item_id=f.item_id"
+OPTIMIZED_FROM = "FROM content_features f INDEXED BY sqlite_autoindex_content_features_1 JOIN content_items i ON i.item_id=f.item_id"
 FILTER = "f.feature_type IN ('topic','mechanism','concept')"
 ORDER = "ORDER BY f.item_id,f.feature_type,f.feature_key"
 
@@ -22,6 +23,8 @@ def load_fixture():
         item_id TEXT NOT NULL, feature_type TEXT NOT NULL,
         feature_key TEXT NOT NULL, weight REAL, confidence REAL,
         PRIMARY KEY(item_id, feature_type, feature_key))""")
+    # Match the competing production index that tempted the query planner.
+    db.execute("CREATE INDEX idx_content_features_lookup ON content_features(feature_type, feature_key)")
     db.executemany(
         "INSERT INTO content_items VALUES (?,?)",
         [(f"item-{i:05d}", "2026-10-09") for i in range(1600)]
@@ -59,7 +62,7 @@ def keyset(db):
     cursor = None
     while True:
         seek = "AND (f.item_id,f.feature_type,f.feature_key) > (?,?,?)" if cursor else ""
-        sql = f"SELECT {COLUMNS} {FROM} WHERE {FILTER} {seek} {ORDER} LIMIT ?"
+        sql = f"SELECT {COLUMNS} {OPTIMIZED_FROM} WHERE {FILTER} {seek} {ORDER} LIMIT ?"
         args = (*cursor, PAGE_SIZE) if cursor else (PAGE_SIZE,)
         page = db.execute(sql, args).fetchall()
         rows += page
@@ -79,12 +82,27 @@ class TestPersonalScoreKeyset(unittest.TestCase):
         self.assertTrue(any(r[0] == "item-quo'te" for r in after))
         self.assertTrue(any(r[0] == "item-🌐" for r in after))
 
+    def test_composite_pk_seek_plan_avoids_temp_sort(self):
+        db = load_fixture()
+        for seek, args in (
+            ("", (PAGE_SIZE,)),
+            ("AND (f.item_id,f.feature_type,f.feature_key) > (?,?,?)",
+             ("item-00700", "topic", "feature-01234", PAGE_SIZE)),
+        ):
+            sql = f"EXPLAIN QUERY PLAN SELECT {COLUMNS} {OPTIMIZED_FROM} WHERE {FILTER} {seek} {ORDER} LIMIT ?"
+            plan = [row[3] for row in db.execute(sql, args)]
+            self.assertTrue(
+                any("sqlite_autoindex_content_features_1" in step for step in plan), plan
+            )
+            self.assertFalse(any("TEMP B-TREE" in step for step in plan), plan)
+
     def test_canonical_runtime_uses_seek_not_offset(self):
         start = SOURCE.index("export async function recomputePersonalScores(")
         end = SOURCE.index("  const scoreRows = [];", start)
         ingest = SOURCE[start:end]
         self.assertIn("(f.item_id,f.feature_type,f.feature_key) > (?,?,?)", ingest)
         self.assertIn("query.bind(...cursor,PERSONAL_SCORE_READ_PAGE)", ingest)
+        self.assertIn("FROM content_features f INDEXED BY sqlite_autoindex_content_features_1", ingest)
         self.assertNotIn("LIMIT ? OFFSET ?", ingest)
         self.assertNotIn("offset += ", ingest)
 
