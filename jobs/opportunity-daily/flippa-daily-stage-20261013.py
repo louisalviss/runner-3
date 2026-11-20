@@ -91,9 +91,20 @@ def check_stop(st,ch,page,lane,state):
         atomic(STATE,state)
         raise RuntimeError(f"STOP_{lane.upper()} status={st} challenge={ch} page={page}")
 
+def response_challenge(resp, browser_challenge):
+    """Prefer actual HTTP Cloudflare mitigation over the page-only CAPTCHA detector."""
+    headers = resp.headers if resp is not None else {}
+    if str(headers.get("cf-mitigated", "")).strip().lower() == "challenge":
+        return "CLOUDFLARE_CHALLENGE"
+    if (resp is not None and resp.status in (403, 429)
+            and "cloudflare" in str(headers.get("server", "")).lower()):
+        return "CLOUDFLARE_HTTP_DENIED"
+    return str(browser_challenge or "NONE")
+
+
 def fetch_cards(p,s,url,wait=1400):
     resp=p.goto(url,wait_until="domcontentloaded",timeout=60000); p.wait_for_timeout(wait)
-    st=resp.status if resp else 0; ch=s.challenge()
+    st=resp.status if resp else 0; ch=response_challenge(resp, s.challenge())
     raws=p.locator("li[id^='listing-']").evaluate_all(JS)
     return st,ch,raws
 
@@ -101,7 +112,13 @@ def do_bootstrap(state):
     with RawCDPSkill(PROFILE,owner="flippa-stage-bootstrap-20261013",keep_running=False,new_page=True,close_page_on_exit=True,priority="auth") as s:
         p=s.page
         if not state["first_done"]:
+            # Resume same-day, verified 200 / NONE pages without losing earlier IDs.
+            completed = {int(row["page"]) for row in state.get("pages", [])
+                         if row.get("lane") == "first_access" and row.get("status") == 200
+                         and row.get("challenge") == "NONE" and int(row.get("count") or 0) > 0}
             for page_no in (1,2):
+                if page_no in completed:
+                    continue
                 u=f"https://flippa.com/buy/first-access?page_size=100&page={page_no}" if page_no>1 else "https://flippa.com/buy/first-access?page_size=100"
                 st,ch,raws=fetch_cards(p,s,u,1800)
                 check_stop(st,ch,page_no,"first_access",state)
@@ -141,7 +158,7 @@ def do_main(state,max_pages):
         for page_no in range(start,start+max_pages):
             u=f"https://flippa.com/search?page_size=100&page={page_no}"
             resp=p.goto(u,wait_until="domcontentloaded",timeout=60000); p.wait_for_timeout(1400)
-            st=resp.status if resp else 0; ch=s.challenge()
+            st=resp.status if resp else 0; ch=response_challenge(resp, s.challenge())
             body=p.locator("body").inner_text(timeout=10000)
             raws=p.locator("li[id^='listing-']").evaluate_all(JS)
             if page_no==1 and state.get("reported_total") is None:
