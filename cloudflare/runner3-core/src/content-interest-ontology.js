@@ -3,15 +3,16 @@ export const INTEREST_ONTOLOGY_VERSION = "interest-family-v1";
 const FAMILY_RULES = [
   ["ai-economics", ["ai-economics", "ai-capex", "ai-roi", "ai-revenue", "ai-inference", "inference-econom", "data-center-buildout", "ai-infrastructure", "task-compression", "diffusion-adoption", "capital-allocation"]],
   ["ai-systems", ["ai-agents", "agent-orchestration", "developer-automation", "ai-coding", "coding-workflow", "ai-agent-safety", "permission-bound", "model-monitorability", "open-source-ai", "external-validation", "cross-app-permissions"]],
-  ["macro-finance", ["macro-finance", "macroeconomics", "monetary-policy", "interest-rate", "bond-yield", "real-yield", "term-premium", "capital-market", "market-expectation", "liquidity", "central-bank"]],
+  ["macro-finance", ["macro-finance", "macroeconomics", "monetary-policy", "interest-rate", "bond-yield", "real-yield", "term-premium", "capital-market", "market-expectation", "liquidity", "central-bank", "quantitative-trading", "asset-management", "banking-payments", "crypto"]],
   ["industrial-power", ["industrial-policy", "strategic-supply", "supply-chain", "semiconductors", "lithograph", "rare-earth", "manufacturing", "industrial-park", "technology-transfer", "commercialization", "human-capital"]],
   ["geopolitics-security", ["geopolitics", "vietnam-sea", "taiwan", "military", "wartime", "warfare", "strategic-autonomy", "sanctions", "alliance", "coercion"]],
   ["institutions-policy", ["political-institutions", "regulation-policy", "governance", "electoral", "institutional", "policy-design", "state-capacity"]],
-  ["digital-rights-data", ["data-portability", "cloud-lock", "privacy", "surveillance", "security-auth-ux", "identity", "data-ownership"]],
+  ["digital-rights-data", ["data-portability", "cloud-lock", "privacy", "surveillance", "security-auth-ux", "identity", "data-ownership", "privacy-tools", "crypto-custody"]],
   ["structural-business", ["structural-business", "business-model", "market-structure", "platform-econom", "network-effect", "residual-value", "after-sales"]],
   ["robotics-physical-ai", ["robotics", "autonomous-drone", "humanoid", "physical-ai", "synthetic-world", "embodied"]],
-  ["science-explainers", ["explanatory-science", "science", "physics", "astronomy", "biology", "quantum", "mathematics"]],
-  ["developer-infrastructure", ["developer-tools", "wordpress", "wordpress-compatibility", "cloud-infrastructure", "edge-compute", "saas", "ecommerce"]],
+  ["science-explainers", ["explanatory-science", "science", "physics", "astronomy", "biology", "quantum", "mathematics", "behavioral-science"]],
+  ["developer-infrastructure", ["developer-tools", "wordpress", "wordpress-compatibility", "cloud-infrastructure", "edge-compute", "saas", "ecommerce", "game-development"]],
+  ["creative-production", ["media-production", "animation", "visual-storytelling"]],
   ["hardware-products", ["hardware", "wearable", "smartphone", "device", "display", "battery"]],
 ];
 
