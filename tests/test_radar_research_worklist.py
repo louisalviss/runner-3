@@ -147,5 +147,25 @@ class ResearchWorklistTests(unittest.TestCase):
         self.assertEqual(p["worklist"],[])
 
 
+
+    def test_current_price_required_before_numeric_underwrite(self):
+        economic=rec("CADL","1D_SHOCK",-22,with_source=False)
+        economic["issuer_economic_event_review_20261115_v1"]={
+            "source_verified_pit":True,
+            "issuer_economic_mechanism_evaluated":True,
+            "sec_primary_issuer_filing_url":"https://www.sec.gov/Archives/cadl"}
+        src={"cross_radar_handoff":{"opportunity_to_global":{"CADL-event":economic},
+            "reverse_queue_v2":{"latest_completed_price_session":"2026-11-19"}}}
+        screen={"schema":"opportunity-cheap-complete-inventory-v1",
+                "all_ids_stage":{"CADL-event":{
+                    "stage":"ACTIVE_NO_CURRENT_VALIDATED_PRICE",
+                    "price_session_validated":False}}}
+        plan=bounded_research_worklist(src,cheap_screen=screen)
+        self.assertEqual(plan["worklist"][0]["symbol"],"CADL")
+        self.assertEqual(plan["worklist"][0]["next_gate"],
+                         "PIT_ISSUER_PRICE_LINK_AND_CASHFLOW_DOWNSIDE")
+        self.assertNotEqual(plan["worklist"][0]["next_gate"],
+                            "NORMALIZED_FCF_BEAR_UPSIDE_NET_RR_VENUE")
+
 if __name__ == "__main__":
     unittest.main()
