@@ -2,6 +2,18 @@ name: Content Intelligence v4 Guarded Materialize
 
 on:
   workflow_dispatch:
+    inputs:
+      refresh_recent_offset:
+        description: 'One-off Interest semantic refresh for 2026-11-14..20 UTC; none is normal mode'
+        type: choice
+        required: false
+        default: none
+        options:
+          - none
+          - '0'
+          - '25'
+          - '50'
+          - '75'
   schedule:
     - cron: '17 0,12 * * *' # at most twice daily; no extra full D1 rebuild every 4h
 
@@ -21,6 +33,7 @@ jobs:
     timeout-minutes: 5
     env:
       RUNNER3_CORE_TOKEN: ${{ secrets.RUNNER3_CORE_TOKEN }}
+      REFRESH_OFFSET: ${{ inputs.refresh_recent_offset || 'none' }}
       CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       D1_SAFE_CEILING: '70000'
@@ -38,15 +51,27 @@ jobs:
         run: |
           set -euo pipefail
           rm -f "$D1_PREFLIGHT_RECEIPT_FILE"
+          if [ "$REFRESH_OFFSET" != "none" ]; then
+            # Manual refresh is at most 25 items and does not recompute the full profile.
+            export D1_PLANNED_ROWS=1500
+            export D1_PLANNED_READ_ROWS=40000
+          fi
           python3 scripts/d1_account_quota_preflight.py
       - name: Bounded semantic enrichment of committed Interest evidence
+        if: ${{ env.REFRESH_OFFSET == 'none' }}
         id: semantic_enrich
         run: |
           set -euo pipefail
           test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN missing'; exit 2; }
           python3 scripts/content_intelligence_client.py enrich-pending --limit 25 --batch-size 5
+      - name: One-off bounded refresh of previously processed Interest evidence
+        if: ${{ env.REFRESH_OFFSET != 'none' }}
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN missing'; exit 2; }
+          python3 scripts/content_intelligence_client.py refresh-recent-interest --offset "$REFRESH_OFFSET"
       - name: Guarded canonical personal-v4 materialization
-        if: ${{ always() && steps.quota_preflight.outcome == 'success' }}
+        if: ${{ always() && steps.quota_preflight.outcome == 'success' && env.REFRESH_OFFSET == 'none' }}
         run: |
           set -euo pipefail
           test -n "${RUNNER3_CORE_TOKEN:-}" || { echo 'RUNNER3_CORE_TOKEN missing'; exit 2; }

@@ -100,5 +100,55 @@ class InterestSemanticBackfillTests(unittest.TestCase):
                 MOD.cmd_enrich_pending(args)
 
 
+
+class ManualInterestRefreshTests(unittest.TestCase):
+    def test_refresh_uses_fixed_evidence_window_with_bounded_offset(self):
+        with mock.patch.object(MOD, "cloudflare_d1_query", return_value=[]) as query:
+            self.assertEqual(MOD.recent_semantic_interest("db-id", 50), [])
+        sql, params = query.call_args.args[1:]
+        self.assertIn("event_type='interest_saved'", sql)
+        self.assertIn("LIMIT 25 OFFSET ?", sql)
+        self.assertEqual(params, ["2026-11-14", "2026-11-21", 50])
+        with self.assertRaisesRegex(RuntimeError, "offset not allowed"):
+            MOD.recent_semantic_interest("db-id", 100)
+
+    def test_refresh_reuses_items_owner_without_creating_events(self):
+        rows = [{
+            "item_id": "https://example.org/verified",
+            "canonical_url": "https://example.org/verified",
+            "source_type": "web", "title": "BTC investment thesis",
+            "metadata_json": "{}",
+        }]
+        args = MOD.argparse.Namespace(offset=0, core_url=None)
+        def fake_request(method, path, payload, *, core_url=None, timeout_seconds=30):
+            self.assertEqual(method, "POST")
+            self.assertEqual(path, "/content-intelligence/items")
+            self.assertEqual(len(payload["rows"]), 1)
+            return {"ok": True, "feature_model": "semantic-bridge-v4",
+                    "applied": 1, "semantic_features": 1}
+        with mock.patch.dict(MOD.os.environ, {"RUNNER3_CORE_TOKEN":"test-token"}), \
+             mock.patch.object(MOD, "cloudflare_d1_id", return_value="db-id"), \
+             mock.patch.object(MOD, "recent_semantic_interest", return_value=rows), \
+             mock.patch.object(MOD, "existing_semantic_features", return_value={"https://example.org/verified"}), \
+             mock.patch.object(MOD, "request_json", side_effect=fake_request), \
+             mock.patch("builtins.print") as output:
+            self.assertEqual(MOD.cmd_refresh_recent_interest(args), 0)
+        proof=MOD.json.loads(output.call_args.args[0])
+        self.assertEqual(proof["events_added"], 0)
+        self.assertEqual(proof["feature_changes"], 1)
+        self.assertEqual(proof["d1_verified_items"], 1)
+
+    def test_refresh_no_work_short_circuits_core(self):
+        args = MOD.argparse.Namespace(offset=75, core_url=None)
+        with mock.patch.dict(MOD.os.environ, {"RUNNER3_CORE_TOKEN":"test-token"}), \
+             mock.patch.object(MOD, "cloudflare_d1_id", return_value="db-id"), \
+             mock.patch.object(MOD, "recent_semantic_interest", return_value=[]), \
+             mock.patch.object(MOD, "request_json") as core, \
+             mock.patch("builtins.print"):
+            self.assertEqual(MOD.cmd_refresh_recent_interest(args), 0)
+            core.assert_not_called()
+
+
+
 if __name__ == "__main__":
     unittest.main()

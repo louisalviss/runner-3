@@ -312,6 +312,29 @@ def pending_semantic_interest(database_id: str, limit: int) -> list[dict[str, An
     """, [SEMANTIC_MODEL, limit])
 
 
+# Fixed evidence window for this incident; manual-only refresh of existing v4 items.
+# The scheduled path still selects only items that have no v4 feature rows.
+REFRESH_START_UTC = "2026-11-14"
+REFRESH_END_UTC = "2026-11-21"
+REFRESH_OFFSETS = (0, 25, 50, 75)
+
+
+def recent_semantic_interest(database_id: str, offset: int) -> list[dict[str, Any]]:
+    if offset not in REFRESH_OFFSETS:
+        raise RuntimeError("Manual Interest refresh offset not allowed")
+    return cloudflare_d1_query(database_id, """
+      SELECT i.item_id, i.canonical_url, i.source_type, i.source_name, i.source_key,
+             i.title, i.published_at, i.language, i.raw_ref, i.content_hash, i.metadata_json
+      FROM content_items i
+      JOIN (SELECT item_id, MAX(id) AS latest_event_id
+            FROM user_content_events
+            WHERE event_type='interest_saved' AND event_at>=? AND event_at<?
+            GROUP BY item_id) e ON e.item_id=i.item_id
+      WHERE i.source_type!='internal_canary'
+      ORDER BY e.latest_event_id DESC LIMIT 25 OFFSET ?
+    """, [REFRESH_START_UTC, REFRESH_END_UTC, offset])
+
+
 def existing_semantic_features(database_id: str, item_ids: list[str], *, durable_only: bool = False) -> set[str]:
     if not item_ids or len(item_ids) > MAX_SEMANTIC_BACKFILL:
         raise RuntimeError("Invalid semantic readback batch size")
@@ -361,6 +384,41 @@ def cmd_enrich_pending(args: argparse.Namespace) -> int:
                       "d1_verified_items": enriched, "semantic_items": semantic_items,
                       "events_added": 0, "complete": len(pending) < args.limit},
                      sort_keys=True))
+    return 0
+
+
+def cmd_refresh_recent_interest(args: argparse.Namespace) -> int:
+    """One-off manual refresh of a fixed seven-day accepted-Interest window.
+
+    Reuse the existing v4 semantic owner. Never modify the Interest event log.
+    Repeated requests are safe due to content feature equality guards in Core.
+    This path is not called by scheduled workflows.
+    """
+    if args.offset not in REFRESH_OFFSETS:
+        raise RuntimeError("Manual Interest refresh offset not allowed")
+    if not os.environ.get("RUNNER3_CORE_TOKEN", "").strip():
+        raise RuntimeError("RUNNER3_CORE_TOKEN required")
+    database_id = cloudflare_d1_id()
+    selected = recent_semantic_interest(database_id, args.offset)
+    verified = semantic_items = feature_changes = 0
+    for batch in batches(selected, 5):
+        items = [reconstruct_interest_item(row) for row in batch]
+        response = request_json("POST", "/content-intelligence/items", {"rows": items},
+                                core_url=args.core_url, timeout_seconds=35)
+        if response.get("ok") is not True or response.get("feature_model") != SEMANTIC_MODEL or int(response.get("applied") or 0) != len(items):
+            raise RuntimeError("Canonical semantic refresh failed")
+        item_ids = [str(item["item_id"]) for item in items]
+        if existing_semantic_features(database_id, item_ids) != set(item_ids):
+            raise RuntimeError("Canonical semantic refresh D1 readback incomplete")
+        semantic_items += len(existing_semantic_features(database_id, item_ids, durable_only=True))
+        feature_changes += int(response.get("semantic_features") or 0)
+        verified += len(items)
+    print(json.dumps({
+        "ok": True, "mode": "one_off_manual_refresh", "model_version": SEMANTIC_MODEL,
+        "evidence_window_utc": [REFRESH_START_UTC, REFRESH_END_UTC],
+        "offset": args.offset, "attempted": len(selected), "d1_verified_items": verified,
+        "semantic_items": semantic_items, "feature_changes": feature_changes, "events_added": 0,
+    }, sort_keys=True))
     return 0
 
 
@@ -445,6 +503,11 @@ def build_parser() -> argparse.ArgumentParser:
     sem.add_argument("--limit", type=int, default=25)
     sem.add_argument("--batch-size", type=int, default=5)
     sem.set_defaults(func=cmd_enrich_pending)
+
+    # Explicit manual action only; default twice-daily schedule never invokes this path.
+    refresh = sub.add_parser("refresh-recent-interest")
+    refresh.add_argument("--offset", type=int, required=True, choices=REFRESH_OFFSETS)
+    refresh.set_defaults(func=cmd_refresh_recent_interest)
 
     g = sub.add_parser("profile")
     g.add_argument("--limit", type=int, default=100)
