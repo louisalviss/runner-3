@@ -92,6 +92,41 @@ function page(item) {
     .replace("__KEY__",JSON.stringify(item.key).replaceAll("<","\\u003c"));
 }
 
+
+// Opaque, revocable bearer-capability link. The token is minted by the
+// existing authenticated /delivery-permalinks endpoint and its SHA-256 digest
+// is recorded in D1. Reader never receives the Library owner's cookie.
+export function parsePermanentEpub(input) {
+  const u = input instanceof URL ? input : new URL(input);
+  if (u.search || u.hash) return null;
+  const match = /^\/r\/([A-Za-z0-9_-]{43})$/.exec(u.pathname);
+  if (!match) return null;
+  return {
+    token: match[1],
+    path: "/delivery-permanent/" + match[1],
+    key: "public-epub:" + match[1],
+    name: "EPUB",
+  };
+}
+
+export async function handlePermanentEpubReader(request, env, url = new URL(request.url)) {
+  if (request.method !== "GET") return reply("Method not allowed",405,"text/plain; charset=utf-8");
+  const item = parsePermanentEpub(url);
+  if (!item) return reply("Invalid book link",404,"text/plain; charset=utf-8");
+  const ref = new URL(item.path,url.origin);
+  // Existing HMAC-independent but unguessable D1-backed capability validation.
+  // 404 on revoked/unknown tokens; no fallback to private owner session.
+  const proof = await handleDelivery(new Request(ref,{method:"HEAD"}),env,ref);
+  if (!proof || proof.status !== 200 ||
+      !/application\/epub\+zip/i.test(proof.headers.get("content-type") || "")) {
+    return reply("Book link unavailable or revoked",404,"text/plain; charset=utf-8");
+  }
+  const disposition = proof.headers.get("content-disposition") || "";
+  const m = /filename="([^"\r\n]{1,180}\.epub)"/i.exec(disposition);
+  if (m) item.name=m[1];
+  return reply(page(item));
+}
+
 export async function handleSignedEpubReader(request, env, url = new URL(request.url)) {
   if (request.method !== "GET") return reply("Method not allowed",405,"text/plain; charset=utf-8");
   const item = parseSignedEpub(url);
