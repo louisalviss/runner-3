@@ -108,7 +108,7 @@ def fetch_cards(p,s,url,wait=1400):
     raws=p.locator("li[id^='listing-']").evaluate_all(JS)
     return st,ch,raws
 
-def do_bootstrap(state):
+def do_bootstrap(state, recent_page_budget=5):
     with RawCDPSkill(PROFILE,owner="flippa-stage-bootstrap-20261013",keep_running=False,new_page=True,close_page_on_exit=True,priority="auth") as s:
         p=s.page
         if not state["first_done"]:
@@ -132,20 +132,47 @@ def do_bootstrap(state):
                 time.sleep(random.uniform(12,18))
             state["first_done"]=True; atomic(STATE,state)
         if not state["recent_done"]:
-            for page_no in range(1,6):
+            # Reuse only verified complete pages. Avoid re-requesting successfully
+            # saved pages after an unrelated later page hits HTTP 403/429.
+            completed = {int(row["page"]) for row in state.get("pages", [])
+                         if row.get("lane") == "recent" and row.get("status") == 200
+                         and row.get("challenge") == "NONE" and int(row.get("count") or 0) == 100
+                         and int(row.get("page") or 0) in range(1, 6)}
+            pages_this_run = 0
+            for page_no in range(1, 6):
+                if page_no in completed:
+                    continue
+                if pages_this_run >= recent_page_budget:
+                    break
                 u=f"https://flippa.com/search?page_size=100&sort_alias=most_recent&page={page_no}"
                 st,ch,raws=fetch_cards(p,s,u)
                 check_stop(st,ch,page_no,"recent",state)
+                ids=[str(x.get("id") or "") for x in raws]
+                valid=(st == 200 and len(raws) == 100 and len(set(ids)) == 100
+                       and all(i.isdigit() and str(x.get("href") or "").startswith("https://flippa.com/")
+                               for i,x in zip(ids,raws)))
+                if not valid:
+                    state["status"]="PAUSED"
+                    state["errors"].append({"lane":"recent","page":page_no,"status":st,
+                                            "challenge":ch,"reason":"RECENT_100_CARDS_NOT_VERIFIED",
+                                            "count":len(raws),"at":datetime.now(timezone.utc).isoformat()})
+                    atomic(STATE,state)
+                    raise RuntimeError(f"STOP_RECENT_INCOMPLETE page={page_no} cards={len(raws)}")
                 for x in raws:
                     r=norm(x,False)
-                    if r["id"]:
-                        state["recent_ids"].append(r["id"])
-                        state.setdefault("recent_rows",{})[r["id"]]=r
+                    state["recent_ids"].append(r["id"])
+                    state.setdefault("recent_rows",{})[r["id"]]=r
                 state["recent_ids"]=list(dict.fromkeys(state["recent_ids"]))
-                state["pages"].append({"lane":"recent","page":page_no,"status":st,"count":len(raws),"challenge":ch})
+                state["pages"].append({"lane":"recent","page":page_no,"status":st,"count":100,"challenge":ch})
+                completed.add(page_no)
+                pages_this_run+=1
                 atomic(STATE,state)
-                if page_no<5: time.sleep(random.uniform(12,18))
-            state["recent_done"]=True; atomic(STATE,state)
+                if page_no<5 and pages_this_run<recent_page_budget:
+                    time.sleep(random.uniform(12,18))
+            complete=(len(completed)==5 and len(set(state["recent_ids"]))==500
+                      and len(state.get("recent_rows") or {})>=500)
+            state["recent_done"]=complete
+            atomic(STATE,state)
     print(json.dumps({"stage":"bootstrap","first_access_count":len(state["first_ids"]),"recent_count":len(state["recent_ids"]),"next_main_page":state["next_main_page"]}))
 
 def do_main(state,max_pages):
@@ -226,9 +253,13 @@ def finalize(state):
 ap=argparse.ArgumentParser()
 ap.add_argument("stage",choices=["bootstrap","main","finalize","status"])
 ap.add_argument("--pages",type=int,default=20)
+ap.add_argument("--recent-pages",type=int,default=5,
+                help="Maximum new Recent pages fetched in this invocation; previous verified pages are reused")
 args=ap.parse_args()
+if not 1<=args.recent_pages<=5:
+    ap.error("--recent-pages must be between 1 and 5")
 state=load_state()
-if args.stage=="bootstrap": do_bootstrap(state)
+if args.stage=="bootstrap": do_bootstrap(state,args.recent_pages)
 elif args.stage=="main": do_main(state,args.pages)
 elif args.stage=="finalize": finalize(state)
 else:
