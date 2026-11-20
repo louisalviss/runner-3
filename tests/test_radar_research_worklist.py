@@ -83,5 +83,69 @@ class ResearchWorklistTests(unittest.TestCase):
         self.assertEqual(p["next_full_daily_intake_needs_closeouts"],7)
         self.assertTrue(p["saturates_cap_if_next_full_daily_intake"])
 
+
+    def test_full_active_cap_keeps_new_verified_follow_catalyst_visible(self):
+        src={"cross_radar_handoff":{
+            "opportunity_to_global":{
+                str(i):rec(str(i),"1D_SHOCK",-10-i,with_source=False)
+                for i in range(40)},
+            "reverse_queue_v2":{"latest_completed_price_session":"2026-11-19",
+                                 "max_active":40, "max_new_per_day":8,
+                                 "deferred_count":1,"deferred":[{
+                                      "event_id":"O2G|fresh","symbol":"NEW",
+                                      "source_session_date":"2026-11-19",
+                                      "adjusted_return_pct":-32.0,
+                                      "price_predicate":"1D_SHOCK"}]},
+            "follow_catalyst_rechecks_v1":{"cases":{
+                "FOLLOWRECHECK|PANW|20261118":{
+                    "symbol":"PANW",
+                    "research_stage":"SOURCE_MATERIALITY_VERIFIED__NUMERIC_UNDERWRITE_DUE",
+                    "full_numeric_deep_underwrite_certified":False,
+                    "material_catalyst":{
+                       "event_date_public":"2026-11-18",
+                       "primary_sec_url":"https://www.sec.gov/Archives/panw"},
+                    "original_follow":{
+                       "original_intake_id":"THEME|AI_CYBER",
+                       "original_detected_at_vn":"2026-08-28 01:43 +07"}}}},
+            "global_to_opportunity":{"G2O|fresh":{
+                "verified_source":True,"symbol":"NVDA",
+                "material_update_key":"new-earnings",
+                "source_event_time_vn":"2026-11-19",
+                "primary_source_url":"https://www.sec.gov/Archives/nvda",
+                "intake_state":"PENDING_ECONOMIC_REVIEW"}}}}
+        before=copy.deepcopy(src)
+        p=bounded_research_worklist(src,limit=8)
+        self.assertEqual(p["active_pending"],40)
+        self.assertEqual(p["source_only_catalyst_due"],2)
+        self.assertEqual(p["source_only_catalyst_selected"],2)
+        self.assertEqual(p["worklist"][0]["symbol"],"PANW")
+        self.assertEqual(p["worklist"][1]["symbol"],"NVDA")
+        self.assertEqual(p["newest_deferred_price_only_watch"][0]["symbol"],"NEW")
+        self.assertEqual(p["next_full_daily_intake_needs_closeouts"],8)
+        self.assertTrue(all(not x["trade_authorized_by_worklist"] for x in p["worklist"]))
+        self.assertTrue(all(not x["candidate_write_authorized"]
+                            for x in p["worklist"][:2]))
+        self.assertEqual(src,before)
+        self.assertEqual(p,bounded_research_worklist(src,limit=8))
+
+    def test_source_date_future_malformed_and_screens_are_not_promoted(self):
+        src={"cross_radar_handoff":{
+            "reverse_queue_v2":{"latest_completed_price_session":"2026-11-19"},
+            "global_to_opportunity":{
+                "G2O|future":{"verified_source":True,"symbol":"AAA",
+                    "source_event_time_vn":"2026-11-20",
+                    "material_update_key":"f","primary_source_url":"https://issuer.example/a"},
+                "G2O|unverified":{"verified_source":False,"symbol":"BBB",
+                    "source_event_time_vn":"2026-11-18",
+                    "material_update_key":"u","primary_source_url":"https://issuer.example/b"},
+                "G2O|watch":{"verified_source":True,"symbol":"CCC",
+                    "source_event_time_vn":"2026-11-18",
+                    "material_update_key":"w","primary_source_url":"https://issuer.example/c",
+                    "intake_state":"SCREENED_INCIDENT_WATCH_NO_TRADE"}}}}
+        p=bounded_research_worklist(src)
+        self.assertEqual(p["source_only_catalyst_due"],0)
+        self.assertEqual(p["worklist"],[])
+
+
 if __name__ == "__main__":
     unittest.main()
