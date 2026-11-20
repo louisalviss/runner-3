@@ -540,7 +540,114 @@ def apply_signed_research_closeouts_v1(checkpoint):
 RESEARCH_WORKLIST_LIMIT = 8
 
 
-def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
+
+def _due_source_catalysts(state, latest_market_session):
+    """Existing FOLLOW and verified issuer handoffs stay visible when price ACTIVE=40.
+
+    This is a read-only source-research lane, not admission to the 40 price
+    tickets and never evidence of an investable price or an authorized trade.
+    The original economic event timestamp remains immutable.
+    """
+    if not isinstance(latest_market_session, str) or len(latest_market_session) != 10:
+        return []
+    try:
+        datetime.strptime(latest_market_session, "%Y-%m-%d")
+    except ValueError:
+        return []
+
+    def valid_date(value):
+        if not isinstance(value, str) or len(value) < 10:
+            return None
+        day = value[:10]
+        try:
+            datetime.strptime(day, "%Y-%m-%d")
+        except ValueError:
+            return None
+        return day if day <= latest_market_session else None
+
+    ranked = []
+    follow = state.get("follow_catalyst_rechecks_v1") or {}
+    cases = follow.get("cases") or {}
+    if not isinstance(cases, dict):
+        raise ValueError("FOLLOW_CATALYST_CASES_INVALID")
+    for key, case in cases.items():
+        if not isinstance(key, str) or not isinstance(case, dict):
+            raise ValueError("FOLLOW_CATALYST_CASE_INVALID")
+        if case.get("full_numeric_deep_underwrite_certified") is True:
+            continue
+        if case.get("research_stage") != "SOURCE_MATERIALITY_VERIFIED__NUMERIC_UNDERWRITE_DUE":
+            continue
+        material = case.get("material_catalyst") or {}
+        original = case.get("original_follow") or {}
+        if not isinstance(material, dict) or not isinstance(original, dict):
+            continue
+        source_day = valid_date(material.get("event_date_public"))
+        original_day = valid_date(original.get("original_detected_at_vn"))
+        url = material.get("primary_sec_url") or material.get("issuer_url")
+        symbol = case.get("symbol")
+        if (not source_day or not original_day or original_day > source_day
+                or not isinstance(symbol, str) or not symbol
+                or not isinstance(url, str) or not url.startswith("https://")
+                or not original.get("original_intake_id")):
+            continue
+        task = {
+            "event_id": key, "symbol": symbol, "case_type": "FOLLOW_CATALYST_RECHECK",
+            "original_follow_intake_id": original["original_intake_id"],
+            "material_event_date": source_day, "existing_source_url": url,
+            "next_gate": "NORMALIZED_FCF_BEAR_BASE_BULL_POST_RELEASE_NET_RR",
+            "source_stage": "SOURCE_MATERIALITY_VERIFIED__NUMERIC_UNDERWRITE_DUE",
+            "price_source_session": (case.get("first_post_event_verified_market") or {}).get("session"),
+            "price_recheck_required": True,
+            "causality_certified": False, "trade_authorized_by_worklist": False,
+            "candidate_write_authorized": False,
+        }
+        ranked.append(((0, -int(source_day.replace("-", "")), key), task))
+    forwards = state.get("global_to_opportunity") or {}
+    if not isinstance(forwards, dict):
+        raise ValueError("GLOBAL_HANDOFF_CASES_INVALID")
+    for key, record in forwards.items():
+        if not isinstance(key, str) or not isinstance(record, dict):
+            raise ValueError("GLOBAL_HANDOFF_CASE_INVALID")
+        if record.get("verified_source") is not True:
+            continue
+        if record.get("full_numeric_deep_underwrite_certified") is True:
+            continue
+        if record.get("intake_state") in {
+                "SCREENED_INCIDENT_WATCH_NO_TRADE", "RESEARCHED_NO_TRADE",
+                "WAITING_NEW_EVIDENCE", "REJECTED_NO_MATCHED_CATALYST"}:
+            continue
+        source_day = valid_date(record.get("source_event_time_vn"))
+        symbol = record.get("symbol")
+        url = record.get("primary_source_url")
+        material_key = record.get("material_update_key")
+        if (not source_day or not isinstance(symbol, str) or not symbol
+                or not isinstance(url, str) or not url.startswith("https://")
+                or not isinstance(material_key, str) or not material_key):
+            continue
+        reviewed = bool(record.get("fast_catalyst_triage_at_vn"))
+        task = {
+            "event_id": key, "symbol": symbol, "case_type": "VERIFIED_MATERIAL_SOURCE_REVIEW",
+            "original_follow_intake_id": None,
+            "material_event_date": source_day, "material_update_key": material_key,
+            "existing_source_url": url,
+            "next_gate": ("CONTINUE_ISSUER_ECONOMICS_AND_POST_EVENT_VALUATION"
+                          if reviewed else
+                          "VERIFY_ISSUER_ECONOMICS_MATERIALITY_AND_PIT"),
+            "source_stage": ("PREVIOUSLY_TRIAGED__NUMERIC_OR_CAUSAL_OPEN"
+                             if reviewed else "SOURCE_ONLY_ECONOMIC_REVIEW_DUE"),
+            "price_recheck_required": True,
+            "causality_certified": False, "trade_authorized_by_worklist": False,
+            "candidate_write_authorized": False,
+        }
+        # A newer truly material source phase outranks old source-only intake,
+        # but never outranks the explicitly linked FOLLOW numeric review.
+        ranked.append(((2 if reviewed else 1,
+                        -int(source_day.replace("-", "")), key), task))
+    ranked.sort(key=lambda item: item[0])
+    return [task for _, task in ranked]
+
+
+def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, cheap_screen=None):
     """Read-only, deterministic next-stage research plan for the EXISTING owner.
 
     A source-screened ticket is still ACTIVE. Never infer price causality,
@@ -555,6 +662,14 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
     if not isinstance(reviewed, dict):
         raise ValueError("RESEARCH_CASE_MAP_INVALID")
     ranked, screened, missing_source, terminal, certified = [], 0, 0, 0, 0
+    market_stage = {}
+    if cheap_screen is not None:
+        if (not isinstance(cheap_screen, dict) or
+                cheap_screen.get("schema") != "opportunity-cheap-complete-inventory-v1"):
+            raise ValueError("RESEARCH_CURRENT_CHEAP_SCREEN_INVALID")
+        market_stage = cheap_screen.get("all_ids_stage") or {}
+        if not isinstance(market_stage, dict):
+            raise ValueError("RESEARCH_CURRENT_PRICE_STAGE_INVALID")
     for identity, rec in reviewed.items():
         if not isinstance(rec, dict):
             raise ValueError("RESEARCH_CASE_INVALID")
@@ -565,11 +680,21 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
         # source triage. Timely filings alone remain non-causal evidence.
         economic = rec.get("issuer_economic_event_review_20261115_v1")
         economic = economic if isinstance(economic, dict) else {}
-        economic_ready = (economic.get("source_verified_pit") is True and
-                          economic.get("issuer_economic_mechanism_evaluated") is True)
+        economic_evidence_available = (
+            economic.get("source_verified_pit") is True and
+            economic.get("issuer_economic_mechanism_evaluated") is True)
+        economic_ready = economic_evidence_available
+        if cheap_screen is not None:
+            actual_stage = market_stage.get(identity) or {}
+            # A numeric slot requires valid CURRENT price, not stale issuer
+            # economics from an old market session.
+            economic_ready = (
+                economic_ready and actual_stage.get("stage") ==
+                "ACTIVE_SOURCE_ECONOMIC_READY_FOR_DEEP_REVIEW" and
+                actual_stage.get("price_session_validated") is True)
         evidence = rec.get("primary_source_triage_20261113")
         triage = evidence if isinstance(evidence, dict) else {}
-        if economic_ready:
+        if economic_evidence_available:
             field = "issuer_economic_event_review_20261115_v1"
             url = (economic.get("sec_exhibit_or_full_primary_text_url") or
                    economic.get("sec_primary_issuer_filing_url"))
@@ -602,6 +727,8 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
             severity = 0.0
         next_gate = ("NORMALIZED_FCF_BEAR_UPSIDE_NET_RR_VENUE"
                      if economic_ready else
+                     "VERIFY_CURRENT_EXECUTABLE_PRICE_AND_PIT"
+                     if economic_evidence_available and cheap_screen is not None else
                      "VERIFY_DATED_PRIMARY_SOURCE" if url is None else
                      "ISSUER_EXHIBIT_SEMANTICS_AND_PIT_PRICE_LINK"
                      if field == "pit_primary_source_stage_20261115_v1" else
@@ -624,23 +751,69 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT):
                         str(task["event_id"])), task))
     ranked.sort(key=lambda x: x[0])
     queue = state.get("reverse_queue_v2") or {}
+    due_source = _due_source_catalysts(
+        state, queue.get("latest_completed_price_session"))
+    # At most 3 independently sourced issuer cases consume the SAME eight
+    # research slots; the other slots remain for existing price cases. One
+    # issuer per pass avoids crowding out unrelated firms, not deduping phases.
+    source_limit = min(len(due_source), min(3, max(1, limit // 2)))
+    selected_source = []
+    selected_issuers = set()
+    for case in due_source:
+        if len(selected_source) >= source_limit:
+            break
+        if case["symbol"] in selected_issuers:
+            continue
+        selected_source.append(case)
+        selected_issuers.add(case["symbol"])
+    selected_price = [task for _, task in ranked[:limit - len(selected_source)]]
+    worklist = selected_source + selected_price
+    # Inspect the newest deferred shock cheaply even when ACTIVE is full;
+    # never convert an unverified price-only event to a numeric underwrite.
+    deferred_rows = queue.get("deferred") or []
+    newest_session = queue.get("latest_completed_price_session")
+    fresh_deferred = [x for x in deferred_rows if
+                      isinstance(x, dict) and
+                      x.get("source_session_date") == newest_session]
+    fresh_deferred.sort(key=lambda x: (
+        0 if float(x.get("adjusted_return_pct") or 0) < 0 else 1,
+        -abs(float(x.get("adjusted_return_pct") or 0)),
+        str(x.get("event_id") or "")))
+    deferred_price_watch = [{
+        "event_id": x.get("event_id"), "symbol": x.get("symbol"),
+        "source_session_date": x.get("source_session_date"),
+        "price_predicate": x.get("price_predicate"),
+        "adjusted_return_pct": x.get("adjusted_return_pct"),
+        "stage": "DEFERRED_PRICE_ONLY__NO_CAUSAL_CLAIM",
+        "active_slot_reserved": False, "candidate_write_authorized": False,
+        "buy_signal": False,
+    } for x in fresh_deferred[:5]]
     active = len(ranked)
     cap = queue.get("max_active", ACTIVE_CAP)
     day_new = queue.get("max_new_per_day", DAILY_LIMIT)
     return {
         "schema": "reverse-research-worklist-v1",
-        "status": "RESEARCH_BACKLOG_OPEN" if active else "NO_ACTIVE_RESEARCH_CASES",
+        "status": ("RESEARCH_BACKLOG_OPEN" if (active or due_source)
+                   else "NO_ACTIVE_RESEARCH_CASES"),
         "active_pending": active,
+        "source_only_catalyst_due": len(due_source),
+        "source_only_catalyst_selected": len(selected_source),
+        "source_only_catalyst_deferred": len(due_source) - len(selected_source),
+        "newest_deferred_price_only_watch": deferred_price_watch,
         "terminal_cases": terminal,
         "source_screened_active": screened,
         "missing_dated_source_active": missing_source,
         "full_numeric_certified_active": certified,
         "deferred": int(queue.get("deferred_count") or 0),
-        "selected_count": min(active, limit),
-        "not_selected_active": max(0, active - limit),
+        "selected_count": len(worklist),
+        "not_selected_active": max(0, active - len(selected_price)),
         "next_full_daily_intake_needs_closeouts": max(0, active + day_new - cap),
         "saturates_cap_if_next_full_daily_intake": active + day_new >= cap,
-        "selection_rule": "PIT economics -> numeric valuation; reusable source -> semantic PIT; genuinely missing source last; each tier 1D before 5D, severity desc",
-        "worklist": [task for _, task in ranked[:limit]],
+        "selection_rule": ("Verified FOLLOW catalyst -> new independently sourced "
+                           "issuer event (at most 3 source slots) -> PIT price "
+                           "economics -> existing price case. Source-only cases "
+                           "do not consume ACTIVE=40; newest deferred price "
+                           "shock stays diagnostic only."),
+        "worklist": worklist,
         "no_state_write_or_trade": True,
     }

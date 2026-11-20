@@ -264,6 +264,20 @@ def run_live(*, sync_reverse=False):
         if price_sources is not None:
             cheap_screen = screen_full_inventory_cheap_v1(
                 projected, price_sources[0], price_sources[1])
+            # Same bounded owner worklist; keep a durable source-catalyst
+            # bridge in the existing cheap-screen snapshot for next owner
+            # execution. No new writer, state machine, BUY or quota.
+            due_plan = bounded_research_worklist(projected, cheap_screen=cheap_screen)
+            cheap_screen["source_catalyst_bridge_v1"] = {
+                "source_only_catalyst_due": due_plan["source_only_catalyst_due"],
+                "source_only_catalyst_selected": due_plan["source_only_catalyst_selected"],
+                "source_only_catalyst_deferred": due_plan["source_only_catalyst_deferred"],
+                "selected_worklist": due_plan["worklist"],
+                "newest_deferred_price_only_watch":
+                    due_plan["newest_deferred_price_only_watch"],
+                "candidate_write_authorized": False,
+                "full_underwrite_or_entry_proven": False,
+            }
             state = projected["cross_radar_handoff"]
             if state.get("full_inventory_cheap_screen_v1") != cheap_screen:
                 state["full_inventory_cheap_screen_v1"] = cheap_screen
@@ -287,7 +301,8 @@ def run_live(*, sync_reverse=False):
             # A no-op replay still confirms that the original checkpoint was read.
             written = False
             rev = metadata["rev"]
-    research_plan = bounded_research_worklist(projected) if sync_reverse else None
+    research_plan = (bounded_research_worklist(projected, cheap_screen=cheap_screen)
+                     if sync_reverse else None)
     out = {
         "schema": SCHEMA,
         "status": audit["end_to_end_status"],
@@ -322,6 +337,7 @@ def run_live(*, sync_reverse=False):
                 cheap_screen["deep_underwrite_selected_n"],
             "automatic_terminal_added": signed_closeouts,
             "trade_authorized": False,
+            "source_catalyst_bridge": cheap_screen["source_catalyst_bridge_v1"],
         } if cheap_screen else None),
         "no_trade": True,
     }
