@@ -163,7 +163,7 @@ class ResearchWorklistTests(unittest.TestCase):
         plan=bounded_research_worklist(src,cheap_screen=screen)
         self.assertEqual(plan["worklist"][0]["symbol"],"CADL")
         self.assertEqual(plan["worklist"][0]["next_gate"],
-                         "PIT_ISSUER_PRICE_LINK_AND_CASHFLOW_DOWNSIDE")
+                         "VERIFY_CURRENT_EXECUTABLE_PRICE_AND_PIT")
         self.assertNotEqual(plan["worklist"][0]["next_gate"],
                             "NORMALIZED_FCF_BEAR_UPSIDE_NET_RR_VENUE")
 
