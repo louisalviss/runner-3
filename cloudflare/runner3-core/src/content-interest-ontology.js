@@ -3,7 +3,7 @@ export const INTEREST_ONTOLOGY_VERSION = "interest-family-v1";
 const FAMILY_RULES = [
   ["ai-economics", ["ai-economics", "ai-capex", "ai-roi", "ai-revenue", "ai-inference", "inference-econom", "data-center-buildout", "ai-infrastructure", "task-compression", "diffusion-adoption", "capital-allocation"]],
   ["ai-systems", ["ai-agents", "agent-orchestration", "developer-automation", "ai-coding", "coding-workflow", "ai-agent-safety", "permission-bound", "model-monitorability", "open-source-ai", "external-validation", "cross-app-permissions"]],
-  ["macro-finance", ["macro-finance", "macroeconomics", "monetary-policy", "interest-rate", "bond-yield", "real-yield", "term-premium", "capital-market", "market-expectation", "liquidity", "central-bank", "quantitative-trading", "asset-management", "banking-payments", "crypto"]],
+  ["macro-finance", ["macro-finance", "macroeconomics", "monetary-policy", "interest-rate", "bond-yield", "real-yield", "term-premium", "capital-market", "market-expectation", "liquidity", "central-bank", "quantitative-trading", "asset-management", "banking-payments"]],
   ["industrial-power", ["industrial-policy", "strategic-supply", "supply-chain", "semiconductors", "lithograph", "rare-earth", "manufacturing", "industrial-park", "technology-transfer", "commercialization", "human-capital"]],
   ["geopolitics-security", ["geopolitics", "vietnam-sea", "taiwan", "military", "wartime", "warfare", "strategic-autonomy", "sanctions", "alliance", "coercion"]],
   ["institutions-policy", ["political-institutions", "regulation-policy", "governance", "electoral", "institutional", "policy-design", "state-capacity"]],
