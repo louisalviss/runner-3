@@ -680,8 +680,10 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
         # source triage. Timely filings alone remain non-causal evidence.
         economic = rec.get("issuer_economic_event_review_20261115_v1")
         economic = economic if isinstance(economic, dict) else {}
-        economic_ready = (economic.get("source_verified_pit") is True and
-                          economic.get("issuer_economic_mechanism_evaluated") is True)
+        economic_evidence_available = (
+            economic.get("source_verified_pit") is True and
+            economic.get("issuer_economic_mechanism_evaluated") is True)
+        economic_ready = economic_evidence_available
         if cheap_screen is not None:
             actual_stage = market_stage.get(identity) or {}
             # A numeric slot requires valid CURRENT price, not stale issuer
@@ -692,7 +694,7 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
                 actual_stage.get("price_session_validated") is True)
         evidence = rec.get("primary_source_triage_20261113")
         triage = evidence if isinstance(evidence, dict) else {}
-        if economic_ready:
+        if economic_evidence_available:
             field = "issuer_economic_event_review_20261115_v1"
             url = (economic.get("sec_exhibit_or_full_primary_text_url") or
                    economic.get("sec_primary_issuer_filing_url"))
@@ -725,6 +727,8 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
             severity = 0.0
         next_gate = ("NORMALIZED_FCF_BEAR_UPSIDE_NET_RR_VENUE"
                      if economic_ready else
+                     "VERIFY_CURRENT_EXECUTABLE_PRICE_AND_PIT"
+                     if economic_evidence_available and cheap_screen is not None else
                      "VERIFY_DATED_PRIMARY_SOURCE" if url is None else
                      "ISSUER_EXHIBIT_SEMANTICS_AND_PIT_PRICE_LINK"
                      if field == "pit_primary_source_stage_20261115_v1" else
