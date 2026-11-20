@@ -1,16 +1,16 @@
 {
   "schema_version": 2.0,
-  "generated_at": "2026-11-19T10:52:20.981760+07:00",
-  "source_session_date": "2026-11-18",
-  "expected_latest_completed_us_session": "2026-11-18",
-  "status": "COMPLETE",
-  "reason_code": null,
-  "complete": true,
+  "generated_at": "2026-11-20T10:55:01.177766+07:00",
+  "source_session_date": "2026-11-19",
+  "expected_latest_completed_us_session": "2026-11-19",
+  "status": "DEGRADED",
+  "reason_code": "INSUFFICIENT_FRESH_SESSION_COVERAGE",
+  "complete": false,
   "signal_count": 80,
-  "prefilter_count": 2689,
+  "prefilter_count": 1572,
   "prefilter_schema": "opportunity-radar-market-prefilter-v1",
-  "prefilter_sha256": "f23dc2df0cea66976ee0d4ad1d8563f4d23f365f509bd1bcd7cad132ea523f5e",
-  "prefilter_built_utc": "2026-11-19T03:52:20.981760+00:00",
+  "prefilter_sha256": "7c50e1294e8311dfeb49b007da9b6feb6a6525db7916fbf631994e097b99e3ef",
+  "prefilter_built_utc": "2026-11-20T03:55:01.177766+00:00",
   "prefilter_source": "data/opportunity-radar/market-prefilter.json",
   "scanner_version": "2.3-nasdaq-raw-review",
   "d1_checkpoint_binding": {
@@ -21,29 +21,350 @@
   "checkpoint_project": "opportunity-radar-v2",
   "checkpoint_scope": "market-pricing",
   "checkpoint_source": "opportunity-radar-market-v2",
-  "history_requested": 2693,
-  "history_returned": 2693,
+  "history_requested": 2699,
+  "history_returned": 2699,
   "history_coverage": 1.0,
-  "fresh_history_coverage": 0.9985146676568882,
-  "stale_history_suppressed": 4,
+  "fresh_history_coverage": 0.5824379399777695,
+  "stale_history_suppressed": 1127,
   "freshness_recovery": {
-    "stale_before_retry": 4,
-    "retry_attempted": 4,
+    "stale_before_retry": 1127,
+    "retry_attempted": 63,
     "retry_recovered": 0,
     "retry_errors": 0,
-    "retry_unattempted": 0,
+    "retry_unattempted": 1064,
     "retry_source": "YAHOO_EXPLICIT_WINDOW_SERIAL",
-    "independent_snapshot_shocks_unverified": [],
-    "wide_retry_skipped_reason": null,
+    "independent_snapshot_shocks_unverified": [
+      {
+        "symbol": "NUAI",
+        "pctchange": 24.688,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "RMIX",
+        "pctchange": 24.463,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "BRBR",
+        "pctchange": 24.069,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "KRNT",
+        "pctchange": -22.886,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "AGL",
+        "pctchange": -21.345,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "ARDT",
+        "pctchange": -18.93,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "IQ",
+        "pctchange": -16.07,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "TENB",
+        "pctchange": 15.751,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "ITG",
+        "pctchange": 14.525,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "MFP",
+        "pctchange": 13.949,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "QLYS",
+        "pctchange": 12.922,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "NTSK",
+        "pctchange": 12.734,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "FSLY",
+        "pctchange": 12.579,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "RPD",
+        "pctchange": 12.546,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "IIIV",
+        "pctchange": 12.346,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "YSWY",
+        "pctchange": -12.242,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "OKTA",
+        "pctchange": 12.072,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "CLOV",
+        "pctchange": -11.839,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "ALHC",
+        "pctchange": -11.811,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "ERO",
+        "pctchange": -11.612,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "YSS",
+        "pctchange": -11.176,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "ATEN",
+        "pctchange": 10.502,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "S",
+        "pctchange": 10.307,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "SAIL",
+        "pctchange": 10.258,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "UNIT",
+        "pctchange": -10.07,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "PANW",
+        "pctchange": 9.903,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "WGS",
+        "pctchange": 9.875,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "AAOI",
+        "pctchange": -9.797,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "CBRS",
+        "pctchange": -9.628,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      },
+      {
+        "symbol": "RBRK",
+        "pctchange": 9.207,
+        "verification": "UNVERIFIED_SNAPSHOT_ONLY",
+        "action": "NO_SIGNAL"
+      }
+    ],
+    "wide_retry_skipped_reason": "LOW_PROBE_RECOVERY",
     "nasdaq_raw_shock_probe": {
-      "policy": "NOT_NEEDED_FRESH_COVERAGE_PASS",
-      "requested": 0,
-      "confirmed_raw_moves": []
+      "source": "NASDAQ_PUBLIC_HISTORICAL_RAW_OHLC",
+      "source_session_date": "2026-11-19",
+      "policy": "DIAGNOSTIC_ONLY_NOT_ADJUSTED_NO_SIGNALS_NO_COVERAGE_CREDIT",
+      "requested": 20,
+      "confirmed_raw_moves": [
+        {
+          "symbol": "NUAI",
+          "session": "2026-11-19",
+          "previous_session": "2026-11-18",
+          "close_raw": 4.28,
+          "previous_close_raw": 3.99,
+          "raw_return_1d_pct": 7.26817,
+          "volume": 25246170.0,
+          "volume_ratio_20d_raw": 2.0439,
+          "adjustment_verified": false,
+          "review": "VERIFY_DIVIDENDS_SPLITS_AND_PRIMARY_CATALYST_INDEPENDENTLY",
+          "action": "NO_SIGNAL"
+        },
+        {
+          "symbol": "RMIX",
+          "session": "2026-11-19",
+          "previous_session": "2026-11-18",
+          "close_raw": 6.3,
+          "previous_close_raw": 7.53,
+          "raw_return_1d_pct": -16.33466,
+          "volume": 1459433.0,
+          "volume_ratio_20d_raw": 1.5593,
+          "adjustment_verified": false,
+          "review": "VERIFY_DIVIDENDS_SPLITS_AND_PRIMARY_CATALYST_INDEPENDENTLY",
+          "action": "NO_SIGNAL"
+        },
+        {
+          "symbol": "BRBR",
+          "session": "2026-11-19",
+          "previous_session": "2026-11-18",
+          "close_raw": 15.11,
+          "previous_close_raw": 13.66,
+          "raw_return_1d_pct": 10.61493,
+          "volume": 11871080.0,
+          "volume_ratio_20d_raw": 2.8956,
+          "adjustment_verified": false,
+          "review": "VERIFY_DIVIDENDS_SPLITS_AND_PRIMARY_CATALYST_INDEPENDENTLY",
+          "action": "NO_SIGNAL"
+        },
+        {
+          "symbol": "KRNT",
+          "session": "2026-11-19",
+          "previous_session": "2026-11-18",
+          "close_raw": 14.75,
+          "previous_close_raw": 12.77,
+          "raw_return_1d_pct": 15.50509,
+          "volume": 1336255.0,
+          "volume_ratio_20d_raw": 3.7188,
+          "adjustment_verified": false,
+          "review": "VERIFY_DIVIDENDS_SPLITS_AND_PRIMARY_CATALYST_INDEPENDENTLY",
+          "action": "NO_SIGNAL"
+        },
+        {
+          "symbol": "YSWY",
+          "session": "2026-11-19",
+          "previous_session": "2026-11-18",
+          "close_raw": 19.3,
+          "previous_close_raw": 21.29,
+          "raw_return_1d_pct": -9.34711,
+          "volume": 1300363.0,
+          "volume_ratio_20d_raw": 3.548,
+          "adjustment_verified": false,
+          "review": "VERIFY_DIVIDENDS_SPLITS_AND_PRIMARY_CATALYST_INDEPENDENTLY",
+          "action": "NO_SIGNAL"
+        },
+        {
+          "symbol": "CLOV",
+          "session": "2026-11-19",
+          "previous_session": "2026-11-18",
+          "close_raw": 3.77,
+          "previous_close_raw": 4.17,
+          "raw_return_1d_pct": -9.59233,
+          "volume": 8344316.0,
+          "volume_ratio_20d_raw": 1.7047,
+          "adjustment_verified": false,
+          "review": "VERIFY_DIVIDENDS_SPLITS_AND_PRIMARY_CATALYST_INDEPENDENTLY",
+          "action": "NO_SIGNAL"
+        }
+      ],
+      "unverified": [
+        {
+          "symbol": "AGL",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        },
+        {
+          "symbol": "ARDT",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        },
+        {
+          "symbol": "IQ",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        },
+        {
+          "symbol": "TENB",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        },
+        {
+          "symbol": "ITG",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        },
+        {
+          "symbol": "MFP",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        },
+        {
+          "symbol": "QLYS",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        },
+        {
+          "symbol": "NTSK",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        },
+        {
+          "symbol": "FSLY",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        },
+        {
+          "symbol": "RPD",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        },
+        {
+          "symbol": "IIIV",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        },
+        {
+          "symbol": "OKTA",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        },
+        {
+          "symbol": "ALHC",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        },
+        {
+          "symbol": "ERO",
+          "reason": "RAW_MOVE_BELOW_SHOCK_THRESHOLD"
+        }
+      ],
+      "errors": 0
     }
   },
   "snapshot_ok": true,
   "snapshot_error": null,
-  "early_watch": 37,
+  "early_watch": 24,
   "early_watch_emitted": 24,
   "raw_anomaly_emitted": 56,
   "continuation": 0,
