@@ -7,8 +7,25 @@ const H = { "X-Robots-Tag": NOINDEX, "Cache-Control": "private, no-store",
 
 export function parseSignedEpub(input, now = Math.floor(Date.now()/1000)) {
   const u = input instanceof URL ? input : new URL(input);
-  if (u.pathname !== "/artifact-library/read-signed") return null;
   let signed;
+  // Queryless capability for mobile in-app browsers that rewrite or drop
+  // "&"-separated query parameters. No owner session or D1 access is granted.
+  if (u.pathname.startsWith("/artifact-library/r/")) {
+    if (u.search || u.hash) return null;
+    const segments = u.pathname.split("/").filter(Boolean);
+    if (segments.length !== 6 || segments[0] !== "artifact-library" ||
+        segments[1] !== "r") return null;
+    let scope, name, exp, sig;
+    try { [scope, name, exp, sig] = segments.slice(2).map(decodeURIComponent); }
+    catch { return null; }
+    if (!/^[\w.-]{1,180}$/.test(scope) ||
+        !/^[^\/\\\u0000-\u001f]{1,180}\.epub$/i.test(name) ||
+        !/^\d{10}$/.test(exp) || !/^[A-Za-z0-9_-]{43}$/.test(sig)) return null;
+    signed = new URL("/delivery/ebook/" + encodeURIComponent(scope) +
+      "/final/" + encodeURIComponent(name), u.origin);
+    signed.searchParams.set("exp", exp);
+    signed.searchParams.set("sig", sig);
+  } else if (u.pathname === "/artifact-library/read-signed") {
   // Flat capability avoids a URL inside a URL, which some mobile clients
   // re-encode or truncate when opening a link.
   if (u.searchParams.size === 4 &&
@@ -25,6 +42,7 @@ export function parseSignedEpub(input, now = Math.floor(Date.now()/1000)) {
     const file = u.searchParams.get("file");
     if (!file || file.length > 1700) return null;
     try { signed = new URL(file, u.origin); } catch { return null; }
+  } else return null;
   } else return null;
   if (signed.origin !== u.origin || signed.username || signed.password || signed.hash ||
       signed.searchParams.size !== 2 || signed.searchParams.getAll("exp").length !== 1 ||
