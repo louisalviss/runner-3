@@ -7,12 +7,25 @@ const H = { "X-Robots-Tag": NOINDEX, "Cache-Control": "private, no-store",
 
 export function parseSignedEpub(input, now = Math.floor(Date.now()/1000)) {
   const u = input instanceof URL ? input : new URL(input);
-  if (u.pathname !== "/artifact-library/read-signed" || u.searchParams.size !== 1 ||
-      u.searchParams.getAll("file").length !== 1) return null;
-  const file = u.searchParams.get("file");
-  if (!file || file.length > 1700) return null;
+  if (u.pathname !== "/artifact-library/read-signed") return null;
   let signed;
-  try { signed = new URL(file, u.origin); } catch { return null; }
+  // Flat capability avoids a URL inside a URL, which some mobile clients
+  // re-encode or truncate when opening a link.
+  if (u.searchParams.size === 4 &&
+      ["scope", "name", "exp", "sig"].every(k => u.searchParams.getAll(k).length === 1)) {
+    const scope = u.searchParams.get("scope") || "";
+    const name = u.searchParams.get("name") || "";
+    if (!/^[\\w.-]{1,180}$/.test(scope) ||
+        !/^[^\\/\\\\\\u0000-\\u001f]{1,180}\\.epub$/i.test(name)) return null;
+    signed = new URL("/delivery/ebook/" + encodeURIComponent(scope) +
+      "/final/" + encodeURIComponent(name), u.origin);
+    signed.searchParams.set("exp", u.searchParams.get("exp"));
+    signed.searchParams.set("sig", u.searchParams.get("sig"));
+  } else if (u.searchParams.size === 1 && u.searchParams.getAll("file").length === 1) {
+    const file = u.searchParams.get("file");
+    if (!file || file.length > 1700) return null;
+    try { signed = new URL(file, u.origin); } catch { return null; }
+  } else return null;
   if (signed.origin !== u.origin || signed.username || signed.password || signed.hash ||
       signed.searchParams.size !== 2 || signed.searchParams.getAll("exp").length !== 1 ||
       signed.searchParams.getAll("sig").length !== 1) return null;
