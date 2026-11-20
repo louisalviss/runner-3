@@ -17,6 +17,16 @@ const url = origin+"/artifact-library/read-signed?file="+encodeURIComponent(deli
 const parsed = parseSignedEpub(url,now);
 assert.equal(parsed?.name,"Foreword.vi.epub");
 assert.equal(parsed?.key,"core/ebook/bataille-test/final/Foreword.vi.epub");
+const flat = origin + "/artifact-library/read-signed?scope=bataille-test&name=Foreword.vi.epub&exp=" + exp + "&sig=" + sig;
+assert.equal(parseSignedEpub(flat,now)?.key,parsed?.key,"flat link is equivalent");
+assert.equal(parseSignedEpub(flat,exp+1),null,"flat expired");
+assert.equal(parseSignedEpub(flat+"&extra=yes",now),null,"flat extra param");
+assert.equal(parseSignedEpub(flat+"&sig=duplicate",now),null,"flat duplicate signature");
+assert.equal(parseSignedEpub(flat.replace("scope=bataille-test","scope=..%2Fprivate"),now),null,"flat path traversal");
+assert.equal(parseSignedEpub(flat.replace("name=Foreword.vi.epub","name=not-epub.html"),now),null,"flat restricts to epub");
+const flatResult = await handleSignedEpubReader(new Request(flat),{RUNNER3_CORE_TOKEN:secret,ARTIFACTS:{head:async key=>key==="core/ebook/bataille-test/final/Foreword.vi.epub"?{size:52000,httpMetadata:{contentType:"application/epub+zip"}}:null}});
+assert.equal(flatResult.status,200,"flat signed link passes actual HMAC validation");
+
 assert.equal(parseSignedEpub(url,exp+1),null,"expired");
 assert.equal(parseSignedEpub(url+"&another=1",now),null,"extra query");
 assert.equal(parseSignedEpub(origin+"/artifact-library/read-signed?file="+encodeURIComponent("https://evil.example/"+key.slice(1)+"?exp="+exp+"&sig="+sig),now),null,"cross-origin");
