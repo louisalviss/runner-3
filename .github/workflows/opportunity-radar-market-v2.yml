@@ -35,57 +35,70 @@ jobs:
       - name: Checkout latest committed market health
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Skip delayed scan only after independently accepted current-session packet
+      - name: Install NYSE calendar for immutable-session guard
+        run: python -m pip install 'pandas-market-calendars>=4.4,<6'
+
+      - name: Prevent duplicate completed-session scans on every trigger
         id: guard
         env:
           TRIGGER_EVENT: ${{ github.event_name }}
-          TRIGGER_SCHEDULE: ${{ github.event.schedule }}
         run: |
           python - <<'PY'
           import hashlib
           import json
           import os
-          from datetime import datetime
+          from datetime import datetime, timedelta, timezone
           from pathlib import Path
-          from zoneinfo import ZoneInfo
+          import pandas as pd
+          import pandas_market_calendars as mcal
 
-          run_scan = True
-          delayed = os.environ.get('TRIGGER_EVENT') == 'schedule' and os.environ.get('TRIGGER_SCHEDULE') == '45 4 * * 2-6'
-          if delayed:
+          def completed_nyse_session(now):
+              schedule = mcal.get_calendar('NYSE').schedule(
+                  start_date=(now - timedelta(days=15)).date().isoformat(),
+                  end_date=(now + timedelta(days=1)).date().isoformat())
+              done = schedule[schedule['market_close'] <= pd.Timestamp(now)]
+              if done.empty:
+                  raise RuntimeError('NYSE_COMPLETED_SESSION_UNVERIFIED')
+              return done.index[-1].date().isoformat()
+
+          def accepted_packet(root, expected, now):
+              h = json.loads((root / 'market-health.json').read_text())
+              s = json.loads((root / 'market-signals.json').read_text())
+              pbytes = (root / 'market-prefilter.json').read_bytes()
+              p = json.loads(pbytes)
+              stamped = datetime.fromisoformat(str(h['generated_at']).replace('Z', '+00:00'))
+              if stamped.tzinfo is None or stamped.astimezone(timezone.utc) > now + timedelta(minutes=5):
+                  raise ValueError('INVALID_MARKET_PACKET_TIMESTAMP')
+              return bool(
+                  h.get('status') == 'COMPLETE' and h.get('complete') is True
+                  and h.get('source_session_date') == expected
+                  and h.get('expected_latest_completed_us_session') == expected
+                  and float(h.get('fresh_history_coverage') or 0) >= 0.80
+                  and s.get('status') == 'COMPLETE' and s.get('complete') is True
+                  and s.get('source_session_date') == expected
+                  and s.get('expected_latest_completed_us_session') == expected
+                  and isinstance(s.get('signals'), list)
+                  and len(s['signals']) == h.get('signal_count')
+                  and p.get('status') == 'COMPLETE' and p.get('complete') is True
+                  and p.get('source_session_date') == expected
+                  and p.get('expected_latest_completed_us_session') == expected
+                  and isinstance(p.get('records'), list)
+                  and len(p['records']) == h.get('prefilter_count')
+                  and p.get('scanner_version') == h.get('scanner_version')
+                  and hashlib.sha256(pbytes).hexdigest() == h.get('prefilter_sha256'))
+
+          def should_scan(root, now):
+              expected = completed_nyse_session(now)
               try:
-                  root = Path('data/opportunity-radar')
-                  health = json.loads((root / 'market-health.json').read_text())
-                  signal = json.loads((root / 'market-signals.json').read_text())
-                  prefilter_bytes = (root / 'market-prefilter.json').read_bytes()
-                  prefilter = json.loads(prefilter_bytes)
-                  stamped = datetime.fromisoformat(health['generated_at'])
-                  if stamped.tzinfo is None:
-                      raise ValueError('naive market packet timestamp')
-                  today_vn = datetime.now(ZoneInfo('Asia/Ho_Chi_Minh')).date()
-                  session = health.get('source_session_date')
-                  expected = health.get('expected_latest_completed_us_session')
-                  coverage = float(health.get('fresh_history_coverage') or 0)
-                  accepted = (
-                      stamped.astimezone(ZoneInfo('Asia/Ho_Chi_Minh')).date() == today_vn
-                      and health.get('status') == 'COMPLETE'
-                      and health.get('complete') is True
-                      and session == expected and bool(session)
-                      and coverage >= 0.80
-                      and signal.get('source_session_date') == session
-                      and signal.get('status') == 'COMPLETE'
-                      and signal.get('complete') is True
-                      and prefilter.get('source_session_date') == session
-                      and prefilter.get('status') == 'COMPLETE'
-                      and prefilter.get('complete') is True
-                      and hashlib.sha256(prefilter_bytes).hexdigest() == health.get('prefilter_sha256')
-                  )
-                  run_scan = not accepted
-                  print(f'Delayed recovery preflight: previously accepted={accepted}, coverage={coverage:.2%}')
+                  accepted = accepted_packet(root, expected, now)
               except (OSError, ValueError, KeyError, TypeError) as exc:
-                  print(f'Delayed recovery preflight degraded ({type(exc).__name__}); fail-open to re-SCAN, not to BUY')
-                  run_scan = True
-          else:
-              print('Primary/push/manual run: execute scanner normally')
+                  accepted = False
+                  print(f'Market source unverified ({type(exc).__name__}); allow recovery scan')
+              print(f'Trigger={os.environ.get("TRIGGER_EVENT")}, expected_US_session={expected}, '
+                    f'already_COMPLETE={accepted}')
+              return not accepted
+
+          run_scan = should_scan(Path('data/opportunity-radar'), datetime.now(timezone.utc))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'run_scan={str(run_scan).lower()}\n')
           PY
