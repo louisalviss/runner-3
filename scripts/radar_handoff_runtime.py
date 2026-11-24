@@ -135,6 +135,50 @@ def bounded_reverse_projection(checkpoint, health, prefilter, raw_events,
                                          source_commit, observed_at_vn)
 
 
+def _source_only_history(previous):
+    rows = previous.get("source_only_event_statuses") or []
+    if not isinstance(rows, list):
+        raise ValueError("SOURCE_ONLY_HISTORY_INVALID")
+    out = {}
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("source_group_id"), str):
+            raise ValueError("SOURCE_ONLY_RECORD_INVALID")
+        k = row["source_group_id"]
+        if k in out:
+            raise ValueError("SOURCE_ONLY_DUPLICATE_ID")
+        out[k] = dict(row)
+    return out
+
+
+def _source_only_disposition(row, review, observed_at_vn):
+    """Consume explicit existing-owner evidence, never infer terminal from age."""
+    if not isinstance(review, dict) or review.get("material_update_key") != row.get("material_update_key"):
+        return None
+    proof = review.get("source_only_disposition")
+    if not isinstance(proof, dict):
+        return None
+    if (proof.get("source_group_id") != row.get("source_group_id") or
+            proof.get("material_update_key") != row.get("material_update_key") or
+            proof.get("decision") not in ("WAIT_NEW_EVIDENCE", "TERMINAL") or
+            proof.get("signal_state") != "NOT_AUTHORIZED" or
+            proof.get("owner") != "Opportunity Radar V3"):
+        return None
+    for name in ("reason", "reopen_condition"):
+        if not isinstance(proof.get(name), str) or not proof[name].strip():
+            return None
+    urls = proof.get("evidence_urls")
+    if not isinstance(urls, list) or not urls or not all(isinstance(x, str) and x.startswith("https://") for x in urls):
+        return None
+    try:
+        from radar_bidirectional_handoff import parse_time
+        t = parse_time(proof.get("reviewed_at"))
+        if t > parse_time(observed_at_vn) or t < parse_time(row["first_ingested_at_vn"]):
+            return None
+    except (ValueError, TypeError, KeyError):
+        return None
+    return dict(proof)
+
+
 def audit_projection(ledger, original, observed_at_vn, ledger_sha256):
     """Merge only newly verified events and one bounded evidence audit.
 
@@ -142,13 +186,44 @@ def audit_projection(ledger, original, observed_at_vn, ledger_sha256):
     changed. The only place capable of recording a user delivery receipt
     remains the actual existing notification provider.
     """
-    reviews = (original.get('cross_radar_handoff') or {}).get('global_event_linkage_reviews_v1') or {}
-    verified, source_only = review_global_events(ledger, as_of=observed_at_vn, reviews=reviews)
+    old_state = original.get("cross_radar_handoff") or {}
+    reviews = old_state.get("global_event_linkage_reviews_v1") or {}
+    prior_audit = old_state.get("runtime_e2e_audit_v1") or {}
+    history = _source_only_history(prior_audit)
+    for row in history.values():
+        row.setdefault("lifecycle_state", "PENDING")
+        row.setdefault("first_ingested_at_vn", observed_at_vn)
+    pending_ids = {k for k,r in history.items() if r["lifecycle_state"] == "PENDING"}
+    verified, fresh_source_only = review_global_events(ledger, as_of=observed_at_vn, reviews=reviews, retained_source_ids=pending_ids)
+    for row in fresh_source_only:
+        k = row["source_group_id"]
+        if k not in history:
+            history[k] = {**row, "first_ingested_at_vn": observed_at_vn, "lifecycle_state": "PENDING"}
+        elif history[k]["lifecycle_state"] == "PENDING":
+            old = history[k]
+            if row.get("source_verified") is True and old.get("source_verified") is not True:
+                old["verified_source_evidence"] = row
+    for row in history.values():
+        if row["lifecycle_state"] == "PENDING":
+            proof = _source_only_disposition(row, reviews.get(row.get("source_event_key")), observed_at_vn)
+            if proof:
+                row["lifecycle_state"] = proof["decision"]
+                row["disposition_proof"] = proof
+    closed = {k for k,r in history.items() if r["lifecycle_state"] in ("WAIT_NEW_EVIDENCE", "TERMINAL")}
+    verified = [r for r in verified if r["event_id"] not in closed or r["event_id"] in (old_state.get("global_to_opportunity") or {})]
     # Price requests are already stored by the existing Opportunity owner.
     # DO NOT enqueue another daily set of 30 while causal backlog remains.
     projected, stats = project_checkpoint(original, verified, [], observed_at_vn=observed_at_vn)
     state = projected["cross_radar_handoff"]
     existing = state["global_to_opportunity"]
+    for k,row in history.items():
+        if k in existing and row["lifecycle_state"] == "PENDING":
+            row["lifecycle_state"] = "LINKED"
+            row["linked_event_id"] = k
+    source_only = sorted(history.values(), key=lambda r:r["source_group_id"])
+    pending_source_only = [r for r in source_only if r["lifecycle_state"] == "PENDING"]
+    exposure_map = dict(prior_audit.get("verified_security_exposures_by_event") or {})
+    exposure_map.update({x["event_id"]:x["affected_securities"] for x in verified if x.get("affected_securities")})
     by_key = {}
     for e in verified:
         k = e["event_id"]
@@ -193,14 +268,16 @@ def audit_projection(ledger, original, observed_at_vn, ledger_sha256):
         "no_new_trades": True,
         "event_statuses": records,
         "source_only_event_statuses": source_only,
-        "source_only_events": len(source_only),
-        "verified_security_exposures_by_event": {x["event_id"]: x.get("affected_securities", []) for x in verified if x.get("affected_securities")},
+        "source_only_events": len(pending_source_only),
+        "source_only_history_count": len(source_only),
+        "source_only_lifecycle_counts": {s:sum(r["lifecycle_state"]==s for r in source_only) for s in ("PENDING","WAIT_NEW_EVIDENCE","TERMINAL","LINKED")},
+        "verified_security_exposures_by_event": exposure_map,
     }
     # Deny FULL PASS until all sides (including real notification receipts)
     # independently pass.
     audit["end_to_end_status"] = (
         "FULL_PASS" if (
-            records and not source_only and all(x["research_triage_done"] and
+            records and not pending_source_only and all(x["research_triage_done"] and
                             x["underwrite_certified"] and
                             x["user_delivery_confirmed"] for x in records)
         ) else "RESEARCH_HANDOFF_PARTIAL__DELIVERY_OR_UNDERWRITE_OPEN"
