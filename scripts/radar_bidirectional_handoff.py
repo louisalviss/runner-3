@@ -113,7 +113,7 @@ def eligible_global_events(ledger, *, as_of, max_age_days=14):
     return sorted(out, key=lambda x: (x["source_event_time_vn"], x["event_id"]))
 
 
-def review_global_events(ledger, *, as_of, reviews=None, max_age_days=14):
+def review_global_events(ledger, *, as_of, reviews=None, max_age_days=14, retained_source_ids=()):
     """Research-only linkage extension. Existing G2O IDs and admission stay intact.
     Reviews must be owner-verified, event-version-bound records, not guessed aliases.
     Unresolved verified events remain SOURCE_ONLY, never fabricated securities.
@@ -123,12 +123,22 @@ def review_global_events(ledger, *, as_of, reviews=None, max_age_days=14):
     routes = {x["event_id"]: x for x in base}
     source_only = []
     reviews = reviews or {}
-    def validate_source_time(key, event, url):
+    retained_source_ids = set(retained_source_ids)
+    def validate_source_time(key, event, url, *, allow_retained=False):
         probe = dict(event, symbol="PROBE", last_verified_source_url=url)
         vn_date_only = not event.get("source_event_time_vn") and not event.get("source_event_date") and isinstance(event.get("source_event_date_vn"), str)
         if vn_date_only:
             probe["source_event_date"] = event["source_event_date_vn"]
-        valid = eligible_global_events({"entries": {key: probe}}, as_of=as_of, max_age_days=max_age_days)
+        # Only previously captured exact event versions may finish linkage late.
+        age_limit = max_age_days
+        eid = "G2O|" + key_hash(key, str(event.get("material_update_key")))
+        if allow_retained and eid in retained_source_ids:
+            day = str(probe.get("source_event_date") or probe.get("source_event_time_vn") or "")[:10]
+            try:
+                age_limit = max(age_limit, (now.date() - datetime.strptime(day, "%Y-%m-%d").date()).days + 2)
+            except ValueError:
+                pass
+        valid = eligible_global_events({"entries": {key: probe}}, as_of=as_of, max_age_days=age_limit)
         if valid and vn_date_only:
             valid[0]["source_event_time_precision"] = "DATE_ONLY_VN_SOURCE"
         return valid
@@ -168,7 +178,7 @@ def review_global_events(ledger, *, as_of, reviews=None, max_age_days=14):
         except (TypeError, ValueError):
             continue
         # Reuse old timestamp/date/age validation; placeholder is never emitted.
-        valid = validate_source_time(key, event, url)
+        valid = validate_source_time(key, event, url, allow_retained=True)
         if not valid:
             continue
         event_id = valid[0]["event_id"]
