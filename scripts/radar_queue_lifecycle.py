@@ -643,6 +643,45 @@ def _due_source_catalysts(state, latest_market_session):
         # but never outranks the explicitly linked FOLLOW numeric review.
         ranked.append(((2 if reviewed else 1,
                         -int(source_day.replace("-", "")), key), task))
+    # Consume source-only evidence and secondary exposures from the same audit.
+    audit = state.get("runtime_e2e_audit_v1") or {}
+    exposure_map = audit.get("verified_security_exposures_by_event") or {}
+    for _, task in ranked:
+        if task.get("case_type") != "VERIFIED_MATERIAL_SOURCE_REVIEW":
+            continue
+        rec = forwards.get(task["event_id"]) or {}
+        exposures = exposure_map.get(task["event_id"]) or rec.get("affected_securities") or []
+        verified = [x for x in exposures if isinstance(x, dict) and
+                    x.get("verified") is True and isinstance(x.get("symbol"), str) and
+                    x.get("symbol") and isinstance(x.get("exposure_url"), str) and
+                    x["exposure_url"].startswith("https://")]
+        task["affected_securities"] = verified
+        task["review_symbols"] = sorted({task["symbol"]} | {x["symbol"] for x in verified})
+        task["all_security_exposures_require_review"] = True
+    seen = {task["event_id"] for _, task in ranked} | set(forwards)
+    for record in audit.get("source_only_event_statuses") or []:
+        if not isinstance(record, dict):
+            continue
+        key = record.get("source_group_id")
+        day = valid_date(record.get("source_event_time_vn"))
+        url = record.get("primary_source_url") or record.get("candidate_source_url")
+        if (not isinstance(key, str) or not key.startswith("G2O|") or key in seen
+                or record.get("symbol") is not None or not day
+                or record.get("signal_state") != "NOT_AUTHORIZED"
+                or record.get("intake_state") not in {"SOURCE_ONLY","SOURCE_ONLY_PENDING_VERIFICATION"}
+                or not isinstance(url,str) or not url.startswith("https://")):
+            continue
+        seen.add(key)
+        task = {"event_id": key, "symbol": None, "case_type": "GLOBAL_SOURCE_ONLY_REVIEW",
+                "source_event_key": record.get("source_event_key"),
+                "material_update_key": record.get("material_update_key"),
+                "material_event_date": day, "existing_source_url": url,
+                "source_stage": record["intake_state"],
+                "next_gate": "VERIFY_PRIMARY_SOURCE_AND_CAUSAL_EXPOSURE",
+                "review_symbols": [], "price_recheck_required": False,
+                "causality_certified": False, "trade_authorized_by_worklist": False,
+                "candidate_write_authorized": False}
+        ranked.append(((3, -int(day.replace("-", "")), key), task))
     ranked.sort(key=lambda item: item[0])
     return [task for _, task in ranked]
 
@@ -762,10 +801,11 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
     for case in due_source:
         if len(selected_source) >= source_limit:
             break
-        if case["symbol"] in selected_issuers:
+        symbols = set(case.get("review_symbols") or ([case["symbol"]] if case.get("symbol") else []))
+        if symbols & selected_issuers:
             continue
         selected_source.append(case)
-        selected_issuers.add(case["symbol"])
+        selected_issuers.update(symbols)
     selected_price = [task for _, task in ranked[:limit - len(selected_source)]]
     worklist = selected_source + selected_price
     # Inspect the newest deferred shock cheaply even when ACTIVE is full;
