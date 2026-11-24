@@ -244,4 +244,48 @@ class MoveLedgerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "CURRENT_SYMBOL_MISMATCH"):
             m.research_intake_budget(historical, current)
 
+
+    def test_suppressed_corporate_action_preserved_only_as_identity_hold(self):
+        session = "2026-11-23"
+        rolling = {
+            "source_session_date": session,
+            "status": "RESEARCH_ONLY_PENDING_RECONCILIATION",
+            "observed_sessions": ["2026-11-20", session],
+            "severe_unique_symbols": 1,
+            "queue": [{"symbol": "OLD", "sessions": ["2026-11-20"]}],
+        }
+        item = {
+            "symbol": "AVZO", "source_session_date": session,
+            "event_id": session+"|AVZO|SEVERE_SHOCK_TRIAGE",
+            "adjusted_return_1d_pct": -133.98, "adjusted_return_5d_pct": -134.08,
+            "volume_ratio_20d": 5.05, "in_capped_top80": False,
+            "security_identity_review_required": True,
+            "security_identity_review_reason": "VERIFY_ADS_UNITS_SPLIT_OR_SECURITY_IDENTITY",
+            "baseline_exclusion_reason": "CORPORATE_ACTION_SUPPRESSED",
+            "actionable": False, "catalyst_verified": False,
+        }
+        current = {"source_session_date": session,
+                   "status": "DIAGNOSTIC_PENDING_CAUSAL_REVIEW", "total": 1,
+                   "queue": [item]}
+        result = m.research_intake_budget(rolling, current)
+        self.assertEqual(result["identity_hold"], 1)
+        self.assertEqual(result["admitted_source_reviews"], 0)
+        self.assertEqual(result["not_current_severe_cold_history"], 1)
+        self.assertIsNone(result["identity_exceptions"][0]["event_key"])
+        self.assertFalse(result["identity_exceptions"][0]["actionable"])
+        # Historical event can exist without a verified current session.
+        rolling["queue"].append({"symbol": "AVZO", "sessions": ["2026-11-20"]})
+        rolling["severe_unique_symbols"] = 2
+        self.assertEqual(m.research_intake_budget(rolling, current)["identity_hold"], 1)
+        # Missing normal symbol, forged identity or wrong session remains fatal.
+        for key, value in (("baseline_exclusion_reason", "BELOW_EARLY_VOLUME"),
+                           ("source_session_date", "2026-11-20"),
+                           ("security_identity_review_required", False),
+                           ("in_capped_top80", True)):
+            bad = dict(item, **{key: value})
+            with self.assertRaisesRegex(ValueError, "CURRENT_SESSION_NOT_IN_HISTORY"):
+                m.research_intake_budget(rolling, dict(current, queue=[bad]))
+        with self.assertRaisesRegex(ValueError, "CURRENT_SYMBOL_MISMATCH"):
+            m.research_intake_budget(rolling, dict(current, total=2, queue=[item, item]))
+
 if __name__=="__main__":unittest.main()

@@ -249,15 +249,46 @@ def research_intake_budget(
     seen = set()
     for item in source_queue:
         symbol = item.get("symbol")
-        if not symbol or symbol in seen or symbol not in by_symbol:
+        if not symbol or symbol in seen:
             raise ValueError("RESEARCH_INTAKE_CURRENT_SYMBOL_MISMATCH")
         seen.add(symbol)
-        history = by_symbol[symbol]["sessions"]
-        if session not in history or history[-1] != session:
-            raise ValueError("RESEARCH_INTAKE_CURRENT_SESSION_NOT_IN_HISTORY")
         volume = finite_or_none(item.get("volume_ratio_20d"))
         one = finite_or_none(item.get("adjusted_return_1d_pct"))
         five = finite_or_none(item.get("adjusted_return_5d_pct"))
+        history = (by_symbol.get(symbol) or {}).get("sessions") or []
+        if not history or history[-1] != session:
+            # The shadow diagnostic intentionally retains severe corporate-action
+            # observations even when the verified price ledger suppresses them.
+            # Never manufacture a price episode or allocate a research slot.
+            if (
+                item.get("security_identity_review_required") is True
+                and item.get("security_identity_review_reason") == "VERIFY_ADS_UNITS_SPLIT_OR_SECURITY_IDENTITY"
+                and item.get("baseline_exclusion_reason") in {
+                    "CORPORATE_ACTION_SUPPRESSED", "CORPORATE_ACTION_UNVERIFIED_SUPPRESSED"
+                }
+                and item.get("source_session_date") == session
+                and item.get("event_id") == f"{session}|{symbol}|SEVERE_SHOCK_TRIAGE"
+                and item.get("in_capped_top80") is False
+                and item.get("actionable") is False
+                and item.get("catalyst_verified") is False
+                and ((one is not None and one <= -15.0) or (five is not None and five <= -15.0))
+            ):
+                identity_holds.append({
+                    "symbol": symbol, "source_session_date": session,
+                    "event_key": None,
+                    "first_severe_session_in_rolling_window": history[0] if history else None,
+                    "last_prior_severe_session": history[-1] if history else None,
+                    "source_price_event_id": item["event_id"],
+                    "ret_1d_pct": one, "ret_5d_pct": five, "volume_ratio": volume,
+                    "in_top80": False, "issuer_catalyst_verified": False,
+                    "net_rr_certified": False, "actionable": False,
+                    "disposition": "IDENTITY_HOLD_NO_AUTO_DEEP",
+                    "reason": "CORPORATE_ACTION_SUPPRESSED__NO_VERIFIED_CURRENT_PRICE_EVENT",
+                })
+                continue
+            if not history:
+                raise ValueError("RESEARCH_INTAKE_CURRENT_SYMBOL_MISMATCH")
+            raise ValueError("RESEARCH_INTAKE_CURRENT_SESSION_NOT_IN_HISTORY")
         if one is None and five is None:
             raise ValueError("RESEARCH_INTAKE_MISSING_PRICE_MOVES")
         first_in_window = history[0] == session
@@ -347,7 +378,7 @@ def research_intake_budget(
         "entire_rolling_severe_preserved": len(historical),
         "current_severe_preserved": len(source_queue),
         "current_severe_unique": len(seen),
-        "not_current_severe_cold_history": len(historical) - len(source_queue),
+        "not_current_severe_cold_history": len(set(by_symbol) - seen),
         "eligible_source_reviews": len(active),
         "admitted_source_reviews": len(admitted),
         "deferred_eligible_episodes": len(deferred),
