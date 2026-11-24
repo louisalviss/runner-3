@@ -69,3 +69,27 @@ class Extension(unittest.TestCase):
   self.assertEqual(x['source_event_time_precision'],'DATE_ONLY_VN_SOURCE')
   self.assertEqual(x['source_event_time_vn'],'2026-10-24')
   self.assertIsNone(x['symbol'])
+
+ def test_existing_worklist_consumes_source_and_all_exposures(self):
+  import radar_handoff_runtime as runtime
+  import radar_queue_lifecycle as queue
+  original={'cross_radar_handoff':{'global_event_linkage_reviews_v1':L['reviews'],'global_to_opportunity':{},'opportunity_to_global':{},'reverse_queue_v2':{'latest_completed_price_session':'2026-11-23'}}}
+  a,_,audit,_=runtime.audit_projection({'entries':L['picked']},original,NOW,'fixture')
+  due=queue._due_source_catalysts(a['cross_radar_handoff'],'2026-11-23')
+  merger=next(x for x in due if x['symbol']=='ZS')
+  self.assertEqual(set(merger['review_symbols']),{'CRWD','ZS'})
+  self.assertTrue(any(x['case_type']=='GLOBAL_SOURCE_ONLY_REVIEW' and x['symbol'] is None for x in due))
+  plan=queue.bounded_research_worklist(a,limit=8)
+  self.assertLessEqual(plan['source_only_catalyst_selected'],3)
+  self.assertLessEqual(plan['selected_count'],8)
+  self.assertEqual(plan['source_only_catalyst_due'],len(due))
+  self.assertTrue(all(x.get('trade_authorized_by_worklist') is False for x in plan['worklist']))
+ def test_source_only_can_be_selected_without_ticker(self):
+  import radar_queue_lifecycle as queue
+  original={'cross_radar_handoff':{'reverse_queue_v2':{'latest_completed_price_session':'2026-11-23'},'runtime_e2e_audit_v1':{'source_only_event_statuses':[{'source_group_id':'G2O|test','source_event_time_vn':'2026-11-22','candidate_source_url':'https://example.org/source','symbol':None,'signal_state':'NOT_AUTHORIZED','intake_state':'SOURCE_ONLY_PENDING_VERIFICATION'}]}}}
+  plan=queue.bounded_research_worklist(original,limit=8)
+  self.assertEqual(plan['source_only_catalyst_selected'],1)
+  x=plan['worklist'][0]
+  self.assertIsNone(x['symbol'])
+  self.assertFalse(x['price_recheck_required'])
+  self.assertFalse(x['candidate_write_authorized'])
