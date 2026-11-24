@@ -93,3 +93,64 @@ class Extension(unittest.TestCase):
   self.assertIsNone(x['symbol'])
   self.assertFalse(x['price_recheck_required'])
   self.assertFalse(x['candidate_write_authorized'])
+
+ def _retention_setup(self):
+  import radar_handoff_runtime as runtime
+  k=next(k for k in L['picked'] if 'MYTHOS' in k)
+  ledger={'entries':{k:L['picked'][k]}}
+  a,_,audit,_=runtime.audit_projection(ledger,{},'2026-11-20T12:00:00+07:00','fixture1')
+  self.assertEqual(audit['source_only_events'],1)
+  return runtime,k,ledger,a,audit['source_only_event_statuses'][0]
+ def test_pending_survives_age_and_ledger_removal(self):
+  runtime,k,ledger,a,row=self._retention_setup()
+  b,_,audit,_=runtime.audit_projection({'entries':{}},a,'2026-12-20T12:00:00+07:00','fixture2')
+  self.assertEqual(audit['source_only_events'],1)
+  self.assertEqual(audit['source_only_event_statuses'][0],row)
+  import radar_queue_lifecycle as queue
+  self.assertEqual(queue._due_source_catalysts(b['cross_radar_handoff'],'2026-12-18')[0]['event_id'],row['source_group_id'])
+  c,_,_,changed=runtime.audit_projection({'entries':{}},b,'2026-12-21T12:00:00+07:00','fixture2')
+  self.assertEqual(b,c);self.assertFalse(changed)
+ def test_late_verified_exact_id_link(self):
+  runtime,k,ledger,a,row=self._retention_setup()
+  review=copy.deepcopy(L['reviews'][k])
+  review['verified_at']='2026-12-19T00:00:00+07:00'
+  review['primary_symbol']='TEST'
+  review['affected_securities']=[{'symbol':'TEST','verified':True,'relation':'VERIFIED_INDIRECT','identity_url':'https://example.org/identity','exposure_url':'https://example.org/exposure','mechanism':'fixture only'}]
+  a['cross_radar_handoff']['global_event_linkage_reviews_v1']={k:review}
+  b,stats,audit,_=runtime.audit_projection(ledger,a,'2026-12-20T12:00:00+07:00','fixture1')
+  self.assertEqual(stats['forward_added'],1)
+  self.assertEqual(audit['source_only_events'],0)
+  self.assertEqual(audit['source_only_event_statuses'][0]['lifecycle_state'],'LINKED')
+  self.assertIn(row['source_group_id'],b['cross_radar_handoff']['global_to_opportunity'])
+  self.assertEqual(b['cross_radar_handoff']['global_to_opportunity'][row['source_group_id']]['signal_state'],'NOT_AUTHORIZED')
+  c,stats2,_,_=runtime.audit_projection(ledger,{'cross_radar_handoff':{'global_event_linkage_reviews_v1':{k:review}}},'2026-12-20T12:00:00+07:00','fixture1')
+  self.assertEqual(stats2['forward_added'],0)
+ def _proof(self,row,decision):
+  return {'source_group_id':row['source_group_id'],'material_update_key':row['material_update_key'],'decision':decision,'signal_state':'NOT_AUTHORIZED','owner':'Opportunity Radar V3','reason':'fixture evidence assessment','reopen_condition':'new material source phase','evidence_urls':['https://example.org/evidence'],'reviewed_at':'2026-11-21T00:00:00+07:00'}
+ def test_wait_and_terminal_not_repeated_new_phase_distinct(self):
+  import radar_queue_lifecycle as queue
+  for decision in ('WAIT_NEW_EVIDENCE','TERMINAL'):
+   runtime,k,ledger,a,row=self._retention_setup()
+   a['cross_radar_handoff']['global_event_linkage_reviews_v1']={k:{'material_update_key':row['material_update_key'],'source_only_disposition':self._proof(row,decision)}}
+   b,_,audit,_=runtime.audit_projection(ledger,a,'2026-11-22T12:00:00+07:00','fixture1')
+   self.assertEqual(audit['source_only_events'],0)
+   self.assertEqual(audit['source_only_event_statuses'][0]['lifecycle_state'],decision)
+   self.assertEqual(queue._due_source_catalysts(b['cross_radar_handoff'],'2026-11-22'),[])
+   fresh=copy.deepcopy(ledger);fresh['entries'][k]['material_update_key']='NEW_MATERIAL_PHASE'
+   fresh['entries'][k]['source_event_time_vn']='2026-11-22T00:00:00+07:00'
+   c,_,audit2,_=runtime.audit_projection(fresh,b,'2026-11-23T12:00:00+07:00','fixture2')
+   self.assertEqual(audit2['source_only_events'],1);self.assertEqual(audit2['source_only_history_count'],2)
+   self.assertTrue(any(x['lifecycle_state']==decision for x in audit2['source_only_event_statuses']))
+ def test_invalid_closeout_stays_pending(self):
+  runtime,k,ledger,a,row=self._retention_setup()
+  proof=self._proof(row,'TERMINAL');proof['evidence_urls']=[]
+  a['cross_radar_handoff']['global_event_linkage_reviews_v1']={k:{'material_update_key':row['material_update_key'],'source_only_disposition':proof}}
+  b,_,audit,_=runtime.audit_projection(ledger,a,'2026-11-22T12:00:00+07:00','fixture1')
+  self.assertEqual(audit['source_only_events'],1)
+ def test_no_silent_promotion_after_terminal(self):
+  runtime,k,ledger,a,row=self._retention_setup()
+  a['cross_radar_handoff']['global_event_linkage_reviews_v1']={k:{'material_update_key':row['material_update_key'],'source_only_disposition':self._proof(row,'TERMINAL')}}
+  b,_,_,_=runtime.audit_projection(ledger,a,'2026-11-22T12:00:00+07:00','fixture1')
+  changed=copy.deepcopy(ledger);changed['entries'][k]['symbol']='TEST'
+  c,st,audit,_=runtime.audit_projection(changed,b,'2026-11-23T12:00:00+07:00','fixture2')
+  self.assertEqual(st['forward_added'],0);self.assertEqual(audit['source_only_lifecycle_counts']['TERMINAL'],1)
