@@ -113,6 +113,110 @@ def eligible_global_events(ledger, *, as_of, max_age_days=14):
     return sorted(out, key=lambda x: (x["source_event_time_vn"], x["event_id"]))
 
 
+def review_global_events(ledger, *, as_of, reviews=None, max_age_days=14):
+    """Research-only linkage extension. Existing G2O IDs and admission stay intact.
+    Reviews must be owner-verified, event-version-bound records, not guessed aliases.
+    Unresolved verified events remain SOURCE_ONLY, never fabricated securities.
+    """
+    now = parse_time(as_of)
+    base = eligible_global_events(ledger, as_of=as_of, max_age_days=max_age_days)
+    routes = {x["event_id"]: x for x in base}
+    source_only = []
+    reviews = reviews or {}
+    def validate_source_time(key, event, url):
+        probe = dict(event, symbol="PROBE", last_verified_source_url=url)
+        vn_date_only = not event.get("source_event_time_vn") and not event.get("source_event_date") and isinstance(event.get("source_event_date_vn"), str)
+        if vn_date_only:
+            probe["source_event_date"] = event["source_event_date_vn"]
+        valid = eligible_global_events({"entries": {key: probe}}, as_of=as_of, max_age_days=max_age_days)
+        if valid and vn_date_only:
+            valid[0]["source_event_time_precision"] = "DATE_ONLY_VN_SOURCE"
+        return valid
+    for key, event in ledger["entries"].items():
+        if not isinstance(event, dict):
+            continue
+        material = event.get("material_update_key")
+        if not isinstance(material, str) or not material:
+            continue
+        review = reviews.get(key)
+        # No inferred source verification from an alternative URL alone.
+        if not isinstance(review, dict) or review.get("verified") is not True or review.get("material_update_key") != material:
+            # Explicitly surface recent canonical Global source candidates for source
+            # review only. Alternative URLs are NOT independent verification.
+            candidate_url = next((event.get(n) for n in ("last_verified_source_url", "primary_source_url", "primary_original_url")
+                                  if isinstance(event.get(n), str) and event[n].startswith("https://")), None)
+            if not candidate_url:
+                continue
+            valid = validate_source_time(key, event, candidate_url)
+            if valid and valid[0]["event_id"] not in routes:
+                source_only.append({"source_group_id": valid[0]["event_id"], "source_event_key": key,
+                    "material_update_key": material, "source_event_time_vn": valid[0]["source_event_time_vn"],
+                    "candidate_source_url": candidate_url, "headline": valid[0]["headline"],
+                    "source_event_time_precision": valid[0]["source_event_time_precision"],
+                    "symbol": None, "source_verified": False, "intake_state": "SOURCE_ONLY_PENDING_VERIFICATION",
+                    "signal_state": "NOT_AUTHORIZED", "next_check": "VERIFY_PRIMARY_SOURCE_AND_CAUSAL_EXPOSURE"})
+            continue
+        url = review.get("primary_source_url")
+        if not isinstance(url, str) or not url.startswith("https://"):
+            continue
+        if url not in [event.get(n) for n in ("last_verified_source_url", "primary_source_url", "primary_original_url")]:
+            continue
+        try:
+            verified_at = parse_time(review.get("verified_at"))
+            if verified_at > now:
+                continue
+        except (TypeError, ValueError):
+            continue
+        # Reuse old timestamp/date/age validation; placeholder is never emitted.
+        valid = validate_source_time(key, event, url)
+        if not valid:
+            continue
+        event_id = valid[0]["event_id"]
+        targets = []
+        for item in (review.get("affected_securities") if isinstance(review.get("affected_securities"), list) else []):
+            if not isinstance(item, dict):
+                continue
+            symbol = item.get("symbol")
+            if not isinstance(symbol, str) or not VALID_SYMBOL.fullmatch(symbol):
+                continue
+            if item.get("verified") is not True or item.get("relation") not in ("DIRECT_ISSUER", "DIRECT_CONTRACT_PARTY", "VERIFIED_INDIRECT"):
+                continue
+            if not all(isinstance(item.get(n), str) and item[n].startswith("https://") for n in ("identity_url", "exposure_url")):
+                continue
+            if not isinstance(item.get("mechanism"), str) or not item["mechanism"].strip():
+                continue
+            if symbol not in [x["symbol"] for x in targets]:
+                targets.append(dict(item))
+        if event_id in routes:
+            # Never replace the old issuer or original source identity.
+            route = routes[event_id]
+            route["affected_securities"] = targets
+            route["source_group_id"] = event_id
+            continue
+        if not targets:
+            source_only.append({"source_group_id": event_id, "source_event_key": key,
+                "material_update_key": material, "source_event_time_vn": valid[0]["source_event_time_vn"],
+                "primary_source_url": url, "headline": valid[0]["headline"], "symbol": None,
+                "source_event_time_precision": valid[0]["source_event_time_precision"], "source_verified": True,
+                "intake_state": "SOURCE_ONLY", "signal_state": "NOT_AUTHORIZED",
+                "next_check": "VERIFY_CAUSAL_EXPOSURE_AND_LISTED_SECURITY"})
+            continue
+        # One G2O parent event, primary explicit and other exposures retained.
+        primary = review.get("primary_symbol")
+        if primary not in [x["symbol"] for x in targets]:
+            source_only.append({"source_group_id": event_id, "source_event_key": key,
+                "material_update_key": material, "source_event_time_vn": valid[0]["source_event_time_vn"],
+                "primary_source_url": url, "headline": valid[0]["headline"], "symbol": None,
+                "source_event_time_precision": valid[0]["source_event_time_precision"], "source_verified": True,
+                "affected_securities": targets, "intake_state": "SOURCE_ONLY",
+                "signal_state": "NOT_AUTHORIZED", "next_check": "RESOLVE_PRIMARY_SECURITY"})
+            continue
+        route = dict(valid[0], symbol=primary, affected_securities=targets,
+                     source_group_id=event_id, identity_review_verified_at=review["verified_at"])
+        routes[event_id] = route
+    return sorted(routes.values(), key=lambda x:(x["source_event_time_vn"],x["event_id"])), sorted(source_only,key=lambda x:x["source_group_id"])
+
+
 def reverse_price_requests(price_events, health, *, max_out=30):
     """Only the latest COMPLETE, immutable price session enters reverse triage."""
     if (health.get("status") != "COMPLETE" or health.get("complete") is not True
