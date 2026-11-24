@@ -662,6 +662,8 @@ def _due_source_catalysts(state, latest_market_session):
     for record in audit.get("source_only_event_statuses") or []:
         if not isinstance(record, dict):
             continue
+        if record.get("lifecycle_state", "PENDING") != "PENDING":
+            continue
         key = record.get("source_group_id")
         day = valid_date(record.get("source_event_time_vn"))
         url = record.get("primary_source_url") or record.get("candidate_source_url")
