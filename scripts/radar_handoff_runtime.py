@@ -17,7 +17,7 @@ from datetime import timezone
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from radar_bidirectional_handoff import eligible_global_events, project_checkpoint, reverse_price_requests
+from radar_bidirectional_handoff import eligible_global_events, review_global_events, project_checkpoint, reverse_price_requests
 
 LEDGER_URL = (
     "https://api.github.com/repos/louisalviss/runner-3/contents/"
@@ -142,7 +142,8 @@ def audit_projection(ledger, original, observed_at_vn, ledger_sha256):
     changed. The only place capable of recording a user delivery receipt
     remains the actual existing notification provider.
     """
-    verified = eligible_global_events(ledger, as_of=observed_at_vn)
+    reviews = (original.get('cross_radar_handoff') or {}).get('global_event_linkage_reviews_v1') or {}
+    verified, source_only = review_global_events(ledger, as_of=observed_at_vn, reviews=reviews)
     # Price requests are already stored by the existing Opportunity owner.
     # DO NOT enqueue another daily set of 30 while causal backlog remains.
     projected, stats = project_checkpoint(original, verified, [], observed_at_vn=observed_at_vn)
@@ -191,12 +192,15 @@ def audit_projection(ledger, original, observed_at_vn, ledger_sha256):
                                       for x in state.get("opportunity_to_global", {}).values()),
         "no_new_trades": True,
         "event_statuses": records,
+        "source_only_event_statuses": source_only,
+        "source_only_events": len(source_only),
+        "verified_security_exposures_by_event": {x["event_id"]: x.get("affected_securities", []) for x in verified if x.get("affected_securities")},
     }
     # Deny FULL PASS until all sides (including real notification receipts)
     # independently pass.
     audit["end_to_end_status"] = (
         "FULL_PASS" if (
-            records and all(x["research_triage_done"] and
+            records and not source_only and all(x["research_triage_done"] and
                             x["underwrite_certified"] and
                             x["user_delivery_confirmed"] for x in records)
         ) else "RESEARCH_HANDOFF_PARTIAL__DELIVERY_OR_UNDERWRITE_OPEN"
