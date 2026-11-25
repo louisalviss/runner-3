@@ -165,5 +165,56 @@ class ReviewedCutoverTests(unittest.TestCase):
                 self.assertNotIn("preliminary_triage",audit.annotate_preliminary_triage([row],"2026-11-25",root,hashes)[0])
 
 
+
+    def test_semantic_cycle_receipt_separates_drop_defer_and_pending(self):
+        import audit_gap_ledger as a
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp)
+            day="2026-10-15"; end="2026-11-25"
+            evidence={day:{"daily":"report","queue":"queue","serp":"serp"}}
+            def row(domain):
+                return dict(day=day,identity=domain,source="SEOTRENDS",category="BUILD_DD",
+                            approved=False,preliminary_triage={"status":"SCREENED_PRELIMINARY","source_export_sha256":"export"})
+            def item(domain,verdict):
+                return dict(domain=domain,semantic_verdict=verdict,terminal_verdict="WATCH",
+                            product_intent_checked=True,review_scope="historical_build_dd_current_cycle_disposition_only",
+                            reviewed_at="2026-11-25T21:00:00+07:00",source_report_sha256="report",
+                            source_queue_sha256="queue",source_terminal_sha256="serp",
+                            source_export_sha256="export",approved_build=False,
+                            full_positive_business_dd_complete=False,business_reason="source-based reason")
+            rows=[row("drop.test"),row("defer.test"),row("new.test")]
+            items=[item("drop.test","DROP_THIS_CYCLE"),item("defer.test","DEFER_GAP_UNPROVEN")]
+            path=root/(day+"-semantic-business-dd.json")
+            data=dict(date=day,source="derived-semantic-dd-v1",status="PASS_SOURCE_PLUS_SEMANTIC_SCREEN",
+                      coverage_scope="selected_legacy_build_dd_identities_only_not_full_daily_shortlist",
+                      approved_build=0,buy_now=0,items=items)
+            def run():
+                return a.reconcile_semantic_cycle(rows,end,root,evidence)
+            path.write_text(json.dumps(data))
+            active,dropped,deferred=run()
+            self.assertEqual([x["identity"] for x in active],["new.test"])
+            self.assertEqual([x["identity"] for x in dropped],["drop.test"])
+            self.assertEqual([x["identity"] for x in deferred],["defer.test"])
+            self.assertFalse(deferred[0]["full_positive_business_dd_complete"])
+            self.assertFalse(deferred[0]["approved"])
+            self.assertNotIn("cycle_disposition",rows[0])
+            for invalid in [dict(items[0],source_export_sha256="drift"),
+                            dict(items[0],source_report_sha256="drift"),
+                            dict(items[0],source_queue_sha256="drift"),
+                            dict(items[0],source_terminal_sha256="drift"),
+                            dict(items[0],reviewed_at="2026-11-26T00:00:00+07:00"),
+                            dict(items[0],approved_build=True),
+                            dict(items[0],semantic_verdict="QUALIFIED_DD")]:
+                path.write_text(json.dumps(dict(data,items=[invalid,items[1]])))
+                self.assertEqual([x["identity"] for x in run()[0]],["drop.test","new.test"])
+                self.assertEqual(len(run()[1]),0)
+            path.write_text(json.dumps(dict(data,items=[items[0],items[0],items[1]])))
+            self.assertEqual(len(run()[1]),0)
+            path.write_text("[]")
+            self.assertEqual(len(run()[0]),3)
+            path.unlink()
+            self.assertEqual(len(run()[0]),3)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -404,6 +404,63 @@ def annotate_preliminary_triage(rows, end, seo_root, report_hashes):
   out.append(item)
  return out
 
+
+def reconcile_semantic_cycle(rows, end, seo_root, daily_evidence):
+ """Close this research cycle only on the exact source-bound negative decision.
+ Deferred is not resolved, qualified, or an active unreviewed DD task."""
+ active, dropped, deferred = [], [], []
+ cache = {}
+ for row in rows:
+  ident, day = row.get('identity'), row.get('day')
+  triage = row.get('preliminary_triage') or {}
+  # Only the previously source-bound cohort can consume these retrospective receipts.
+  if (row.get('source') != 'SEOTRENDS' or row.get('category') != 'BUILD_DD'
+      or triage.get('status') != 'SCREENED_PRELIMINARY'):
+   active.append(row); continue
+  if day not in cache:
+   path = seo_root/(day+'-semantic-business-dd.json')
+   data = j(path)
+   cache[day] = (data, sourcehash(path))
+  data, file_sha = cache[day]
+  if (not file_sha or not isinstance(data,dict) or data.get('date') != day
+      or data.get('source') != 'derived-semantic-dd-v1'
+      or data.get('status') != 'PASS_SOURCE_PLUS_SEMANTIC_SCREEN'
+      or data.get('coverage_scope') != 'selected_legacy_build_dd_identities_only_not_full_daily_shortlist'
+      or data.get('approved_build') != 0 or data.get('buy_now') != 0):
+   active.append(row); continue
+  items = data.get('items')
+  matches = [x for x in items if isinstance(x,dict) and x.get('domain') == ident] if isinstance(items,list) else []
+  if len(matches) != 1:
+   active.append(row); continue
+  x = matches[0]
+  evidence = daily_evidence.get(day) or {}
+  verdict = x.get('semantic_verdict')
+  try:
+   reviewed = datetime.datetime.fromisoformat(x.get('reviewed_at',''))
+   valid_date = reviewed.tzinfo is not None and SEO64_REVIEW_DAY <= reviewed.astimezone(TZ).date().isoformat() <= end
+  except (ValueError,TypeError):
+   valid_date = False
+  expected = {'source_report_sha256':evidence.get('daily'),
+              'source_queue_sha256':evidence.get('queue'),
+              'source_terminal_sha256':evidence.get('serp'),
+              'source_export_sha256':triage.get('source_export_sha256')}
+  if (not valid_date or not all(v and x.get(k)==v for k,v in expected.items())
+      or x.get('review_scope') != 'historical_build_dd_current_cycle_disposition_only'
+      or x.get('terminal_verdict') != 'WATCH' or x.get('product_intent_checked') is not True
+      or x.get('approved_build') is not False or x.get('full_positive_business_dd_complete') is not False
+      or verdict not in ('DROP_THIS_CYCLE','DEFER_GAP_UNPROVEN')
+      or not isinstance(x.get('business_reason'),str) or not x['business_reason'].strip()):
+   active.append(row); continue
+  item = dict(row, pending=False, cycle_disposition=verdict,
+              semantic_cycle_reviewed=True, full_positive_business_dd_complete=False,
+              semantic_review_ref={'file':day+'-semantic-business-dd.json','sha256':file_sha,
+                  'reviewed_at':x['reviewed_at'],'business_reason':x['business_reason']})
+  if verdict == 'DROP_THIS_CYCLE':
+   dropped.append(dict(item,resolution='SEO_DROP_THIS_CYCLE'))
+  else:
+   deferred.append(item)
+ return active, dropped, deferred
+
 def audit():
  now=datetime.datetime.now(TZ)
  # Do not count today's future 08:05/09:15/10:00 jobs as missing before audit time.
@@ -455,11 +512,14 @@ def audit():
  active_dd=annotate_preliminary_triage(active_dd,end.isoformat(),S,{x['day']:x['evidence_sha256']['daily'] for x in days})
  screened_dd=[x for x in active_dd if x.get('preliminary_triage')]
  unscreened_dd=[x for x in active_dd if not x.get('preliminary_triage')]
+ active_dd,seo_dropped,seo_deferred=reconcile_semantic_cycle(active_dd,end.isoformat(),S,{x['day']:x['evidence_sha256'] for x in days})
+ resolved_dd.extend(seo_dropped)
  ddc=Counter(x['category'] for x in active_dd)
  status='PASS' if not pending and not missing_flippa and all(x['acceptance']=='PASS' for x in days) else 'UNRESOLVED_GAPS'
  summary={'scope_start':FIRST.isoformat(),'scope_end':end.isoformat(),'days_checked':len(days),'scanned':totals['discovery_scanned'],'source_days_complete':totals['source_days_complete'],'semrush_serp_pass_days':totals['provider_days_complete'],'flippa_pass_days':totals['flippa_days_complete'],'acceptance_pass_days':totals['acceptance_pass_days'],'semrush_pass_shortlists':sum(x['semrush_pass_count'] for x in days),'unique_unprocessed_domains':len({x['domain'] for x in pending}),'unprocessed_domain_rows':len(pending),'dd_pending_items':len(active_dd),'dd_categories':dict(ddc),'historical_dd_items':len({x['identity'] for x in dd}),'dd_resolved_items':len({x['identity'] for x in resolved_dd}),'dd_resolved_categories':dict(Counter(x['resolution'] for x in {r['identity']:r for r in resolved_dd}.values())),'flippa_missing_days':missing_flippa,'cumulative_flippa_active':backlog.get('active_count'),'cumulative_flippa_closed_historical':backlog.get('closed_historical_count'),'last_verified_flippa_recent':backlog.get('last_scoped_recent_scan'),'full_inventory_observation':backlog.get('last_full_inventory_observation'),'cannot_reconstruct_expired_flippa_recent_windows':bool(missing_flippa)}
  summary.update({'dd_preliminary_screened_items':len(screened_dd),'dd_preliminary_unscreened_items':len(unscreened_dd),'dd_preliminary_groups':dict(Counter(x['preliminary_triage']['group'] for x in screened_dd))})
- ledger={'schema':'acquisition-gap-ledger-v1','generated_at':datetime.datetime.now(TZ).isoformat(),'status':status,'summary':summary,'daily':days,'pending_semrush':pending,'historical_dd_candidates':dd,'pending_dd_candidates':active_dd,'preliminary_screened_dd_candidates':screened_dd,'preliminary_unscreened_dd_candidates':unscreened_dd,'resolved_dd_history':resolved_dd,'limits':{'source_traffic_not_new_site_forecast':True,'seller_metrics_not_audited':True,'historical_listings_not_guaranteed_live':True,'unobserved_inventory_not_proven_empty':True,'no_social_check':True,'no_purchase_or_build_authorized':True}}
+ summary.update({'dd_cycle_disposed_items':len(seo_dropped)+len(seo_deferred),'dd_cycle_drop_items':len(seo_dropped),'dd_deferred_items':len(seo_deferred)})
+ ledger={'schema':'acquisition-gap-ledger-v1','generated_at':datetime.datetime.now(TZ).isoformat(),'status':status,'summary':summary,'daily':days,'pending_semrush':pending,'historical_dd_candidates':dd,'pending_dd_candidates':active_dd,'deferred_dd_candidates':seo_deferred,'semantic_cycle_dispositions':seo_dropped+seo_deferred,'preliminary_screened_dd_candidates':screened_dd,'preliminary_unscreened_dd_candidates':unscreened_dd,'resolved_dd_history':resolved_dd,'limits':{'source_traffic_not_new_site_forecast':True,'seller_metrics_not_audited':True,'historical_listings_not_guaranteed_live':True,'unobserved_inventory_not_proven_empty':True,'no_social_check':True,'no_purchase_or_build_authorized':True}}
  output=O/('gap-ledger-'+end.isoformat()+'.json')
  temp=output.with_suffix('.json.tmp');temp.write_text(json.dumps(ledger,ensure_ascii=False,indent=2)+'\n');temp.replace(output)
  lines=['# Acquisition Radar — retrospective gap audit '+FIRST.isoformat()+' to '+end.isoformat(),'',
@@ -468,11 +528,12 @@ def audit():
  '- Discovery '+str(summary['scanned'])+' domains across '+str(summary['source_days_complete'])+'/'+str(summary['days_checked'])+' complete daily source snapshots.',
  '- Semrush/SERP finished: '+str(summary['semrush_pass_shortlists'])+' shortlisted domains; pending: '+str(summary['unique_unprocessed_domains'])+' distinct domains.',
  '- Flippa daily feed: '+str(summary['flippa_pass_days'])+'/'+str(summary['days_checked'])+' complete; missing capture days '+', '.join(missing_flippa)+'.',
- '- Distinct unresolved DD hypotheses (not BUY/BUILD approvals): '+str(summary['dd_pending_items'])+' ('+str(summary['dd_categories'])+').',
+ '- Distinct active DD hypotheses awaiting review (not BUY/BUILD approvals): '+str(summary['dd_pending_items'])+' ('+str(summary['dd_categories'])+').',
  '- Existing cumulative Flippa backlog '+str(summary['cumulative_flippa_active'])+' tracked + '+str(summary['cumulative_flippa_closed_historical'])+' historical closed; last recent feed '+str(summary['last_verified_flippa_recent'])+'.',
  '- Daily independent acceptance '+str(summary['acceptance_pass_days'])+'/'+str(summary['days_checked'])+' PASS; sync status recorded separately for every day.','',
  '- Historical DD identities: '+str(summary['historical_dd_items'])+'; already resolved: '+str(summary['dd_resolved_items'])+' (history retained).',
- '- Preliminary screens: '+str(len(screened_dd))+' complete; '+str(len(unscreened_dd))+' not screened. All still unresolved DD; no semantic completion inferred.',
+ '- Preliminary screens: '+str(len(screened_dd))+' complete; '+str(len(unscreened_dd))+' not screened. Preliminary screening alone is not semantic completion.',
+ '- SeoTrends current-cycle dispositions: '+str(len(seo_dropped))+' DROP; '+str(len(seo_deferred))+' DEFER (separate from active review). No positive business DD or approval inferred.',
  '## Daily evidence matrix','',
  '| Date | Discovery | Semrush pass | Exact SERP | Flippa | Acceptance |',
  '|---|---:|---|---|---|---|']
@@ -482,6 +543,10 @@ def audit():
  '| Date | Candidate | Lane | Organic US modeled / month | Preliminary screen |','|---|---|---|---:|---|']
  for x in active_dd:
   lines.append('| '+x['day']+' | '+str(x['identity'])+' | '+str(x['category'])+' | '+str(x.get('modelled_us_organic_month') or 'N/A')+' | '+str((x.get('preliminary_triage') or {}).get('group','UNSCREENED'))+' |')
+ lines += ['', '## Deferred SeoTrends hypotheses (revisit only with new evidence)','',
+ '| Date | Candidate | Reason |','|---|---|---|']
+ for x in seo_deferred:
+  lines.append('| '+x['day']+' | '+x['identity']+' | '+x['semantic_review_ref']['business_reason'].replace('|','/')+' |')
  lines += ['', '## Unprocessed Semrush backlog','',
  '- All '+str(len(pending))+' source domain/day records remain in the JSON pending_semrush array with immutable queue SHA-256.',
  '- Blocking provider auth and missing Flippa network must be repaired before treating these as analyzed or no opportunities.',
