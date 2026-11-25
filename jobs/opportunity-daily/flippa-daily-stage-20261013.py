@@ -1,6 +1,6 @@
 #!/opt/chatgpt-bridge/venv/bin/python
 import sys, json, re, time, random, os, argparse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 sys.path.insert(0,"/opt/browser-stack/bin")
 from raw_cdp_skill import RawCDPSkill
 
@@ -108,7 +108,68 @@ def fetch_cards(p,s,url,wait=1400):
     raws=p.locator("li[id^='listing-']").evaluate_all(JS)
     return st,ch,raws
 
+def recent_completed_pages(state):
+    return {int(row["page"]) for row in state.get("pages", [])
+            if row.get("lane") == "recent" and row.get("status") == 200
+            and row.get("challenge") == "NONE" and int(row.get("count") or 0) == 100
+            and int(row.get("page") or 0) in range(1, 6)}
+
+def recent_capture_complete(state, completed):
+    ids = state.get("recent_ids") or []
+    rows = state.get("recent_rows") or {}
+    return completed == set(range(1, 6)) and len(ids) == 500 and len(set(ids)) == 500 and set(rows) == set(ids)
+
+def mark_recent_overlap(state, now):
+    """A complete page count is not a coherent 500-identity capture."""
+    state["status"] = "PAUSED"
+    state["recent_done"] = False
+    if not state.get("recent_overlap_detected_at"):
+        state["recent_overlap_detected_at"] = now.isoformat()
+        state["errors"].append({"lane":"recent","reason":"RECENT_CROSS_PAGE_OVERLAP_OR_ID_MISMATCH",
+                                "unique_count":len(set(state.get("recent_ids") or [])),
+                                "at":now.isoformat()})
+    atomic(STATE,state)
+
+def prepare_recent_capture(state, now):
+    """Permit one fresh current-day capture after a non-challenge pagination conflict.
+    Never append page six, splice attempts, or silently replace an old day's evidence.
+    This is not an HTTP challenge retry: challenge handling remains check_stop().
+    """
+    completed = recent_completed_pages(state)
+    if completed != set(range(1, 6)) or recent_capture_complete(state, completed):
+        return completed
+    mark_recent_overlap(state, now)
+    current_stamp = now.astimezone(timezone(timedelta(hours=7))).strftime("%Y%m%d")
+    if os.path.basename(STATE) != "flippa-"+current_stamp+"-daily-state.json":
+        raise RuntimeError("STOP_RECENT_HISTORICAL_CAPTURE_INCOMPLETE")
+    if int(state.get("recent_overlap_restart_count") or 0) >= 1:
+        raise RuntimeError("STOP_RECENT_OVERLAP_RESTART_EXHAUSTED")
+    detected = datetime.fromisoformat(state["recent_overlap_detected_at"])
+    if (now-detected).total_seconds() < 900:
+        raise RuntimeError("STOP_RECENT_OVERLAP_COOLDOWN")
+    # Preserve the exact prior cards and page evidence in the existing state.
+    state.setdefault("recent_attempt_history", []).append({
+        "reason":"RECENT_CROSS_PAGE_OVERLAP_OR_ID_MISMATCH",
+        "archived_at":now.isoformat(),
+        "detected_at":state["recent_overlap_detected_at"],
+        "recent_ids":state.get("recent_ids") or [],
+        "recent_rows":state.get("recent_rows") or {},
+        "pages":[row for row in state.get("pages", []) if row.get("lane") == "recent"]
+    })
+    state["recent_overlap_restart_count"] = 1
+    state["pages"] = [row for row in state.get("pages", []) if row.get("lane") != "recent"]
+    state["recent_ids"] = []
+    state["recent_rows"] = {}
+    state.pop("recent_overlap_detected_at", None)
+    state["recent_done"] = False
+    state["status"] = "RUNNING"
+    atomic(STATE,state)
+    return set()
+
 def do_bootstrap(state, recent_page_budget=5):
+    # Evaluate completed-but-inconsistent states before opening a browser.
+    if not state.get('recent_done') and state.get('first_done'):
+        prepare_recent_capture(state, datetime.now(timezone.utc))
     with RawCDPSkill(PROFILE,owner="flippa-stage-bootstrap-20261013",keep_running=False,new_page=True,close_page_on_exit=True,priority="auth") as s:
         p=s.page
         if not state["first_done"]:
@@ -134,10 +195,7 @@ def do_bootstrap(state, recent_page_budget=5):
         if not state["recent_done"]:
             # Reuse only verified complete pages. Avoid re-requesting successfully
             # saved pages after an unrelated later page hits HTTP 403/429.
-            completed = {int(row["page"]) for row in state.get("pages", [])
-                         if row.get("lane") == "recent" and row.get("status") == 200
-                         and row.get("challenge") == "NONE" and int(row.get("count") or 0) == 100
-                         and int(row.get("page") or 0) in range(1, 6)}
+            completed = prepare_recent_capture(state, datetime.now(timezone.utc))
             pages_this_run = 0
             for page_no in range(1, 6):
                 if page_no in completed:
@@ -163,15 +221,18 @@ def do_bootstrap(state, recent_page_budget=5):
                     state["recent_ids"].append(r["id"])
                     state.setdefault("recent_rows",{})[r["id"]]=r
                 state["recent_ids"]=list(dict.fromkeys(state["recent_ids"]))
-                state["pages"].append({"lane":"recent","page":page_no,"status":st,"count":100,"challenge":ch})
+                state["pages"].append({"lane":"recent","page":page_no,"status":st,"count":100,"challenge":ch,
+                                       "ids":ids,"observed_at":datetime.now(timezone.utc).isoformat()})
                 completed.add(page_no)
                 pages_this_run+=1
                 atomic(STATE,state)
                 if page_no<5 and pages_this_run<recent_page_budget:
                     time.sleep(random.uniform(12,18))
-            complete=(len(completed)==5 and len(set(state["recent_ids"]))==500
-                      and len(state.get("recent_rows") or {})>=500)
+            complete=recent_capture_complete(state, completed)
             state["recent_done"]=complete
+            if completed == set(range(1, 6)) and not complete:
+                mark_recent_overlap(state, datetime.now(timezone.utc))
+                raise RuntimeError("STOP_RECENT_CROSS_PAGE_OVERLAP")
             atomic(STATE,state)
     print(json.dumps({"stage":"bootstrap","first_access_count":len(state["first_ids"]),"recent_count":len(state["recent_ids"]),"next_main_page":state["next_main_page"]}))
 
