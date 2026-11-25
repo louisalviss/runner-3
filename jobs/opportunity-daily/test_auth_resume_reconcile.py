@@ -20,7 +20,7 @@ class PostRecoveryReconciliation(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root=pathlib.Path(self.temp.name)
-        self.today=datetime.datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+        self.today=datetime.datetime(2026,11,25,9,0,tzinfo=ZoneInfo("Asia/Ho_Chi_Minh"))
         self.day=(self.today.date()-datetime.timedelta(days=1)).isoformat()
         names=["SEO","POST_ROOT","POST_OUT","MARKER","LOCK","POST_CHECKPOINT",
                "POST_ACCEPTANCE","POST_AUDIT"]
@@ -199,6 +199,15 @@ class PostRecoveryReconciliation(unittest.TestCase):
         now=self.today.replace(hour=9,minute=59)
         self.assertEqual(a.post_recovery_plan(now.date().isoformat(),now)["state"],
                          "WAIT_DAILY_ACCEPTANCE_WINDOW")
+
+
+    def test_after_daily_window_uses_today_ledger_for_previous_day(self):
+        self.today=self.today.replace(hour=10,minute=1)
+        self.ledger=a.POST_OUT/("gap-ledger-"+self.today.date().isoformat()+".json")
+        self.assertEqual(a.post_recovery_plan(self.day,self.today)["state"],"AUDIT_REQUIRED")
+        self.write_ledger()
+        self.assertEqual(a.post_recovery_plan(self.day,self.today)["state"],"ALREADY_RECONCILED")
+
 
 if __name__=="__main__":
     unittest.main(verbosity=2)
