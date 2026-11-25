@@ -23,6 +23,7 @@ import re
 import sys
 import time
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
@@ -43,7 +44,7 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 SIGNALS_OUT = OUT_DIR / "market-signals.json"
 HEALTH_OUT = OUT_DIR / "market-health.json"
 PREFILTER_OUT = OUT_DIR / "market-prefilter.json"
-SCANNER_VERSION = "2.3-nasdaq-raw-review"
+SCANNER_VERSION = "2.4-session-action-integrity"
 PREFILTER_SOURCE = "data/opportunity-radar/market-prefilter.json"
 D1_CHECKPOINT_BINDING = {
     "project": "opportunity-radar-v2",
@@ -244,7 +245,7 @@ def download_history(symbols: list[str]) -> dict[str, pd.DataFrame]:
                     interval="1d",
                     group_by="ticker",
                     auto_adjust=False,
-                    actions=False,
+                    actions=True,
                     progress=False,
                     threads=True,
                     timeout=30,
@@ -421,7 +422,7 @@ def recover_fresh_market_history(
             try:
                 raw = downloader(
                     list(mapping), start=start, end=end, interval="1d",
-                    group_by="ticker", auto_adjust=False, actions=False,
+                    group_by="ticker", auto_adjust=False, actions=True,
                     progress=False, threads=False, timeout=20,
                 )
             except Exception as exc:
@@ -518,6 +519,15 @@ def universe_recall_disposition(
     }
 
 
+@lru_cache(maxsize=16)
+def nyse_sessions_for_year(year: int) -> tuple[date, ...]:
+    # Share one exchange-calendar calculation across the full universe.
+    calendar = mcal.get_calendar("NYSE")
+    return tuple(calendar.valid_days(
+        start_date=f"{year}-01-01", end_date=f"{year}-12-31"
+    ).date)
+
+
 def price_metrics(df: pd.DataFrame) -> dict[str, Any]:
     raw_close = pd.to_numeric(df["Close"], errors="coerce")
     adj_available = "Adj Close" in df.columns
@@ -525,6 +535,41 @@ def price_metrics(df: pd.DataFrame) -> dict[str, Any]:
     aligned = pd.concat({"raw": raw_close, "adj": adj_close}, axis=1).dropna()
     if len(aligned) < 2:
         return {}
+
+    # Missing daily bars (including action-only rows) must not turn a
+    # multi-session move into a 1D or 5D return. Retain diagnostic prices.
+    aligned = aligned.loc[
+        aligned["raw"].map(lambda x: math.isfinite(float(x)) and x > 0)
+        & aligned["adj"].map(lambda x: math.isfinite(float(x)) and x > 0)
+    ]
+    if len(aligned) < 2:
+        return {}
+    dates = list(pd.DatetimeIndex(pd.to_datetime(aligned.index)).date)
+    first, last = min(dates), max(dates)
+    sessions = [
+        d for year in range(first.year, last.year + 1)
+        for d in nyse_sessions_for_year(year) if first <= d <= last
+    ]
+    ordered_unique = dates == sorted(set(dates))
+    def contiguous(n: int) -> bool:
+        return (ordered_unique and len(dates) >= n + 1
+                and len(sessions) >= n + 1
+                and dates[-n-1:] == sessions[-n-1:])
+    valid_1d, valid_5d, valid_20d = (contiguous(n) for n in (1, 5, 20))
+
+    # Check action-only rows as well as rows with valid prices. yfinance's
+    # adjusted column alone is not proof that ADS/split units agree.
+    split_dates = []
+    if "Stock Splits" in df.columns:
+        split = pd.to_numeric(df["Stock Splits"], errors="coerce")
+        split_dates = sorted({
+            pd.Timestamp(i).date() for i, value in split.items()
+            if pd.notna(value) and math.isfinite(float(value)) and value not in (0, 1)
+            and first <= pd.Timestamp(i).date() <= last
+        })
+    recent_start = dates[-6] if len(dates) >= 6 else dates[0]
+    recent_split = any(recent_start < d <= last for d in split_dates)
+    split_20d = len(dates) >= 21 and any(dates[-21] < d <= last for d in split_dates)
 
     raw = aligned["raw"]
     adj = aligned["adj"]
@@ -534,14 +579,14 @@ def price_metrics(df: pd.DataFrame) -> dict[str, Any]:
     adj_r1 = pct(last_adj, float(adj.iloc[-2]))
     gap = abs(raw_r1 - adj_r1) if raw_r1 is not None and adj_r1 is not None else None
 
-    corporate_action_suspected = bool(
+    corporate_action_suspected = recent_split or bool(
         adj_available
         and raw_r1 is not None
         and abs(raw_r1) >= abs(CFG["one_day_trigger_pct"])
         and gap is not None
         and gap >= CFG["corporate_action_gap_pp"]
     )
-    corporate_action_unverified = bool(
+    corporate_action_unverified = not valid_1d or bool(
         not adj_available
         and raw_r1 is not None
         and abs(raw_r1) >= CFG["corporate_action_unverified_raw_pct"]
@@ -598,11 +643,19 @@ def price_metrics(df: pd.DataFrame) -> dict[str, Any]:
         "intraday_extremes_verified": intraday_extremes_verified,
         "last_date": str(latest_idx.date()) if hasattr(latest_idx, "date") else str(latest_idx),
         "ret_1d_pct": adj_r1,
-        "ret_5d_pct": pct(last_adj, float(adj.iloc[-6])) if len(adj) >= 6 else None,
-        "ret_20d_pct": pct(last_adj, float(adj.iloc[-21])) if len(adj) >= 21 else None,
+        "ret_5d_pct": pct(last_adj, float(adj.iloc[-6])) if valid_5d else None,
+        "ret_20d_pct": pct(last_adj, float(adj.iloc[-21])) if valid_20d and not split_20d else None,
+        "session_window_1d_verified": valid_1d,
+        "session_window_5d_verified": valid_5d,
+        "session_window_20d_verified": valid_20d,
+        "stock_split_dates": [d.isoformat() for d in split_dates],
+        "price_integrity_reason": (
+            "EXPLICIT_SPLIT_IN_RECENT_WINDOW" if recent_split else
+            "MISSING_OR_NONCONSECUTIVE_SESSION" if not valid_1d else None
+        ),
         "raw_ret_1d_pct": raw_r1,
         "adjustment_gap_1d_pp": gap,
-        "adjustment_verified": adj_available,
+        "adjustment_verified": adj_available and valid_1d and not corporate_action_suspected and not corporate_action_unverified,
         "corporate_action_suspected": corporate_action_suspected,
         "corporate_action_unverified": corporate_action_unverified,
         "volume": latest_vol,
@@ -656,6 +709,8 @@ def enriched_record(listing: dict[str, Any], snap: dict[str, Any] | None, metric
 def sector_medians(records: dict[str, dict[str, Any]]) -> dict[str, float]:
     buckets: dict[str, list[float]] = {}
     for rec in records.values():
+        if rec.get("corporate_action_suspected") or rec.get("corporate_action_unverified"):
+            continue
         sector = rec.get("sector")
         r5 = num(rec.get("ret_5d_pct"))
         if sector and r5 is not None:

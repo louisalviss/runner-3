@@ -27,7 +27,9 @@ checkpoint = load_module("market_checkpoint_integrity", ROOT / "scripts" / "oppo
 
 
 def frame(last: str):
-    idx = pd.to_datetime(["2026-10-05", last])
+    end = pd.Timestamp(last)
+    prior = max(d for d in scanner.nyse_sessions_for_year(end.year) if d < end.date())
+    idx = pd.to_datetime([prior, end])
     return pd.DataFrame(
         {"Close": [100.0, 90.0], "Adj Close": [100.0, 90.0], "Volume": [100.0, 200.0]},
         index=idx,
@@ -125,6 +127,90 @@ class MarketSessionIntegrityTests(unittest.TestCase):
         m = scanner.price_metrics(df)
         self.assertTrue(m["corporate_action_suspected"])
         self.assertFalse(m["intraday_extremes_verified"])
+
+    def test_embj_split_and_missing_session_quarantined(self):
+        # Reproduce the structural fault, not a claim about original raw bytes.
+        idx = pd.to_datetime(["2026-11-13", "2026-11-16", "2026-11-17"])
+        df = pd.DataFrame({
+            "Close": [100., float("nan"), 24.0061],
+            "Adj Close": [100., float("nan"), 24.0061],
+            "Stock Splits": [0., 4., 0.],
+            "High": [101., float("nan"), 25.],
+            "Low": [99., float("nan"), 23.],
+            "Volume": [100., float("nan"), 300.],
+        }, index=idx)
+        m = scanner.price_metrics(df)
+        self.assertAlmostEqual(m["ret_1d_pct"], -75.9939)
+        self.assertFalse(m["session_window_1d_verified"])
+        self.assertTrue(m["corporate_action_suspected"])
+        self.assertTrue(m["corporate_action_unverified"])
+        self.assertFalse(m["adjustment_verified"])
+        self.assertFalse(m["intraday_extremes_verified"])
+        self.assertEqual(m["stock_split_dates"], ["2026-11-16"])
+        listings = {"EMBJ": {"symbol": "EMBJ", "name": "Embraer", "exchange": "NYSE"}}
+        signals, stats, records = scanner.build_anomalies(listings, {}, {"EMBJ": df}, {})
+        self.assertEqual(signals, [])
+        self.assertEqual(stats["corporate_action_suppressed"], 1)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["last_date"], "2026-11-17")
+
+    def test_missing_session_without_action_metadata_still_quarantined(self):
+        df = pd.DataFrame(
+            {"Close": [100., 24.], "Adj Close": [100., 24.], "Volume": [100., 300.]},
+            index=pd.to_datetime(["2026-11-13", "2026-11-17"]),
+        )
+        m = scanner.price_metrics(df)
+        self.assertFalse(m["session_window_1d_verified"])
+        self.assertTrue(m["corporate_action_unverified"])
+        self.assertFalse(m["adjustment_verified"])
+
+    def test_explicit_split_even_when_adj_close_matches_raw(self):
+        df = pd.DataFrame(
+            {"Close": [100., 25.], "Adj Close": [100., 25.],
+             "Stock Splits": [0., 4.], "Volume": [100., 300.]},
+            index=pd.to_datetime(["2026-11-13", "2026-11-16"]),
+        )
+        m = scanner.price_metrics(df)
+        self.assertTrue(m["session_window_1d_verified"])
+        self.assertTrue(m["corporate_action_suspected"])
+        self.assertFalse(m["adjustment_verified"])
+
+    def test_true_large_move_on_consecutive_sessions_not_suppressed(self):
+        df = pd.DataFrame(
+            {"Close": [100., 24.], "Adj Close": [100., 24.],
+             "Stock Splits": [0., 0.], "Volume": [100., 300.]},
+            index=pd.to_datetime(["2026-11-13", "2026-11-16"]),
+        )
+        m = scanner.price_metrics(df)
+        self.assertTrue(m["session_window_1d_verified"])
+        self.assertFalse(m["corporate_action_suspected"])
+        self.assertFalse(m["corporate_action_unverified"])
+        self.assertTrue(m["adjustment_verified"])
+
+    def test_holiday_does_not_create_false_gap(self):
+        df = pd.DataFrame(
+            {"Close": [100., 90.], "Adj Close": [100., 90.],
+             "Volume": [100., 300.]},
+            index=pd.to_datetime(["2026-11-25", "2026-11-27"]),
+        )
+        self.assertTrue(scanner.price_metrics(df)["session_window_1d_verified"])
+
+    def test_five_day_return_requires_five_actual_sessions(self):
+        idx = pd.to_datetime(["2026-11-09", "2026-11-10", "2026-11-11",
+                              "2026-11-12", "2026-11-16", "2026-11-17"])
+        df = pd.DataFrame({"Close": [100., 100., 100., 100., 90., 90.],
+                           "Adj Close": [100., 100., 100., 100., 90., 90.],
+                           "Volume": [100.] * 6}, index=idx)
+        m = scanner.price_metrics(df)
+        self.assertTrue(m["session_window_1d_verified"])
+        self.assertFalse(m["session_window_5d_verified"])
+        self.assertIsNone(m["ret_5d_pct"])
+
+    def test_quarantined_rows_do_not_contaminate_sector_median(self):
+        records = {str(i): {"sector": "S", "ret_5d_pct": float(i)} for i in range(5)}
+        records["split"] = {"sector": "S", "ret_5d_pct": -76.,
+                            "corporate_action_suspected": True}
+        self.assertEqual(scanner.sector_medians(records), {"S": 2.})
 
     def test_nasdaq_raw_shock_probe_is_review_only_and_session_verified(self):
         class Response:
