@@ -111,4 +111,15 @@ class DailyGates(unittest.TestCase):
    self.assertEqual(names[:2],["d6.com","d7.com"])
    self.assertFalse(any(r["verdict"]=="DROP" for r in rows))
   finally:m.read_seo,m.read_flippa=original_seo,original_flippa
+
+ def test_evidence_ranking_beats_discovery(self):
+  rows=[{"identity":"high.com","verdict":"WATCH_DD","score":999},{"identity":"paid.com","verdict":"WATCH_DD","score":1}]
+  q={"candidates":[{"identity":"high.com","source":"SEOTRENDS","category":"DEFER","evidence":{}},{"identity":"paid.com","source":"SEOTRENDS","category":"BUILD_DD","evidence":{"candidate_wedge_evidence_complete":True,"site_product_review_complete":True}}]}
+  ranked,suppressed=m.seo_research_selection("2026-11-26",{"items":rows},q,self.d,self.d)
+  self.assertEqual([x["identity"] for x in ranked],["paid.com","high.com"])
+  self.assertEqual(suppressed,[])
+ def test_missing_or_invalid_archive_does_not_suppress(self):
+  self.assertFalse(m.seo_reviewed_match("2026-11-26","example.com",{},self.d,self.d))
+  self.assertFalse(m.seo_reviewed_match("2026-11-26","example.com",{"semantic_cycle_dispositions":[{"identity":"example.com","source":"SEOTRENDS","day":"2026-11-25","semantic_review_ref":{"file":"2026-11-25-semantic-business-dd.json","sha256":"invalid"}}]},self.d,self.d))
+
 if __name__=="__main__":unittest.main(verbosity=2)
