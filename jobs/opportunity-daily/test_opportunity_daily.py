@@ -122,7 +122,7 @@ class DailyGates(unittest.TestCase):
   self.assertFalse(m.seo_reviewed_match("2026-11-26","example.com",{},self.d,self.d))
   self.assertFalse(m.seo_reviewed_match("2026-11-26","example.com",{"semantic_cycle_dispositions":[{"identity":"example.com","source":"SEOTRENDS","day":"2026-11-25","semantic_review_ref":{"file":"2026-11-25-semantic-business-dd.json","sha256":"invalid"}}]},self.d,self.d))
 
-def test_terminal_degraded_blocked_is_not_watch(self):
+ def test_terminal_degraded_blocked_is_not_watch(self):
   original=m.SEO
   try:
    m.SEO=self.d
