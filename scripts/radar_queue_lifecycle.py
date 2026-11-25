@@ -724,7 +724,7 @@ def _due_source_catalysts(state, latest_market_session):
     return [task for _, task in ranked]
 
 
-def _same_packet_research_attempts(state):
+def _same_packet_research_attempts(state, *, earlier=False):
     """Read existing bounded research receipts; never infer completed underwriting."""
     queue = state.get("reverse_queue_v2") or {}
     session = queue.get("latest_completed_price_session")
@@ -735,8 +735,18 @@ def _same_packet_research_attempts(state):
     for key, batch in sorted(state.items()):
         if not isinstance(batch, dict):
             continue
-        if (batch.get("source_session") != session or
-                batch.get("prefilter_sha256") != sha):
+        batch_session, batch_sha = batch.get("source_session"), batch.get("prefilter_sha256")
+        if earlier:
+            try:
+                if (not isinstance(batch_session, str) or len(batch_session) != 10 or
+                        datetime.strptime(batch_session, "%Y-%m-%d").date() >=
+                        datetime.strptime(session, "%Y-%m-%d").date() or
+                        not isinstance(batch_sha, str) or len(batch_sha) != 64 or
+                        any(c not in "0123456789abcdef" for c in batch_sha)):
+                    continue
+            except (TypeError, ValueError):
+                continue
+        elif batch_session != session or batch_sha != sha:
             continue
         if (key.startswith("orv3_selected_economic_batch_continuation_") and
                 batch.get("schema") == "bounded_selected_economic_batch_progress_v1"):
@@ -790,8 +800,8 @@ def _same_packet_research_attempts(state):
                     continue
                 gate = "NORMALIZED_FCF_BEAR_UPSIDE_NET_RR_VENUE"
             if isinstance(url, str) and url.startswith("https://") and isinstance(gate, str):
-                receipts.setdefault(event_id, []).append(
-                    (row.get("symbol"), url, gate, blocker))
+                item = (row.get("symbol"), url, gate, blocker)
+                receipts.setdefault(event_id, []).append(item + (batch_session,) if earlier else item)
     return receipts
 
 
@@ -804,6 +814,20 @@ def _mark_prior_research_attempt(task, receipts):
             task["prior_research_blocker"] = blocker
             return True
     return False
+
+
+def _prior_packet_research_session(task, receipts):
+    """History is prioritization context only; never certify a current quote."""
+    matches = [(day, blocker) for symbol, url, gate, blocker, day in
+               receipts.get(task.get("event_id"), [])
+               if symbol == task.get("symbol") and url == task.get("existing_source_url")
+               and gate == task.get("next_gate")]
+    if not matches:
+        return ""
+    day, blocker = max(matches)
+    task["previous_packet_research_session"] = day
+    task.setdefault("prior_research_blocker", blocker)
+    return day
 
 
 def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, cheap_screen=None):
@@ -908,11 +932,15 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
                         str(rec.get("source_session_date") or ""),
                         str(task["event_id"])), task))
     receipts = _same_packet_research_attempts(state)
-    ranked.sort(key=lambda x: (_mark_prior_research_attempt(x[1], receipts), x[0]))
+    history = _same_packet_research_attempts(state, earlier=True)
+    ranked.sort(key=lambda x: (_mark_prior_research_attempt(x[1], receipts),
+                               x[0][0], _prior_packet_research_session(x[1], history),
+                               x[0][1:]))
     queue = state.get("reverse_queue_v2") or {}
     due_source = _due_source_catalysts(
         state, queue.get("latest_completed_price_session"))
-    due_source.sort(key=lambda task: _mark_prior_research_attempt(task, receipts))
+    due_source.sort(key=lambda task: (_mark_prior_research_attempt(task, receipts),
+                                      _prior_packet_research_session(task, history)))
     # At most 3 independently sourced issuer cases consume the SAME eight
     # research slots; the other slots remain for existing price cases. One
     # issuer per pass avoids crowding out unrelated firms, not deduping phases.
@@ -969,6 +997,7 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
         "selected_count": len(worklist),
         "selected_same_packet_attempted": sum(bool(x.get("same_packet_research_attempted")) for x in worklist),
         "selected_fresh_attempts": sum(not x.get("same_packet_research_attempted") for x in worklist),
+        "selected_previous_packet_attempts": sum(bool(x.get("previous_packet_research_session")) for x in worklist),
         "not_selected_active": max(0, active - len(selected_price)),
         "next_full_daily_intake_needs_closeouts": max(0, active + day_new - cap),
         "saturates_cap_if_next_full_daily_intake": active + day_new >= cap,
@@ -976,6 +1005,7 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
                            "issuer event (at most 3 source slots) -> PIT price "
                            "economics -> existing price case. Within each lane, fresh "
                            "same-packet work precedes documented repeat attempts; "
+                           "within price evidence tiers, untouched gates then oldest prior attempts; "
                            "unresolved work remains eligible. Source-only cases "
                            "do not consume ACTIVE=40; newest deferred price "
                            "shock stays diagnostic only."),
