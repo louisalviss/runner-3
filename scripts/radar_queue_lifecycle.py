@@ -771,9 +771,23 @@ def _same_packet_research_attempts(state):
                 old = row.get("original_evidence") or {}
                 if row.get("decision") != "NO_NEW_TRADE_RESEARCH_ONLY":
                     continue
-                if not isinstance(old, dict) or old.get("event_id") != event_id or not event_id.startswith("O2G|"):
+                if not isinstance(old, dict) or not event_id.startswith("O2G|"):
                     continue
-                url = old.get("source_url") or old.get("sec_exhibit_or_full_primary_text_url")
+                if old.get("event_id") == event_id:
+                    url = old.get("source_url") or old.get("sec_exhibit_or_full_primary_text_url")
+                elif not old:
+                    # Legacy receipt lists the exact exhibit rather than embedding it.
+                    active = (state.get("opportunity_to_global") or {}).get(event_id) or {}
+                    econ, _ = _economic_evidence_for_case(state, event_id, active)
+                    url = econ.get("sec_exhibit_or_full_primary_text_url")
+                    sources = row.get("sources")
+                    if (active.get("event_id") != event_id or
+                            active.get("symbol") != row.get("symbol") or
+                            active.get("source_session_date") != row.get("source_session_original") or
+                            not isinstance(sources, list) or url not in sources):
+                        continue
+                else:
+                    continue
                 gate = "NORMALIZED_FCF_BEAR_UPSIDE_NET_RR_VENUE"
             if isinstance(url, str) and url.startswith("https://") and isinstance(gate, str):
                 receipts.setdefault(event_id, []).append(
