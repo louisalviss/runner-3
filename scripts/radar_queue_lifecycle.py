@@ -953,10 +953,19 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
     # At most 3 independently sourced issuer cases consume the SAME eight
     # research slots; the other slots remain for existing price cases. One
     # issuer per pass avoids crowding out unrelated firms, not deduping phases.
-    source_limit = min(len(due_source), min(3, max(1, limit // 2)))
+    # A receipt is not a closeout; retain unresolved cases but do not spend
+    # another research slot on the same event/source/gate merely to fill a batch.
+    # Across packets the existing history also blocks unchanged work; a changed
+    # event identity, source or gate remains eligible.
+    def unchanged_attempt(task):
+        return bool(task.get("same_packet_research_attempted") or
+                    task.get("previous_packet_research_session"))
+    fresh_source = [task for task in due_source if not unchanged_attempt(task)]
+    fresh_price = [task for _, task in ranked if not unchanged_attempt(task)]
+    source_limit = min(len(fresh_source), min(3, max(1, limit // 2)))
     selected_source = []
     selected_issuers = set()
-    for case in due_source:
+    for case in fresh_source:
         if len(selected_source) >= source_limit:
             break
         symbols = set(case.get("review_symbols") or ([case["symbol"]] if case.get("symbol") else []))
@@ -964,7 +973,7 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
             continue
         selected_source.append(case)
         selected_issuers.update(symbols)
-    selected_price = [task for _, task in ranked[:limit - len(selected_source)]]
+    selected_price = fresh_price[:limit - len(selected_source)]
     worklist = selected_source + selected_price
     # Inspect the newest deferred shock cheaply even when ACTIVE is full;
     # never convert an unverified price-only event to a numeric underwrite.
@@ -991,8 +1000,13 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
     day_new = queue.get("max_new_per_day", DAILY_LIMIT)
     return {
         "schema": "reverse-research-worklist-v1",
-        "status": ("RESEARCH_BACKLOG_OPEN" if (active or due_source)
+        "status": ("RESEARCH_BACKLOG_OPEN" if worklist
+                   else "WAITING_CHANGED_EVIDENCE_OR_GATE" if (active or due_source)
                    else "NO_ACTIVE_RESEARCH_CASES"),
+        "fresh_price_research_due": len(fresh_price),
+        "fresh_source_research_due": len(fresh_source),
+        "unchanged_price_attempts_held": active - len(fresh_price),
+        "unchanged_source_attempts_held": len(due_source) - len(fresh_source),
         "active_pending": active,
         "source_only_catalyst_due": len(due_source),
         "source_only_catalyst_selected": len(selected_source),
@@ -1012,10 +1026,10 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
         "saturates_cap_if_next_full_daily_intake": active + day_new >= cap,
         "selection_rule": ("Verified FOLLOW catalyst -> new independently sourced "
                            "issuer event (at most 3 source slots) -> PIT price "
-                           "economics -> existing price case. Within each lane, fresh "
-                           "same-packet work precedes documented repeat attempts; "
-                           "within price evidence tiers, untouched gates then oldest prior attempts; "
-                           "unresolved work remains eligible. Source-only cases "
+                           "economics -> existing price case. Select only changed or "
+                           "unattempted event/source/gate; never fill unused slots with "
+                           "unchanged attempts across current or prior packets. "
+                           "Unresolved cases stay visible without automatic repetition. Source-only cases "
                            "do not consume ACTIVE=40; newest deferred price "
                            "shock stays diagnostic only."),
         "worklist": worklist,
