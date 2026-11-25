@@ -216,5 +216,52 @@ class ReviewedCutoverTests(unittest.TestCase):
             self.assertEqual(len(run()[0]),3)
 
 
+
+    def test_six_reference_reviews_are_dated_and_separate(self):
+        from reviewed_cutover import REFERENCE_REVIEWS, reference_review
+        self.assertEqual(len(REFERENCE_REVIEWS),6)
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp)
+            candidates=[dict(identity="flippa:"+i,source="FLIPPA",category="REFERENCE_ONLY",title=i) for i in REFERENCE_REVIEWS]
+            original=json.dumps(candidates)
+            before=backlog.build_backlog("2026-11-24",root=root,report_root=root,current_candidates=candidates)
+            after=backlog.build_backlog("2026-11-25",root=root,report_root=root,current_candidates=candidates)
+            ids=set(REFERENCE_REVIEWS)
+            self.assertEqual({x["id"] for x in before["active"]}&ids,ids)
+            self.assertEqual({x["id"] for x in after["active"]}&ids,{"14803487"})
+            self.assertEqual({x["id"] for x in after["reference_dropped"]},{"14742170","14784037","14809474","14816607"})
+            self.assertEqual({x["id"] for x in after["reference_deferred"]},{"14773340"})
+            self.assertFalse({x["id"] for x in after["closed_historical"]}&ids)
+            self.assertEqual(after["manual_reference_reviewed_count"],6)
+            self.assertEqual(json.dumps(candidates),original)
+            self.assertEqual((after["approved_buy"],after["approved_build"]),(0,0))
+            self.assertEqual(before["manual_reference_reviewed_count"],0)
+            self.assertIsNone(reference_review("flippa:14742170","2026-11-24"))
+            self.assertEqual(len(reviewed_processed_ids("2026-11-25")),87)
+            reopened=dict(candidates[0],category="BUILD_DD",evidence=dict(
+                verified_direct_listing=True,asset_site_review_complete=True,
+                asset_domain_identity_verified=True,build_serp_gap_verified=True))
+            (root/"2026-11-24-research-queue.json").write_text(json.dumps({"qualification":{"candidates":candidates}}))
+            later=backlog.build_backlog("2026-11-26",root=root,report_root=root,current_candidates=[reopened])
+            row=next(x for x in later["active"] if x["id"]==reopened["identity"].split(":")[1])
+            self.assertEqual(row["reference_reopened_on"],"2026-11-26")
+            self.assertEqual(row["research_lane"],"BUILD_DD")
+            self.assertEqual(later["reference_dropped_count"],3)
+            self.assertEqual(later["manual_reference_reviewed_count"],6)
+
+    def test_reference_dedup_does_not_block_later_verified_gap(self):
+        from reviewed_cutover import REFERENCE_REVIEWS
+        from unittest.mock import patch
+        for i in REFERENCE_REVIEWS:
+            row={"identity":"flippa:"+i,"ask_card":1}
+            self.assertFalse(is_manual_review_duplicate(row,"2026-11-24"))
+            self.assertTrue(is_manual_review_duplicate(row,"2026-11-25"))
+            self.assertTrue(is_manual_review_duplicate(dict(row,verified_detail=True,asking_verified=10),"2026-11-26"))
+            with patch("build_buy_decision.verified_flippa_site_review",return_value=True),patch("build_buy_decision.verified_flippa_build_gap",return_value=True):
+                self.assertFalse(is_manual_review_duplicate(dict(row,verified_detail=True),"2026-11-26"))
+                self.assertTrue(is_manual_review_duplicate(dict(row,verified_detail=True),"2026-11-25"))
+        self.assertFalse(is_manual_review_duplicate({"identity":"flippa:99999999"},"2026-11-26"))
+
+
 if __name__ == "__main__":
     unittest.main()

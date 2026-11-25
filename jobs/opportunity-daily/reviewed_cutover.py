@@ -57,6 +57,66 @@ MANUAL_REVIEW_DAY = "2026-11-25"
 MANUAL_REVIEWED_IDS = frozenset({"13817253", "14903899"})
 
 
+
+# Existing canonical Acquisition - Idea Radar.md, revision 016611b3a06f96b000000034da19313.
+REFERENCE_REVIEW_DAY = "2026-11-25"
+REFERENCE_REVIEW_REF = "ACQUISITION_FLIPPA_SIX_REFERENCE_REVIEW_20261125"
+REFERENCE_REVIEWS = {
+    "14742170": ("DROP", "Free niche calculators/content; no proven paid wedge or audited profit."),
+    "14784037": ("DROP", "Local parking affiliate content; transferable conversion and profit unverified."),
+    "14773340": ("DEFER", "Verify exact asset domain, ownership/rights and financial evidence."),
+    "14803487": ("WATCH", "Verify source-linked domain, lead quality, conversion, referral contracts and net profit."),
+    "14809474": ("DROP", "Generic screenshot tutorials; high substitution exposure and no audited profit."),
+    "14816607": ("DROP", "Blog and printables; no demonstrated paid differentiation or audited profit."),
+}
+
+def reference_review(identity, day):
+    try:
+        if datetime.date.fromisoformat(day) < datetime.date.fromisoformat(REFERENCE_REVIEW_DAY):
+            return None
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(identity,str) or not identity.startswith("flippa:"):
+        return None
+    result = REFERENCE_REVIEWS.get(identity.removeprefix("flippa:"))
+    if result is None:
+        return None
+    return {"decision":result[0],"reason":result[1],"reviewed_on":REFERENCE_REVIEW_DAY,
+            "review_ref":REFERENCE_REVIEW_REF,"marketplace_status_verified":False}
+
+def reference_reopen_evidence(row, day):
+    """Later material evidence only; card movement alone is insufficient."""
+    review=reference_review(row.get("identity"),day)
+    if not review or day <= REFERENCE_REVIEW_DAY or row.get("verified_detail") is not True:
+        return False
+    from build_buy_decision import verified_flippa_site_review, verified_flippa_build_gap, positive_number
+    site_ok=verified_flippa_site_review(row)
+    if not site_ok:
+        return False
+    if verified_flippa_build_gap(row,site_ok):
+        return True
+    # A newly source-bound site review is directly relevant to the unresolved
+    # domain/workflow questions for the two retained references.
+    if review["decision"] in ("DEFER","WATCH"):
+        return True
+    price=next((positive_number(row.get(k)) for k in ("bin_verified","reserve_verified","asking_verified")
+                if positive_number(row.get(k)) is not None),None)
+    # This is a new credible BUY review hypothesis, NOT audited earnings.
+    return bool(price is not None and price<=10000 and (positive_number(row.get("profit_card")) or 0)>=250)
+
+def qualified_reference_reopened(item, day):
+    """Only later normal qualification output can reopen the carried backlog."""
+    if not reference_review(item.get("identity"),day) or day <= REFERENCE_REVIEW_DAY:
+        return False
+    e=item.get("evidence") or {}
+    return (item.get("source")=="FLIPPA" and item.get("category") in ("BUY_DD","BUILD_DD","DUAL_DD")
+            and e.get("verified_direct_listing") is True and e.get("asset_site_review_complete") is True
+            and e.get("asset_domain_identity_verified") is True
+            and (e.get("build_serp_gap_verified") is True or
+                 (e.get("price_within_cap") is True and
+                  isinstance(e.get("profit_card_usd_per_month"),(int,float)) and
+                  e["profit_card_usd_per_month"]>=250)))
+
 def is_manual_review_duplicate(row: dict, day: str) -> bool:
     """Suppress repetitive card-only review; allow new direct commercial evidence.
 
@@ -73,6 +133,8 @@ def is_manual_review_duplicate(row: dict, day: str) -> bool:
     identity = row.get("identity")
     if not isinstance(identity, str) or not identity.startswith("flippa:"):
         return False
+    if reference_review(identity, day):
+        return not reference_reopen_evidence(row, day)
     if identity.removeprefix("flippa:") not in MANUAL_REVIEWED_IDS:
         return False
     # Allow a new verified evidence record to reach the normal qualification
