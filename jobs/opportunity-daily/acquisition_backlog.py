@@ -12,7 +12,7 @@ import json
 import pathlib
 import re
 from ai_substitution_gate import review_for_candidate
-from reviewed_cutover import reviewed_processed_ids, CUTOVER_DAY
+from reviewed_cutover import reviewed_processed_ids, CUTOVER_DAY, reference_review, qualified_reference_reopened
 
 ROOT = pathlib.Path('/var/lib/acquisition-radar-scan')
 OUT = pathlib.Path('/var/lib/opportunity-daily')
@@ -237,6 +237,10 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None, revi
                             'next_dd_gate':'; '.join((item.get('missing') or [])[:2])[:220],
                             'origin':'HISTORICAL_DAILY_DD','status':'DD_PENDING' if 'DD' in item['category'] else 'WATCH_OR_REFERENCE',
                             'approved_buy':False,'approved_build':False}
+            if qualified_reference_reopened(item,source_day):
+                rows[ident].update(research_lane=item['category'],status='DD_PENDING',
+                                   source_decision_as_of=source_day,reference_reopened_on=source_day,
+                                   next_dd_gate='; '.join((item.get('missing') or [])[:2])[:220])
     audit=historical_audits(day) if root==ROOT else {}
     active=[]
     for ident,item in rows.items():
@@ -324,7 +328,22 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None, revi
                 'approved_buy':False,'approved_build':False})
         else:
             fresh.append(item)
-    active=fresh
+    active=[]; reference_dropped=[]; reference_deferred=[]; reference_reviewed=[]
+    for item in fresh:
+        review=reference_review(item['identity'],day)
+        if not review:
+            active.append(item);continue
+        item=dict(item,manual_reference_review=review)
+        reference_reviewed.append({'id':item['id'],'identity':item['identity'],**review,
+                                   'reopened_on':item.get('reference_reopened_on')})
+        if item.get('reference_reopened_on'):
+            active.append(item);continue
+        item['next_dd_gate']=review['reason']
+        if review['decision']=='DROP':
+            reference_dropped.append(dict(item,status='REFERENCE_DROP_THIS_CYCLE'));continue
+        if review['decision']=='DEFER':
+            reference_deferred.append(dict(item,status='REFERENCE_DEFERRED'));continue
+        active.append(dict(item,research_lane='REFERENCE_ONLY',status='WATCH_OR_REFERENCE'))
     closed=[{'id':ident,'name':name,'last_direct_status':status,
              'last_direct_confirmation_as_of':'2026-10-07','status':'CLOSED_HISTORICAL'}
             for ident,(name,status) in sorted(CLOSED.items())
@@ -339,6 +358,10 @@ def build_backlog(day, root=ROOT, report_root=OUT, current_candidates=None, revi
             'active_count':len(active),'closed_historical_count':len(closed),
             'reviewed_archived_count':len(archived_reviewed),
             'reviewed_archived':archived_reviewed,
+            'manual_reference_reviewed_count':len(reference_reviewed),
+            'manual_reference_reviewed':reference_reviewed,
+            'reference_dropped_count':len(reference_dropped),'reference_dropped':reference_dropped,
+            'reference_deferred_count':len(reference_deferred),'reference_deferred':reference_deferred,
             'review_cutover_date':CUTOVER_DAY if reviewed_ids else None,
             'approved_buy':0,'approved_build':0,
             'active':active,'closed_historical':closed,
@@ -365,6 +388,9 @@ def summarize(backlog, max_rows=18):
         '; recent-window snapshot: '+str(backlog.get('last_scoped_recent_scan'))+
         '. Missing from Recent-500 is **not** SOLD/ENDED.',
         '- Completed review cohort stays in reviewed_archived with source evidence; only new candidates after 2026-11-12 remain active. Not SOLD, not deleted, not automatically rejected.',
+        '- Separate manual reference review: '+str(backlog.get('manual_reference_reviewed_count',0))+
+        ' reviewed; '+str(backlog.get('reference_dropped_count',0))+' DROP this cycle; '+
+        str(backlog.get('reference_deferred_count',0))+' DEFER (not marketplace closures).',
         '- These are historical research statuses, **not** current listing availability or verified financials.',
         '- AI substitution rejected BUY/BUILD research entries: '+
             str(sum(x.get('ai_substitution_status')=='HIGH' for x in (backlog.get('active') or [])))+
@@ -379,4 +405,6 @@ def summarize(backlog, max_rows=18):
                      ' | '+row['recent_500_presence']+' | '+gate+' |')
     rem=max(0,len(backlog.get('active') or [])-max_rows)
     if rem: lines.append('\n- '+str(rem)+' other carried entries remain in the structured backlog; not silently deleted.')
+    for row in (backlog.get('reference_deferred') or []):
+        lines.append('- DEFER: ['+str(row['name']).replace('|','/')+']('+row['url']+') — '+row['next_dd_gate'])
     return '\n'.join(lines)+'\n'
