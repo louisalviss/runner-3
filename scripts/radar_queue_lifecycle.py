@@ -799,7 +799,16 @@ def _same_packet_research_attempts(state, *, earlier=False):
                 else:
                     continue
                 gate = "NORMALIZED_FCF_BEAR_UPSIDE_NET_RR_VENUE"
-            if isinstance(url, str) and url.startswith("https://") and isinstance(gate, str):
+            # A missing-source investigation is an attempted gate, not verified source evidence.
+            # Match only explicit null URL + original exact event/session/security; a later URL is fresh.
+            active = (state.get("opportunity_to_global") or {}).get(event_id) or {}
+            missing_source_attempt = (selected and url is None and
+                "existing_source_url" in old and gate == "VERIFY_DATED_PRIMARY_SOURCE" and
+                event_id.startswith("O2G|") and active.get("event_id") == event_id and
+                isinstance(row.get("symbol"), str) and active.get("symbol") == row.get("symbol") and
+                bool(active.get("source_session_date")) and
+                active.get("source_session_date") == old.get("source_session_date"))
+            if (missing_source_attempt or (isinstance(url, str) and url.startswith("https://"))) and isinstance(gate, str):
                 item = (row.get("symbol"), url, gate, blocker)
                 receipts.setdefault(event_id, []).append(item + (batch_session,) if earlier else item)
     return receipts
