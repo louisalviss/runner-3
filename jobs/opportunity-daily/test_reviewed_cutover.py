@@ -135,5 +135,35 @@ class ReviewedCutoverTests(unittest.TestCase):
         self.assertEqual(len(data["flippa"]["new"]),7)
 
 
+
+    def test_preliminary_triage_is_source_bound_and_not_resolution(self):
+        import audit_gap_ledger as audit
+        from unittest.mock import patch
+        self.assertEqual(len(audit.SEO64_TRIAGE),64)
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp)
+            ident="deciphertools.com"
+            day,sha,group=audit.SEO64_TRIAGE[ident]
+            row=dict(identity=ident,source="SEOTRENDS",day=day,category="BUILD_DD",approved=False)
+            hashes={day:audit.SEO64_REPORT_HASHES[day]}
+            with patch.object(audit,"sourcehash",return_value=sha):
+                result=audit.annotate_preliminary_triage([row],"2026-11-25",root,hashes)[0]
+                self.assertEqual(result["preliminary_triage"]["group"],group)
+                self.assertFalse(result["preliminary_triage"]["semantic_dd_complete"])
+                self.assertEqual(result["category"],"BUILD_DD")
+                self.assertFalse(result["approved"])
+                self.assertNotIn("preliminary_triage",row)
+                for changed,end,hs in [
+                    (row,"2026-11-24",hashes),
+                    (dict(row,day="2026-11-26"),"2026-11-26",hashes),
+                    (dict(row,source="FLIPPA"),"2026-11-25",hashes),
+                    (row,"2026-11-25",{day:"changed"}),
+                    (row,"2026-11-25",{}),
+                ]:
+                    self.assertNotIn("preliminary_triage",audit.annotate_preliminary_triage([changed],end,root,hs)[0])
+            with patch.object(audit,"sourcehash",return_value="changed"):
+                self.assertNotIn("preliminary_triage",audit.annotate_preliminary_triage([row],"2026-11-25",root,hashes)[0])
+
+
 if __name__ == "__main__":
     unittest.main()
