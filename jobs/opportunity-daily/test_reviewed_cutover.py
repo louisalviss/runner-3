@@ -5,7 +5,7 @@ import pathlib
 import json
 import unittest
 import acquisition_backlog as backlog
-from reviewed_cutover import reviewed_processed_ids, is_reviewed_prior_listing
+from reviewed_cutover import reviewed_processed_ids, is_reviewed_prior_listing, is_manual_review_duplicate
 from build_buy_decision import qualify
 
 
@@ -67,6 +67,31 @@ class ReviewedCutoverTests(unittest.TestCase):
     def test_old_listing_absence_is_not_sold(self):
         self.assertNotIn("00000000",reviewed_processed_ids("2026-11-12"))
         self.assertFalse(is_reviewed_prior_listing("flippa:98765123","2026-11-12"))
+
+
+
+    def test_manual_review_date_scope_and_reopen(self):
+        app={"identity":"flippa:13817253","ask_card":0,"profit_card":648}
+        y={"identity":"flippa:14903899","ask_card":699}
+        self.assertFalse(is_manual_review_duplicate(app,"2026-11-24"))
+        self.assertTrue(is_manual_review_duplicate(app,"2026-11-25"))
+        self.assertTrue(is_manual_review_duplicate(y,"2026-11-26"))
+        self.assertTrue(is_manual_review_duplicate(dict(app,ask_card=4000),"2026-11-26"))
+        self.assertTrue(is_manual_review_duplicate(dict(app,verified_detail=True,asking_verified=4000),"2026-11-26"))
+        self.assertFalse(is_manual_review_duplicate(dict(app,verified_detail=True,asking_verified=4000,profit_independently_verified=True),"2026-11-26"))
+        self.assertFalse(is_manual_review_duplicate(dict(y,verified_detail=True,asset_domain_verified=True,independent_build_gap={"source":"fixture"}),"2026-11-26"))
+        self.assertFalse(is_manual_review_duplicate({"identity":"flippa:99999999"},"2026-11-26"))
+        self.assertEqual(len(reviewed_processed_ids("2026-11-26")),87)
+
+    def test_manual_review_suppressed_in_qualification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            seo={"provider_status":"PASS","terminal_status":"PASS","source_complete":True,"items":[]}
+            fl={"status":"BLOCKED_SOURCE","new":[{"identity":"flippa:13817253"},{"identity":"flippa:14903899"},{"identity":"flippa:99999999"}]}
+            v=qualify("2026-11-25",seo,fl,root=pathlib.Path(tmp))
+            self.assertEqual(v["archived_reviewed_suppressed"],2)
+            self.assertEqual(v["evaluated"],1)
+            self.assertEqual(v["status"],"PARTIAL_BLOCKED")
+            self.assertEqual((v["approved_buy"],v["approved_build"]),(0,0))
 
 
 if __name__ == "__main__":
