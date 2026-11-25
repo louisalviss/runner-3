@@ -440,5 +440,40 @@ class SamePacketResearchReceiptTests(unittest.TestCase):
             candidate[batch_key]["selected_results"][0][field] = True
             self.assertEqual(_same_packet_research_attempts(candidate), {})
 
+
+    def test_legacy_receipt_requires_exact_exhibit_and_original_session(self):
+        from radar_queue_lifecycle import (_same_packet_research_attempts,
+                                           _mark_prior_research_attempt)
+        sha = "d" * 64
+        eid = "O2G|legacy"
+        url = "https://www.sec.gov/Archives/123/ex99.htm"
+        key = "orv3_remaining_deep_ready_economic_batch_20261125_v1"
+        state = {
+            "reverse_queue_v2": {"latest_completed_price_session": S13,
+                                 "latest_prefilter_sha256": sha},
+            "opportunity_to_global": {eid: {
+                "event_id": eid, "symbol": "X", "source_session_date": S12,
+                "issuer_economic_event_review_20261115_v1": {
+                    "source_verified_pit": True, "issuer_economic_mechanism_evaluated": True,
+                    "sec_exhibit_or_full_primary_text_url": url}}},
+            key: {"source_session": S13, "prefilter_sha256": sha,
+                  "decision": "research only", "prior_batch_sha256": "a" * 64,
+                  "results": [{"event_id": eid, "symbol": "X",
+                               "source_session_original": S12, "original_evidence": None,
+                               "sources": [url], "decision": "NO_NEW_TRADE_RESEARCH_ONLY",
+                               "blocker": "Normalize recurring owner cash flow and debt",
+                               "full_underwrite": False, "causality_certified": False}]}}
+        task = {"event_id": eid, "symbol": "X", "existing_source_url": url,
+                "next_gate": "NORMALIZED_FCF_BEAR_UPSIDE_NET_RR_VENUE"}
+        self.assertTrue(_mark_prior_research_attempt(copy.deepcopy(task),
+                                                     _same_packet_research_attempts(state)))
+        for field, value in [("source_session_original", S13), ("symbol", "Y"),
+                             ("sources", ["https://www.sec.gov/Archives/other"]),
+                             ("original_evidence", {"event_id": "O2G|other"})]:
+            altered = copy.deepcopy(state)
+            altered[key]["results"][0][field] = value
+            self.assertFalse(_mark_prior_research_attempt(copy.deepcopy(task),
+                                                          _same_packet_research_attempts(altered)))
+
 if __name__ == "__main__":
     unittest.main()
