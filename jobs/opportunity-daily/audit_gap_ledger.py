@@ -422,7 +422,7 @@ def reconcile_semantic_cycle(rows, end, seo_root, daily_evidence):
    data = j(path)
    cache[day] = (data, sourcehash(path))
   data, file_sha = cache[day]
-  if (not file_sha or data.get('date') != day
+  if (not file_sha or not isinstance(data,dict) or data.get('date') != day
       or data.get('source') != 'derived-semantic-dd-v1'
       or data.get('status') != 'PASS_SOURCE_PLUS_SEMANTIC_SCREEN'
       or data.get('coverage_scope') != 'selected_legacy_build_dd_identities_only_not_full_daily_shortlist'
