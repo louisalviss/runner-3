@@ -475,5 +475,39 @@ class SamePacketResearchReceiptTests(unittest.TestCase):
             self.assertFalse(_mark_prior_research_attempt(copy.deepcopy(task),
                                                           _same_packet_research_attempts(altered)))
 
+
+    def test_history_survives_new_market_session_without_current_certification(self):
+        from radar_queue_lifecycle import (_same_packet_research_attempts,
+                                           _prior_packet_research_session,
+                                           _mark_prior_research_attempt)
+        key = "orv3_selected_economic_batch_continuation_20261125_v1"
+        task = {"event_id": "O2G|older", "symbol": "X",
+                "existing_source_url": "https://www.sec.gov/Archives/123",
+                "next_gate": "NORMALIZED_FCF_BEAR_UPSIDE_NET_RR_VENUE"}
+        state = {
+            "reverse_queue_v2": {"latest_completed_price_session": S13,
+                                 "latest_prefilter_sha256": "c" * 64},
+            key: {"schema": "bounded_selected_economic_batch_progress_v1",
+                  "source_session": S12, "prefilter_sha256": "a" * 64,
+                  "selected_results": [{"event_id": task["event_id"], "symbol": "X",
+                      "original_worklist": copy.deepcopy(task),
+                      "blocker": "Independent normalized cashflow remains unresolved",
+                      "full_underwrite": False, "causality_certified": False, "buy_short": False}]}}
+        original = copy.deepcopy(state)
+        self.assertFalse(_mark_prior_research_attempt(task, _same_packet_research_attempts(state)))
+        self.assertEqual(_prior_packet_research_session(task,
+                         _same_packet_research_attempts(state, earlier=True)), S12)
+        self.assertEqual(state, original)
+        self.assertNotIn("same_packet_research_attempted", task)
+        for day, sha in [(S13, "a" * 64), ("2026-11-14", "a" * 64),
+                         ("2026-02-31", "a" * 64), (S12, "invalid")]:
+            altered = copy.deepcopy(state)
+            altered[key]["source_session"] = day
+            altered[key]["prefilter_sha256"] = sha
+            self.assertEqual(_same_packet_research_attempts(altered, earlier=True), {})
+        changed = dict(task, next_gate="NEW_ECONOMIC_GATE")
+        self.assertEqual(_prior_packet_research_session(changed,
+                         _same_packet_research_attempts(state, earlier=True)), "")
+
 if __name__ == "__main__":
     unittest.main()
