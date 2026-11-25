@@ -77,9 +77,10 @@ class ReviewedCutoverTests(unittest.TestCase):
         self.assertTrue(is_manual_review_duplicate(app,"2026-11-25"))
         self.assertTrue(is_manual_review_duplicate(y,"2026-11-26"))
         self.assertTrue(is_manual_review_duplicate(dict(app,ask_card=4000),"2026-11-26"))
-        self.assertTrue(is_manual_review_duplicate(dict(app,verified_detail=True,asking_verified=4000),"2026-11-26"))
+        self.assertFalse(is_manual_review_duplicate(dict(app,verified_detail=True,asking_verified=4000),"2026-11-26"))
+        self.assertTrue(is_manual_review_duplicate(dict(app,verified_detail=True,asking_verified=14000),"2026-11-26"))
         self.assertFalse(is_manual_review_duplicate(dict(app,verified_detail=True,asking_verified=4000,profit_independently_verified=True),"2026-11-26"))
-        self.assertFalse(is_manual_review_duplicate(dict(y,verified_detail=True,asset_domain_verified=True,independent_build_gap={"source":"fixture"}),"2026-11-26"))
+        self.assertTrue(is_manual_review_duplicate(dict(y,verified_detail=True,asset_domain_verified=True,independent_build_gap={"source":"fixture"}),"2026-11-26"))
         self.assertFalse(is_manual_review_duplicate({"identity":"flippa:99999999"},"2026-11-26"))
         self.assertEqual(len(reviewed_processed_ids("2026-11-26")),87)
 
@@ -116,6 +117,22 @@ class ReviewedCutoverTests(unittest.TestCase):
         self.assertEqual(next(x for x in pending if x["identity"] == "example.test")["category"], "DUAL_DD")
         self.assertEqual(json.dumps(history), original)
         self.assertEqual(len(reconcile_dd(history, {})[0]), 4)
+
+
+
+    def test_manual_review_does_not_consume_fresh_watch_quota(self):
+        from unittest.mock import patch
+        import opportunity_daily as daily
+        def row(identity):
+            return dict(identity="flippa:"+identity,source="FLIPPA",verdict="WATCH_RESEARCH")
+        rows=[row("13817253"),row("14903899")]+[row(str(99000000+i)) for i in range(5)]
+        seo={"items":[]}
+        flippa={"new":rows,"status":"PASS"}
+        with patch.object(daily,"read_seo",return_value=seo), patch.object(daily,"read_flippa",return_value=flippa), patch.object(daily,"qualify",return_value={"status":"PASS","candidates":[]}), patch.object(daily,"build_backlog",return_value={}):
+            data=daily.build("2026-11-25",None)
+        self.assertEqual(len(data["research_queue"]),5)
+        self.assertEqual(data["reviewed_source_watch_suppressed"],2)
+        self.assertEqual(len(data["flippa"]["new"]),7)
 
 
 if __name__ == "__main__":
