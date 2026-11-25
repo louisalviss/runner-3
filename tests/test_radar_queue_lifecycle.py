@@ -476,6 +476,39 @@ class SamePacketResearchReceiptTests(unittest.TestCase):
                                                           _same_packet_research_attempts(altered)))
 
 
+    def test_worklist_stops_without_filler_and_reopens_changed_gate(self):
+        from radar_queue_lifecycle import bounded_research_worklist
+        sha = "b" * 64
+        eid = "O2G|hold"
+        state = {"reverse_queue_v2": {"latest_completed_price_session": S13,
+                         "latest_prefilter_sha256": sha},
+                 "opportunity_to_global": {eid: {"event_id": eid, "symbol": "X",
+                         "source_session_date": S12, "price_predicate": "1D_SHOCK",
+                         "adjusted_return_pct": -20}}}
+        checkpoint = {"cross_radar_handoff": state}
+        first = bounded_research_worklist(checkpoint)
+        self.assertEqual(first["selected_count"], 1)
+        task = first["worklist"][0]
+        key = "orv3_selected_economic_batch_continuation_20261126_v8"
+        state[key] = {"schema": "bounded_selected_economic_batch_progress_v1",
+                 "source_session": S13, "prefilter_sha256": sha,
+                 "selected_results": [{"event_id": eid, "symbol": "X",
+                    "original_worklist": copy.deepcopy(task),
+                    "blocker": "Need verified dated issuer economic material",
+                    "full_underwrite": False, "causality_certified": False, "buy_short": False}]}
+        frozen = copy.deepcopy(checkpoint)
+        stopped = bounded_research_worklist(checkpoint)
+        self.assertEqual(stopped["selected_count"], 0)
+        self.assertEqual(stopped["status"], "WAITING_CHANGED_EVIDENCE_OR_GATE")
+        self.assertEqual(stopped["active_pending"], 1)
+        self.assertEqual(checkpoint, frozen)
+        state["reverse_queue_v2"]["latest_completed_price_session"] = "2026-11-16"
+        state["reverse_queue_v2"]["latest_prefilter_sha256"] = "c" * 64
+        self.assertEqual(bounded_research_worklist(checkpoint)["selected_count"], 0)
+        state["opportunity_to_global"][eid]["primary_source_triage_20261113"] = {
+            "issuer_source_url": "https://example.com/issuer"}
+        self.assertEqual(bounded_research_worklist(checkpoint)["selected_count"], 1)
+
     def test_null_source_attempt_requires_exact_original_event_and_session(self):
         from radar_queue_lifecycle import (_same_packet_research_attempts,
                                            _mark_prior_research_attempt)
