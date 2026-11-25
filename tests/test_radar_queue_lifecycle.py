@@ -401,5 +401,44 @@ class OriginalExhibitConsumerTests(unittest.TestCase):
                 self.assertFalse(accepted([invalid]))
         self.assertFalse(accepted([row, row]))
 
+
+class SamePacketResearchReceiptTests(unittest.TestCase):
+    def test_attempt_requires_same_packet_identity_source_gate(self):
+        from radar_queue_lifecycle import (_same_packet_research_attempts,
+                                           _mark_prior_research_attempt)
+        sha = "b" * 64
+        task = {"event_id": "O2G|1", "symbol": "X",
+                "existing_source_url": "https://www.sec.gov/Archives/1",
+                "next_gate": "NORMALIZED_FCF_BEAR_UPSIDE_NET_RR_VENUE"}
+        row = {"event_id": task["event_id"], "symbol": "X",
+               "original_worklist": copy.deepcopy(task),
+               "blocker": "Need reconciled recurring owner cash flow and diluted capital",
+               "full_underwrite": False, "causality_certified": False, "buy_short": False}
+        batch_key = "orv3_selected_economic_batch_continuation_20261125_v1"
+        state = {"reverse_queue_v2": {"latest_completed_price_session": S12,
+                                      "latest_prefilter_sha256": sha},
+                 batch_key: {"schema": "bounded_selected_economic_batch_progress_v1",
+                             "source_session": S12, "prefilter_sha256": sha,
+                             "selected_results": [row]}}
+        original = copy.deepcopy(state)
+        receipts = _same_packet_research_attempts(state)
+        candidate = copy.deepcopy(task)
+        self.assertTrue(_mark_prior_research_attempt(candidate, receipts))
+        self.assertEqual(candidate["prior_research_blocker"], row["blocker"])
+        self.assertEqual(state, original)
+        for field, changed in [("event_id", "O2G|2"), ("symbol", "Y"),
+                               ("existing_source_url", "https://www.sec.gov/Archives/2"),
+                               ("next_gate", "NEW_GATE")]:
+            candidate = dict(task, **{field: changed})
+            self.assertFalse(_mark_prior_research_attempt(candidate, receipts))
+        for field, changed in [("source_session", S13), ("prefilter_sha256", "c" * 64)]:
+            candidate = copy.deepcopy(state)
+            candidate[batch_key][field] = changed
+            self.assertEqual(_same_packet_research_attempts(candidate), {})
+        for field in ("full_underwrite", "causality_certified", "buy_short"):
+            candidate = copy.deepcopy(state)
+            candidate[batch_key]["selected_results"][0][field] = True
+            self.assertEqual(_same_packet_research_attempts(candidate), {})
+
 if __name__ == "__main__":
     unittest.main()
