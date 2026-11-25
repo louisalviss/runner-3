@@ -342,6 +342,43 @@ def bounded_reverse_projection_v2(checkpoint, health, prefilter, raw_events,
 
 
 
+def _economic_evidence_for_case(state, identity, rec):
+    """Use original event-specific primary exhibit recovery, never infer causality."""
+    legacy = rec.get("issuer_economic_event_review_20261115_v1")
+    if (isinstance(legacy, dict) and legacy.get("source_verified_pit") is True
+            and legacy.get("issuer_economic_mechanism_evaluated") is True):
+        return legacy, "issuer_economic_event_review_20261115_v1"
+    key = "orv3_active_original_pit_exhibit_recovery_20261125_v1"
+    batch = state.get(key)
+    if isinstance(batch, dict) and isinstance(batch.get("cases"), list):
+        matches = [x for x in batch["cases"] if isinstance(x, dict) and
+                   x.get("event_id") == identity]
+        if len(matches) == 1:
+            x = matches[0]
+            digest = x.get("body_sha256")
+            url = x.get("source_url")
+            if (x.get("symbol") == rec.get("symbol")
+                    and x.get("original_price_session") == rec.get("source_session_date")
+                    and x.get("stage") == "PRIMARY_EXHIBIT_ECONOMICS_REVIEWED_IN_ORIGINAL_PRICE_WINDOW"
+                    and isinstance(digest, str) and len(digest) == 64
+                    and all(c in "0123456789abcdef" for c in digest)
+                    and isinstance(url, str) and url.startswith("https://www.sec.gov/Archives/")
+                    and isinstance(x.get("finding"), str) and len(x["finding"].strip()) >= 25
+                    and x.get("causality_certified") is False
+                    and x.get("full_underwrite") is False
+                    and x.get("buy_short") is False):
+                try:
+                    acceptance = parse_time(x["sec_acceptance_utc"])
+                    observed = parse_time(x["reviewed_at_utc"])
+                    if acceptance <= observed:
+                        return {"source_verified_pit": True,
+                                "issuer_economic_mechanism_evaluated": True,
+                                "sec_exhibit_or_full_primary_text_url": url}, key
+                except (KeyError, TypeError, ValueError):
+                    pass
+    return (legacy if isinstance(legacy, dict) else {}), "issuer_economic_event_review_20261115_v1"
+
+
 def screen_full_inventory_cheap_v1(checkpoint, health, prefilter, *, deep_budget=8):
     """Classify EVERY existing research event; this is not deep underwriting.
 
@@ -411,8 +448,7 @@ def screen_full_inventory_cheap_v1(checkpoint, health, prefilter, *, deep_budget
             stage = "EVIDENCE_TERMINAL_EXCLUDED"
         else:
             active += 1
-            econ = rec.get("issuer_economic_event_review_20261115_v1") or {}
-            econ = econ if isinstance(econ, dict) else {}
+            econ, _ = _economic_evidence_for_case(state, identity, rec)
             triage = rec.get("primary_source_triage_20261113") or {}
             triage = triage if isinstance(triage, dict) else {}
             pit = rec.get("pit_primary_source_stage_20261115_v1") or {}
@@ -719,8 +755,7 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
             continue
         # Prefer immutable event-level PIT economics over the 2026-11-13
         # source triage. Timely filings alone remain non-causal evidence.
-        economic = rec.get("issuer_economic_event_review_20261115_v1")
-        economic = economic if isinstance(economic, dict) else {}
+        economic, economic_field = _economic_evidence_for_case(state, identity, rec)
         economic_evidence_available = (
             economic.get("source_verified_pit") is True and
             economic.get("issuer_economic_mechanism_evaluated") is True)
@@ -736,7 +771,7 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
         evidence = rec.get("primary_source_triage_20261113")
         triage = evidence if isinstance(evidence, dict) else {}
         if economic_evidence_available:
-            field = "issuer_economic_event_review_20261115_v1"
+            field = economic_field
             url = (economic.get("sec_exhibit_or_full_primary_text_url") or
                    economic.get("sec_primary_issuer_filing_url"))
             screened += 1
