@@ -368,5 +368,38 @@ class FullInventoryCheapScreenTests(unittest.TestCase):
         self.assertEqual(x["cached_sec_issuer_provenance_n"], 0)
         self.assertEqual(x["stage_counts"]["DEFERRED_PRICE_SOURCE_NOT_CURRENT"], 263)
 
+
+class OriginalExhibitConsumerTests(unittest.TestCase):
+    def test_exact_identity_and_fail_closed_recovery(self):
+        from radar_queue_lifecycle import _economic_evidence_for_case
+        key = "orv3_active_original_pit_exhibit_recovery_20261125_v1"
+        rec = {"symbol": "CLBT", "source_session_date": "2026-11-12"}
+        row = {"event_id": "X", "symbol": "CLBT",
+               "original_price_session": "2026-11-12",
+               "stage": "PRIMARY_EXHIBIT_ECONOMICS_REVIEWED_IN_ORIGINAL_PRICE_WINDOW",
+               "body_sha256": "a" * 64,
+               "source_url": "https://www.sec.gov/Archives/example",
+               "finding": "Primary evidence of material earnings and normalized cash flow pending",
+               "causality_certified": False, "full_underwrite": False, "buy_short": False,
+               "sec_acceptance_utc": "2026-11-12T12:15:01Z",
+               "reviewed_at_utc": "2026-11-25T14:13:30Z"}
+
+        def accepted(rows):
+            evidence, _ = _economic_evidence_for_case({key: {"cases": rows}}, "X", rec)
+            return evidence.get("source_verified_pit") is True
+
+        self.assertTrue(accepted([row]))
+        for field, value in [("event_id", "Y"), ("symbol", "OTHER"),
+                             ("original_price_session", "2026-11-11"),
+                             ("body_sha256", "invalid"), ("source_url", "http://bad"),
+                             ("causality_certified", True), ("full_underwrite", True),
+                             ("buy_short", True), ("sec_acceptance_utc", "bad"),
+                             ("sec_acceptance_utc", "2026-11-26T00:00:00Z")]:
+            with self.subTest(field=field, value=value):
+                invalid = copy.deepcopy(row)
+                invalid[field] = value
+                self.assertFalse(accepted([invalid]))
+        self.assertFalse(accepted([row, row]))
+
 if __name__ == "__main__":
     unittest.main()
