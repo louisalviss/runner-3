@@ -94,5 +94,29 @@ class ReviewedCutoverTests(unittest.TestCase):
             self.assertEqual((v["approved_buy"],v["approved_build"]),(0,0))
 
 
+
+    def test_gap_audit_preserves_history_and_excludes_resolved_flippa(self):
+        from audit_gap_ledger import reconcile_dd
+        def row(identity, source, day, category="BUILD_DD"):
+            return dict(identity=identity, source=source, day=day, category=category)
+        history = [
+            row("flippa:111", "FLIPPA", "2026-11-01"),
+            row("flippa:222", "FLIPPA", "2026-11-02"),
+            row("flippa:333", "FLIPPA", "2026-11-03"),
+            row("example.test", "SEOTRENDS", "2026-11-01"),
+            row("example.test", "SEOTRENDS", "2026-11-02", "DUAL_DD"),
+        ]
+        original = json.dumps(history)
+        pending, resolved = reconcile_dd(history, {
+            "reviewed_archived": [{"id": "111"}],
+            "closed_historical": [{"id": "222"}],
+        })
+        self.assertEqual({x["identity"] for x in pending}, {"flippa:333", "example.test"})
+        self.assertEqual({x["resolution"] for x in resolved}, {"REVIEWED_ARCHIVED", "CONFIRMED_CLOSED"})
+        self.assertEqual(next(x for x in pending if x["identity"] == "example.test")["category"], "DUAL_DD")
+        self.assertEqual(json.dumps(history), original)
+        self.assertEqual(len(reconcile_dd(history, {})[0]), 4)
+
+
 if __name__ == "__main__":
     unittest.main()
