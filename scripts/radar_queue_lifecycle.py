@@ -724,6 +724,88 @@ def _due_source_catalysts(state, latest_market_session):
     return [task for _, task in ranked]
 
 
+def _same_packet_research_attempts(state):
+    """Read existing bounded research receipts; never infer completed underwriting."""
+    queue = state.get("reverse_queue_v2") or {}
+    session = queue.get("latest_completed_price_session")
+    sha = queue.get("latest_prefilter_sha256")
+    if not session or not isinstance(sha, str) or len(sha) != 64:
+        return {}
+    receipts = {}
+    for key, batch in sorted(state.items()):
+        if not isinstance(batch, dict):
+            continue
+        if (batch.get("source_session") != session or
+                batch.get("prefilter_sha256") != sha):
+            continue
+        if (key.startswith("orv3_selected_economic_batch_continuation_") and
+                batch.get("schema") == "bounded_selected_economic_batch_progress_v1"):
+            rows = batch.get("selected_results")
+            selected = True
+        elif (key.startswith("orv3_remaining_deep_ready_economic_batch_") and
+              batch.get("decision") and batch.get("prior_batch_sha256")):
+            rows = batch.get("results")
+            selected = False
+        else:
+            continue
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            event_id = row.get("event_id")
+            blocker = row.get("blocker")
+            if (not isinstance(event_id, str) or
+                    not isinstance(blocker, str) or len(blocker.strip()) < 20 or
+                    row.get("full_underwrite") is not False or
+                    row.get("causality_certified") is not False):
+                continue
+            if selected:
+                old = row.get("original_worklist") or {}
+                if (not isinstance(old, dict) or row.get("buy_short") is not False or
+                        old.get("event_id") != event_id or
+                        old.get("symbol") != row.get("symbol")):
+                    continue
+                url, gate = old.get("existing_source_url"), old.get("next_gate")
+            else:
+                old = row.get("original_evidence") or {}
+                if row.get("decision") != "NO_NEW_TRADE_RESEARCH_ONLY":
+                    continue
+                if not isinstance(old, dict) or not event_id.startswith("O2G|"):
+                    continue
+                if old.get("event_id") == event_id:
+                    url = old.get("source_url") or old.get("sec_exhibit_or_full_primary_text_url")
+                elif not old:
+                    # Legacy receipt lists the exact exhibit rather than embedding it.
+                    active = (state.get("opportunity_to_global") or {}).get(event_id) or {}
+                    econ, _ = _economic_evidence_for_case(state, event_id, active)
+                    url = econ.get("sec_exhibit_or_full_primary_text_url")
+                    sources = row.get("sources")
+                    if (active.get("event_id") != event_id or
+                            active.get("symbol") != row.get("symbol") or
+                            active.get("source_session_date") != row.get("source_session_original") or
+                            not isinstance(sources, list) or url not in sources):
+                        continue
+                else:
+                    continue
+                gate = "NORMALIZED_FCF_BEAR_UPSIDE_NET_RR_VENUE"
+            if isinstance(url, str) and url.startswith("https://") and isinstance(gate, str):
+                receipts.setdefault(event_id, []).append(
+                    (row.get("symbol"), url, gate, blocker))
+    return receipts
+
+
+def _mark_prior_research_attempt(task, receipts):
+    """A changed evidence URL or research gate remains fresh; no lifecycle mutation."""
+    for symbol, url, gate, blocker in receipts.get(task.get("event_id"), []):
+        if (symbol == task.get("symbol") and url == task.get("existing_source_url") and
+                gate == task.get("next_gate")):
+            task["same_packet_research_attempted"] = True
+            task["prior_research_blocker"] = blocker
+            return True
+    return False
+
+
 def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, cheap_screen=None):
     """Read-only, deterministic next-stage research plan for the EXISTING owner.
 
@@ -825,10 +907,12 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
                         kind_order.get(predicate, 4), -severity,
                         str(rec.get("source_session_date") or ""),
                         str(task["event_id"])), task))
-    ranked.sort(key=lambda x: x[0])
+    receipts = _same_packet_research_attempts(state)
+    ranked.sort(key=lambda x: (_mark_prior_research_attempt(x[1], receipts), x[0]))
     queue = state.get("reverse_queue_v2") or {}
     due_source = _due_source_catalysts(
         state, queue.get("latest_completed_price_session"))
+    due_source.sort(key=lambda task: _mark_prior_research_attempt(task, receipts))
     # At most 3 independently sourced issuer cases consume the SAME eight
     # research slots; the other slots remain for existing price cases. One
     # issuer per pass avoids crowding out unrelated firms, not deduping phases.
@@ -883,12 +967,16 @@ def bounded_research_worklist(checkpoint, limit=RESEARCH_WORKLIST_LIMIT, *, chea
         "full_numeric_certified_active": certified,
         "deferred": int(queue.get("deferred_count") or 0),
         "selected_count": len(worklist),
+        "selected_same_packet_attempted": sum(bool(x.get("same_packet_research_attempted")) for x in worklist),
+        "selected_fresh_attempts": sum(not x.get("same_packet_research_attempted") for x in worklist),
         "not_selected_active": max(0, active - len(selected_price)),
         "next_full_daily_intake_needs_closeouts": max(0, active + day_new - cap),
         "saturates_cap_if_next_full_daily_intake": active + day_new >= cap,
         "selection_rule": ("Verified FOLLOW catalyst -> new independently sourced "
                            "issuer event (at most 3 source slots) -> PIT price "
-                           "economics -> existing price case. Source-only cases "
+                           "economics -> existing price case. Within each lane, fresh "
+                           "same-packet work precedes documented repeat attempts; "
+                           "unresolved work remains eligible. Source-only cases "
                            "do not consume ACTIVE=40; newest deferred price "
                            "shock stays diagnostic only."),
         "worklist": worklist,
