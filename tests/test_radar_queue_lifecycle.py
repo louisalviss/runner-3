@@ -476,6 +476,41 @@ class SamePacketResearchReceiptTests(unittest.TestCase):
                                                           _same_packet_research_attempts(altered)))
 
 
+    def test_null_source_attempt_requires_exact_original_event_and_session(self):
+        from radar_queue_lifecycle import (_same_packet_research_attempts,
+                                           _mark_prior_research_attempt)
+        eid = "O2G|null"
+        key = "orv3_selected_economic_batch_continuation_20261125_v1"
+        task = {"event_id": eid, "symbol": "X", "source_session_date": S12,
+                "existing_source_url": None, "next_gate": "VERIFY_DATED_PRIMARY_SOURCE"}
+        state = {"reverse_queue_v2": {"latest_completed_price_session": S13,
+                    "latest_prefilter_sha256": "a" * 64},
+                 "opportunity_to_global": {eid: {"event_id": eid, "symbol": "X",
+                     "source_session_date": S12}},
+                 key: {"schema": "bounded_selected_economic_batch_progress_v1",
+                       "source_session": S13, "prefilter_sha256": "a" * 64,
+                       "selected_results": [{"event_id": eid, "symbol": "X",
+                           "original_worklist": copy.deepcopy(task),
+                           "blocker": "Need actual dated primary issuer document",
+                           "full_underwrite": False, "causality_certified": False,
+                           "buy_short": False}]}}
+        original = copy.deepcopy(state)
+        receipts = _same_packet_research_attempts(state)
+        self.assertTrue(_mark_prior_research_attempt(dict(task), receipts))
+        self.assertEqual(state, original)
+        for changes in ({"existing_source_url": "https://example.com/new"},
+                        {"next_gate": "NEW_GATE"}, {"symbol": "Y"}):
+            self.assertFalse(_mark_prior_research_attempt(dict(task, **changes), receipts))
+        for field, value in (("source_session_date", S13), ("symbol", "Y"),
+                             ("event_id", "O2G|other")):
+            altered = copy.deepcopy(state)
+            altered["opportunity_to_global"][eid][field] = value
+            self.assertEqual(_same_packet_research_attempts(altered), {})
+        altered = copy.deepcopy(state)
+        del altered[key]["selected_results"][0]["original_worklist"]["existing_source_url"]
+        self.assertEqual(_same_packet_research_attempts(altered), {})
+
+
     def test_history_survives_new_market_session_without_current_certification(self):
         from radar_queue_lifecycle import (_same_packet_research_attempts,
                                            _prior_packet_research_session,
