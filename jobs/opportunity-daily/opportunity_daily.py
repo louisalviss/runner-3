@@ -4,7 +4,7 @@ import argparse, datetime as dt, hashlib, json, os, pathlib, re, socket, subproc
 from urllib.parse import urlsplit
 from build_buy_decision import qualify
 from acquisition_backlog import build_backlog, summarize as summarize_backlog
-from reviewed_cutover import is_reviewed_prior_listing
+from reviewed_cutover import is_reviewed_prior_listing, is_manual_review_duplicate
 from flippa_semrush_bridge import inspect as inspect_flippa_semrush
 from seo_upside import attach as attach_seo_upside
 from daily_publish import publish as publish_daily
@@ -258,7 +258,11 @@ def build(day, flippa_current, previous=None, deep=None):
     flippa = read_flippa(flippa_current, previous, deep)
     queue = []
     # Explicit quotas prevent 10k domains or a full market crawl from overwhelming the provider.
+    reviewed_source_watch_suppressed = 0
     for x in flippa["new"]:
+        if is_reviewed_prior_listing(str(x.get("identity") or ""), day) or is_manual_review_duplicate(x, day):
+            reviewed_source_watch_suppressed += 1
+            continue
         if x["verdict"] not in ("DROP_BUY_CAP","DROP_TRAFFIC_WEAK","DROP"):
             queue.append(x)
         if len([v for v in queue if v["source"] == "FLIPPA"]) >= 5: break
@@ -286,8 +290,9 @@ def build(day, flippa_current, previous=None, deep=None):
     # returns to Recent-500 on a later Flippa window. Keep the suppressed count.
     deduped_before_archive=len(deduped)
     deduped=[x for x in deduped
-             if not is_reviewed_prior_listing(str(x.get("identity") or ""), day)]
-    reviewed_source_watch_suppressed=deduped_before_archive-len(deduped)
+             if not is_reviewed_prior_listing(str(x.get("identity") or ""), day)
+             and not is_manual_review_duplicate(x, day)]
+    reviewed_source_watch_suppressed+=deduped_before_archive-len(deduped)
     decision = qualify(day, seo, flippa, root=SEO, max_buy_usd=MAX_BUY)
     cumulative = build_backlog(day, root=ROOT, report_root=OUT, current_candidates=decision.get('candidates') or [])
     payload = {"schema":"opportunity-daily-v2","date_vn":day,"generated_at":dt.datetime.now(TZ).isoformat(),"scope":"SEO_TRENDS_PLUS_FLIPPA","overall":"PARTIAL_BLOCKED" if decision["status"]!="PASS" else "RESEARCH_PENDING","seo":seo,"flippa":flippa,"research_queue":deduped,"reviewed_source_watch_suppressed":reviewed_source_watch_suppressed,

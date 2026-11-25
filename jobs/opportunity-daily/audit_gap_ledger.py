@@ -21,6 +21,27 @@ def sourcehash(p):
  try:return hashlib.sha256(p.read_bytes()).hexdigest()
  except OSError:return None
 
+
+def reconcile_dd(rows, backlog):
+ """Keep source history; count only distinct unresolved DD identities."""
+ archived = {str(x['id']) for x in backlog.get('reviewed_archived', []) if isinstance(x,dict) and str(x.get('id','')).isdigit()}
+ closed = {str(x['id']) for x in backlog.get('closed_historical', []) if isinstance(x,dict) and str(x.get('id','')).isdigit()}
+ latest = {}
+ dispositions = []
+ for x in rows:
+  ident = str(x.get('identity') or '')
+  if not ident: continue
+  if ident.startswith('flippa:') and x.get('source') == 'FLIPPA':
+   key = ident.removeprefix('flippa:')
+   reason = 'CONFIRMED_CLOSED' if key in closed else 'REVIEWED_ARCHIVED' if key in archived else None
+   if reason:
+    dispositions.append(dict(x, pending=False, resolution=reason))
+    continue
+  prev = latest.get(ident)
+  if prev is None or str(x.get('day','')) >= str(prev.get('day','')):
+   latest[ident] = x
+ return list(latest.values()), dispositions
+
 def audit():
  now=datetime.datetime.now(TZ)
  # Do not count today's future 08:05/09:15/10:00 jobs as missing before audit time.
@@ -68,10 +89,11 @@ def audit():
   if flippa_ok:totals['flippa_days_complete']+=1
   if acceptance.get('status')=='PASS':totals['acceptance_pass_days']+=1
  backlog=j(O/'flippa-backlog-current.json')
- ddc=Counter(x['category'] for x in dd)
+ active_dd,resolved_dd=reconcile_dd(dd,backlog)
+ ddc=Counter(x['category'] for x in active_dd)
  status='PASS' if not pending and not missing_flippa and all(x['acceptance']=='PASS' for x in days) else 'UNRESOLVED_GAPS'
- summary={'scope_start':FIRST.isoformat(),'scope_end':end.isoformat(),'days_checked':len(days),'scanned':totals['discovery_scanned'],'source_days_complete':totals['source_days_complete'],'semrush_serp_pass_days':totals['provider_days_complete'],'flippa_pass_days':totals['flippa_days_complete'],'acceptance_pass_days':totals['acceptance_pass_days'],'semrush_pass_shortlists':sum(x['semrush_pass_count'] for x in days),'unique_unprocessed_domains':len({x['domain'] for x in pending}),'unprocessed_domain_rows':len(pending),'dd_pending_items':len({x['identity'] for x in dd}),'dd_categories':dict(ddc),'flippa_missing_days':missing_flippa,'cumulative_flippa_active':backlog.get('active_count'),'cumulative_flippa_closed_historical':backlog.get('closed_historical_count'),'last_verified_flippa_recent':backlog.get('last_scoped_recent_scan'),'full_inventory_observation':backlog.get('last_full_inventory_observation'),'cannot_reconstruct_expired_flippa_recent_windows':bool(missing_flippa)}
- ledger={'schema':'acquisition-gap-ledger-v1','generated_at':datetime.datetime.now(TZ).isoformat(),'status':status,'summary':summary,'daily':days,'pending_semrush':pending,'historical_dd_candidates':dd,'limits':{'source_traffic_not_new_site_forecast':True,'seller_metrics_not_audited':True,'historical_listings_not_guaranteed_live':True,'unobserved_inventory_not_proven_empty':True,'no_social_check':True,'no_purchase_or_build_authorized':True}}
+ summary={'scope_start':FIRST.isoformat(),'scope_end':end.isoformat(),'days_checked':len(days),'scanned':totals['discovery_scanned'],'source_days_complete':totals['source_days_complete'],'semrush_serp_pass_days':totals['provider_days_complete'],'flippa_pass_days':totals['flippa_days_complete'],'acceptance_pass_days':totals['acceptance_pass_days'],'semrush_pass_shortlists':sum(x['semrush_pass_count'] for x in days),'unique_unprocessed_domains':len({x['domain'] for x in pending}),'unprocessed_domain_rows':len(pending),'dd_pending_items':len(active_dd),'dd_categories':dict(ddc),'historical_dd_items':len({x['identity'] for x in dd}),'dd_resolved_items':len({x['identity'] for x in resolved_dd}),'dd_resolved_categories':dict(Counter(x['resolution'] for x in {r['identity']:r for r in resolved_dd}.values())),'flippa_missing_days':missing_flippa,'cumulative_flippa_active':backlog.get('active_count'),'cumulative_flippa_closed_historical':backlog.get('closed_historical_count'),'last_verified_flippa_recent':backlog.get('last_scoped_recent_scan'),'full_inventory_observation':backlog.get('last_full_inventory_observation'),'cannot_reconstruct_expired_flippa_recent_windows':bool(missing_flippa)}
+ ledger={'schema':'acquisition-gap-ledger-v1','generated_at':datetime.datetime.now(TZ).isoformat(),'status':status,'summary':summary,'daily':days,'pending_semrush':pending,'historical_dd_candidates':dd,'pending_dd_candidates':active_dd,'resolved_dd_history':resolved_dd,'limits':{'source_traffic_not_new_site_forecast':True,'seller_metrics_not_audited':True,'historical_listings_not_guaranteed_live':True,'unobserved_inventory_not_proven_empty':True,'no_social_check':True,'no_purchase_or_build_authorized':True}}
  output=O/('gap-ledger-'+end.isoformat()+'.json')
  temp=output.with_suffix('.json.tmp');temp.write_text(json.dumps(ledger,ensure_ascii=False,indent=2)+'\n');temp.replace(output)
  lines=['# Acquisition Radar — retrospective gap audit '+FIRST.isoformat()+' to '+end.isoformat(),'',
@@ -80,17 +102,18 @@ def audit():
  '- Discovery '+str(summary['scanned'])+' domains across '+str(summary['source_days_complete'])+'/'+str(summary['days_checked'])+' complete daily source snapshots.',
  '- Semrush/SERP finished: '+str(summary['semrush_pass_shortlists'])+' shortlisted domains; pending: '+str(summary['unique_unprocessed_domains'])+' distinct domains.',
  '- Flippa daily feed: '+str(summary['flippa_pass_days'])+'/'+str(summary['days_checked'])+' complete; missing capture days '+', '.join(missing_flippa)+'.',
- '- Historical DD hypotheses not yet a BUY/BUILD approval: '+str(summary['dd_pending_items'])+' ('+str(summary['dd_categories'])+').',
+ '- Distinct unresolved DD hypotheses (not BUY/BUILD approvals): '+str(summary['dd_pending_items'])+' ('+str(summary['dd_categories'])+').',
  '- Existing cumulative Flippa backlog '+str(summary['cumulative_flippa_active'])+' tracked + '+str(summary['cumulative_flippa_closed_historical'])+' historical closed; last recent feed '+str(summary['last_verified_flippa_recent'])+'.',
  '- Daily independent acceptance '+str(summary['acceptance_pass_days'])+'/'+str(summary['days_checked'])+' PASS; sync status recorded separately for every day.','',
+ '- Historical DD identities: '+str(summary['historical_dd_items'])+'; already resolved: '+str(summary['dd_resolved_items'])+' (history retained).',
  '## Daily evidence matrix','',
  '| Date | Discovery | Semrush pass | Exact SERP | Flippa | Acceptance |',
  '|---|---:|---|---|---|---|']
  for x in days:
   lines.append('| '+x['day']+' | '+str(x['scanned'])+'/'+str(x['source_count'])+' | '+str(x['semrush'])+' '+str(x['semrush_pass_count'])+'/'+str(x['shortlist'])+' | '+x['serp']+' | '+('PASS' if x['flippa_daily_complete'] else 'MISSING')+' | '+x['acceptance']+' |')
- lines += ['', '## Historical BUILD/BUY DD hypotheses (NOT APPROVED)','',
+ lines += ['', '## Pending BUILD/BUY DD hypotheses (NOT APPROVED)','',
  '| Date | Candidate | Lane | Organic US modeled / month |','|---|---|---|---:|']
- for x in dd:
+ for x in active_dd:
   lines.append('| '+x['day']+' | '+str(x['identity'])+' | '+str(x['category'])+' | '+str(x.get('modelled_us_organic_month') or 'N/A')+' |')
  lines += ['', '## Unprocessed Semrush backlog','',
  '- All '+str(len(pending))+' source domain/day records remain in the JSON pending_semrush array with immutable queue SHA-256.',
