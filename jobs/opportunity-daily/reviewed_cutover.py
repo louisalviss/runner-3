@@ -49,3 +49,41 @@ def is_reviewed_prior_listing(identity: str, day: str) -> bool:
     ident = identity.removeprefix("flippa:")
     prior = reviewed_processed_ids(day)
     return ident in prior or VERIFIED_RELIST_ALIASES.get(ident) in prior
+
+# Dated manual dispositions, distinct from the immutable 87-ID completed cohort.
+# Canonical evidence: Acquisition Idea Radar/History/
+# 2026-11-25-manual-review-appmint-yieldstone-13817253-14903899.md
+MANUAL_REVIEW_DAY = "2026-11-25"
+MANUAL_REVIEWED_IDS = frozenset({"13817253", "14903899"})
+
+
+def is_manual_review_duplicate(row: dict, day: str) -> bool:
+    """Suppress repetitive card-only review; allow new direct commercial evidence.
+
+    A verified direct price within budget and credible independently verified
+    earnings, or a verified independent BUILD gap, merits a new review, not
+    automatic approval. A relisting or seller card change alone does not.
+    """
+    try:
+        if datetime.date.fromisoformat(day) < datetime.date.fromisoformat(MANUAL_REVIEW_DAY):
+            return False
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(row, dict):
+        return False
+    identity = row.get("identity")
+    if not isinstance(identity, str) or not identity.startswith("flippa:"):
+        return False
+    if identity.removeprefix("flippa:") not in MANUAL_REVIEWED_IDS:
+        return False
+    # Allow a new verified evidence record to reach the normal qualification
+    # gates; never turn an asserted evidence flag into a BUY/BUILD approval.
+    if row.get("verified_detail") is True:
+        from_price = next((row.get(k) for k in ("bin_verified", "reserve_verified", "asking_verified") if row.get(k) is not None), None)
+        if isinstance(from_price, (int, float)) and not isinstance(from_price, bool) and 0 < from_price <= 10000:
+            if identity == "flippa:13817253" and row.get("profit_independently_verified") is True:
+                return False
+        if row.get("asset_domain_verified") is True and isinstance(row.get("independent_build_gap"), dict) and row["independent_build_gap"]:
+            # Candidate must still satisfy verified_flippa_build_gap downstream.
+            return False
+    return True
