@@ -253,6 +253,109 @@ def read_flippa(current_path, previous_path=None, deep_path=None):
     rows.sort(key=lambda x:(x["verdict"] not in ("SEO_BUY_DD","BUY_DD","BUILD_REFERENCE"),-x["score"],x["identity"]))
     return {"status":"PASS","new":rows,"stats":{"first_access":len(set(current["first_ids"])),"recent":len(curr_ids),"entered_recent_window":len(delta),"exited_recent_window":len(prev_ids - curr_ids),"first_access_delta":len(set(current["first_ids"])-set(old.get("first_ids",[]))),"source_pages":len(pages)}}
 
+
+def _domain_row(path, key, domain):
+    rows = [x for x in json.loads(path.read_bytes()).get(key, [])
+            if isinstance(x, dict) and normalize_domain(x.get("domain")) == domain]
+    if len(rows) != 1:
+        raise ValueError("missing or ambiguous domain evidence")
+    return rows[0]
+
+
+def _sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def seo_source_signature(day, domain, root):
+    if not re.fullmatch(r"[a-z0-9.-]+", domain) or ".." in domain:
+        raise ValueError("invalid domain")
+    q = _domain_row(root / (day+"-semrush-queue.json"), "items", domain)
+    t = _domain_row(root / (day+"-terminal-verdicts.json"), "verdicts", domain)
+    p = _domain_row(root / (day+"-semrush-results.json"), "items", domain)
+    if p.get("status") != "PASS" or t.get("verdict") != "WATCH" or t.get("product_intent_checked") is not True:
+        raise ValueError("source incomplete")
+    matches = []
+    for path in root.glob(day+"-serp-dd*/results.json"):
+        matches.extend(x for x in json.loads(path.read_bytes()).get("results", [])
+                       if isinstance(x,dict) and normalize_domain(x.get("domain")) == domain)
+    if len(matches) != 1:
+        raise ValueError("missing or ambiguous exact SERP")
+    return (q, t, _sha(root / (day+"-semrush") / (domain+".json")), matches[0])
+
+
+def seo_reviewed_match(day, domain, ledger, root, report_root, current_signature=None):
+    """Only exact source-equivalent negative receipts; fail open for research."""
+    try:
+        rows = [x for x in ledger.get("semantic_cycle_dispositions", [])
+                if x.get("identity") == domain and x.get("source") == "SEOTRENDS"]
+        if len(rows) != 1:
+            return False
+        r = rows[0]
+        old = r["day"]
+        if old > day or r["semantic_review_ref"]["file"] != old+"-semantic-business-dd.json":
+            return False
+        path = root / (old+"-semantic-business-dd.json")
+        if _sha(path) != r["semantic_review_ref"]["sha256"]:
+            return False
+        v = json.loads(path.read_bytes())
+        x = _domain_row(path, "items", domain)
+        at = dt.datetime.fromisoformat(x["reviewed_at"])
+        if (v.get("date") != old or v.get("source") != "derived-semantic-dd-v1"
+            or v.get("status") != "PASS_SOURCE_PLUS_SEMANTIC_SCREEN"
+            or v.get("approved_build") != 0 or v.get("buy_now") != 0
+            or at.tzinfo is None or at.astimezone(TZ).date().isoformat() > day
+            or x.get("review_scope") != "historical_build_dd_current_cycle_disposition_only"
+            or x.get("approved_build") is not False or x.get("full_positive_business_dd_complete") is not False
+            or x.get("semantic_verdict") not in ("DROP_THIS_CYCLE","DEFER_GAP_UNPROVEN")
+            or x.get("semantic_verdict") != r.get("cycle_disposition")
+            or x.get("terminal_verdict") != "WATCH" or x.get("product_intent_checked") is not True):
+            return False
+        for k,p in (("source_queue_sha256",root/(old+"-semrush-queue.json")),
+                    ("source_terminal_sha256",root/(old+"-terminal-verdicts.json")),
+                    ("source_report_sha256",report_root/(old+"-research-queue.json")),
+                    ("source_export_sha256",root/(old+"-semrush")/(domain+".json"))):
+            if not x.get(k) or x[k] != _sha(p):
+                return False
+        return seo_source_signature(old,domain,root) == (current_signature if current_signature is not None else seo_source_signature(day,domain,root))
+    except (OSError,ValueError,TypeError,KeyError,AttributeError):
+        return False
+
+
+def seo_research_selection(day, seo, decision, root, report_root):
+    ledger = {}
+    try:
+        for p in sorted(report_root.glob("gap-ledger-????-??-??.json"), reverse=True):
+            if p.stem.removeprefix("gap-ledger-") <= day:
+                v = json.loads(p.read_bytes())
+                if v.get("schema") == "acquisition-gap-ledger-v1":
+                    ledger = v
+                    break
+    except (OSError,ValueError,TypeError,AttributeError):
+        pass
+    qs = {x["identity"]:x for x in decision.get("candidates",[]) if x.get("source")=="SEOTRENDS"}
+    priority = {"SEO_BUILD_TEST":0,"WATCH_DD":1,"WATCH_RESEARCH":2,"BLOCKED_PROVIDER":3}
+    eligible, suppressed = [], []
+    for x in seo.get("items",[]):
+        q = qs.get(x["identity"],{})
+        e = q.get("evidence",{})
+        if x["verdict"] == "DROP" or q.get("category") == "BLOCKED":
+            continue
+        if (x["verdict"] in ("WATCH_DD","SEO_BUILD_TEST")
+            and e.get("semantic_gate") in (None,"NOT_AVAILABLE","DROP_THIS_CYCLE","DEFER_GAP_UNPROVEN")
+            and seo_reviewed_match(day,x["identity"],ledger,root,report_root)):
+            suppressed.append(x["identity"])
+            continue
+        if q.get("category") != "DROP":
+            eligible.append(x)
+    def rank(x):
+        e = qs.get(x["identity"],{}).get("evidence",{})
+        return (not e.get("candidate_wedge_evidence_complete",False),
+                not e.get("site_product_review_complete",False),
+                not e.get("product_intent_exact_serp_checked",False),
+                priority.get(x["verdict"],4),-float(x.get("score") or 0),x["identity"])
+    return sorted(eligible,key=rank),suppressed
+
+
 def build(day, flippa_current, previous=None, deep=None):
     seo = read_seo(day)
     flippa = read_flippa(flippa_current, previous, deep)
@@ -266,13 +369,8 @@ def build(day, flippa_current, previous=None, deep=None):
         if x["verdict"] not in ("DROP_BUY_CAP","DROP_TRAFFIC_WEAK","DROP"):
             queue.append(x)
         if len([v for v in queue if v["source"] == "FLIPPA"]) >= 5: break
-    # A final DROP is a terminal decision, not a pending-research slot.
-    # Prioritize verified product-intent WATCH/BUILD_TEST before unmatched research.
-    priority = {"SEO_BUILD_TEST":0, "WATCH_DD":1, "WATCH_RESEARCH":2, "BLOCKED_PROVIDER":3}
-    seo_pending = sorted(
-        (x for x in seo["items"] if x["verdict"] != "DROP"),
-        key=lambda x:(priority.get(x["verdict"], 4), -float(x.get("score") or 0), x["identity"]),
-    )
+    decision = qualify(day, seo, flippa, root=SEO, max_buy_usd=MAX_BUY)
+    seo_pending, seo_reviewed_suppressed = seo_research_selection(day, seo, decision, SEO, OUT)
     for x in seo_pending:
         text = (x["title"]+" "+x["domain"]).lower()
         if any(w in text for w in ("bankfive", "news analysis", "electric motors", "it services and digital transformation", "digicom it services")):
@@ -293,10 +391,9 @@ def build(day, flippa_current, previous=None, deep=None):
              if not is_reviewed_prior_listing(str(x.get("identity") or ""), day)
              and not is_manual_review_duplicate(x, day)]
     reviewed_source_watch_suppressed+=deduped_before_archive-len(deduped)
-    decision = qualify(day, seo, flippa, root=SEO, max_buy_usd=MAX_BUY)
     cumulative = build_backlog(day, root=ROOT, report_root=OUT, current_candidates=decision.get('candidates') or [])
     payload = {"schema":"opportunity-daily-v2","date_vn":day,"generated_at":dt.datetime.now(TZ).isoformat(),"scope":"SEO_TRENDS_PLUS_FLIPPA","overall":"PARTIAL_BLOCKED" if decision["status"]!="PASS" else "RESEARCH_PENDING","seo":seo,"flippa":flippa,"research_queue":deduped,"reviewed_source_watch_suppressed":reviewed_source_watch_suppressed,
-               "qualification":decision,"cumulative_flippa":cumulative,"limits":{"buy_cap_usd":MAX_BUY,"no_bids":True,"no_new_projects":True,"no_solo_semrush_research":True},"owner":"daily-synthesis-only"}
+               "seo_reviewed_watch_suppressed":len(seo_reviewed_suppressed),"seo_reviewed_watch_identities":seo_reviewed_suppressed,"qualification":decision,"cumulative_flippa":cumulative,"limits":{"buy_cap_usd":MAX_BUY,"no_bids":True,"no_new_projects":True,"no_solo_semrush_research":True},"owner":"daily-synthesis-only"}
     return payload
 
 def format_report(v):
