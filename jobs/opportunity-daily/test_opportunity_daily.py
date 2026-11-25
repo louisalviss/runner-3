@@ -122,4 +122,23 @@ class DailyGates(unittest.TestCase):
   self.assertFalse(m.seo_reviewed_match("2026-11-26","example.com",{},self.d,self.d))
   self.assertFalse(m.seo_reviewed_match("2026-11-26","example.com",{"semantic_cycle_dispositions":[{"identity":"example.com","source":"SEOTRENDS","day":"2026-11-25","semantic_review_ref":{"file":"2026-11-25-semantic-business-dd.json","sha256":"invalid"}}]},self.d,self.d))
 
+def test_terminal_degraded_blocked_is_not_watch(self):
+  original=m.SEO
+  try:
+   m.SEO=self.d
+   save(self.d/"2026-10-15-semrush-queue.json",{"items":[{"domain":"example.com","title":"Example","discovery_score":11}],"added_total":1,"scanned":1,"scan_terminal":True})
+   save(self.d/"2026-10-15-semrush-results.json",{"status":"PASS","items":[{"domain":"example.com","status":"PASS"}]})
+   save(self.d/"2026-10-15-terminal-verdicts.json",{"status":"DEGRADED","verdicts":[{"domain":"example.com","verdict":"BLOCKED","reason":"NO_SERP_RESULT","product_intent_checked":True}]})
+   got=m.read_seo("2026-10-15")
+   self.assertEqual(got["items"][0]["verdict"],"BLOCKED_SERP")
+   self.assertEqual(got["items"][0]["terminal_verdict"],"BLOCKED")
+  finally:m.SEO=original
+ def test_terminal_missing_fail_closed(self):
+  original=m.SEO
+  try:
+   m.SEO=self.d
+   save(self.d/"2026-10-15-semrush-queue.json",{"items":[{"domain":"example.com"}],"scan_terminal":True})
+   save(self.d/"2026-10-15-semrush-results.json",{"status":"PASS","items":[{"domain":"example.com","status":"PASS"}]})
+   self.assertEqual(m.read_seo("2026-10-15")["items"][0]["verdict"],"BLOCKED_SERP")
+  finally:m.SEO=original
 if __name__=="__main__":unittest.main(verbosity=2)
