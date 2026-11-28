@@ -214,3 +214,36 @@ class RuntimeAuditTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QuickSourcesTest(unittest.TestCase):
+    def test_independent_source_and_raw_dedupe(self):
+        h={"source_session_date":"2026-11-27","prefilter_sha256":"h","complete":True,"status":"COMPLETE"}
+        r={"event_id":"e","symbol":"A","predicate":"1D_SHOCK","source_session_date":"2026-11-27","source_prefilter_sha256":"h"}
+        t={"fields":["cik","ticker"],"data":[[1,"A"],[2,"B"],[2,"B-P"]]}
+        f=[{"cik":str(i),"filename":f"edgar/data/{i}/000{i}.txt","filing_date":"2026-11-27","form":"8-K"} for i in [1,2]]
+        plan=m.quick_source_plan(h,[r,r],t,f,limit=2)
+        self.assertEqual(plan["counts"]["raw_events"],1)
+        self.assertEqual(len(plan["selected"]),2)
+        independent=[x for x in plan["selected"] if x["lane"]=="INDEPENDENT_ISSUER_DISCOVERY"][0]
+        self.assertEqual(independent["listed_security_candidates"],["B","B-P"])
+        self.assertFalse(independent["security_exposure_verified"])
+        self.assertEqual(plan["economic_review_completed"],0)
+        self.assertFalse(plan["trade_authorized"])
+        again=m.quick_source_plan(h,[r],t,f,previous=[f[0]["filename"]],limit=2)
+        self.assertEqual(len(again["selected"]),1)
+        self.assertEqual(again["selected"][0]["cik"],"2")
+
+    def test_document_extraction_is_not_economic_review(self):
+        raw=b"<ACCEPTANCE-DATETIME>20261125150000<DOCUMENT><TYPE>8-K\n<TEXT><p>Revenue rose 20 percent.</p></TEXT></DOCUMENT>"
+        x=m.quick_source_extract(raw)
+        self.assertEqual(x["acceptance_raw_et"],"20261125150000")
+        self.assertEqual(x["status"],"SOURCE_EXTRACT_READY_NOT_ECONOMIC_REVIEW")
+        self.assertIn("Revenue",x["documents"][0]["economic_passages"][0])
+        self.assertEqual(m.quick_source_extract(b"unreadable")["status"],"SOURCE_EXTRACT_UNKNOWN")
+
+    def test_same_session_conflicting_event_fails_closed(self):
+        h={"source_session_date":"2026-11-27","prefilter_sha256":"h","complete":True,"status":"COMPLETE"}
+        r={"event_id":"e","symbol":"A","predicate":"1D_SHOCK","source_session_date":"2026-11-27","source_prefilter_sha256":"h"}
+        with self.assertRaisesRegex(ValueError,"QUICK_RAW_EVENT_CONFLICT"):
+            m.quick_source_plan(h,[r,dict(r,symbol="B")],{"fields":[],"data":[]},[])
