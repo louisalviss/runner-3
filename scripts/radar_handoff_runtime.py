@@ -426,12 +426,235 @@ def run_live(*, sync_reverse=False):
     return 0
 
 
+def quick_source_plan(health, events, tickers, filings, previous=(), limit=12):
+    """Pure source-locator projection. Source coverage is not economic review."""
+    from collections import defaultdict
+    import re
+    session = health["source_session_date"]
+    sha = health["prefilter_sha256"]
+    if not health.get("complete") or health.get("status") != "COMPLETE":
+        raise ValueError("QUICK_MARKET_SOURCE_UNVERIFIED")
+    if type(limit) is not int or not 0 <= limit <= 24:
+        raise ValueError("QUICK_SOURCE_BUDGET_INVALID")
+    raw = {}
+    for e in events:
+        if e.get("source_session_date") != session or e.get("source_prefilter_sha256") != sha:
+            continue
+        i = e["event_id"]
+        row = {k:e[k] for k in ("event_id","symbol","predicate")}
+        if i in raw and raw[i] != row:
+            raise ValueError("QUICK_RAW_EVENT_CONFLICT")
+        raw[i] = row
+    symbols = {e["symbol"] for e in raw.values()}
+    by_symbol, by_cik = defaultdict(set), defaultdict(set)
+    for x in tickers["data"]:
+        d = dict(zip(tickers["fields"], x))
+        if not d.get("ticker") or not d.get("cik"):
+            continue
+        cik = str(d["cik"]).lstrip("0")
+        by_symbol[d["ticker"]].add(cik)
+        by_cik[cik].add(d["ticker"])
+    mapped = {x:next(iter(by_symbol[x])) for x in symbols if len(by_symbol[x]) == 1}
+    anomaly_ciks = set(mapped.values())
+    docs = {}
+    for f in filings:
+        cik = str(f["cik"]).lstrip("0")
+        name = f["filename"]
+        date = str(f["filing_date"])
+        if (cik not in by_cik or date > session or f["form"] not in
+                {"8-K","8-K/A","6-K","10-K","10-Q","20-F","40-F"} or
+                not re.fullmatch(r"edgar/data/[0-9]+/[0-9-]+\.txt",name)):
+            continue
+        associated = sorted(x for x in symbols if mapped.get(x) == cik)
+        row = {"cik":cik,"form":f["form"],"filing_date":date,"filename":name,
+               "anomaly_symbols":associated,"listed_security_candidates":sorted(by_cik[cik]),
+               "lane":"PRICE_DISCOVERY" if cik in anomaly_ciks else "INDEPENDENT_ISSUER_DISCOVERY",
+               "security_exposure_verified":False}
+        if name in docs and docs[name] != row:
+            raise ValueError("QUICK_FILING_ID_CONFLICT")
+        docs[name] = row
+    seen = set(previous)
+    groups = [[],[]]
+    for d in sorted(docs.values(),key=lambda x:(x["filing_date"],x["form"] in {"8-K","6-K"},x["filename"]),reverse=True):
+        if d["filename"] not in seen:
+            groups[0 if d["lane"] == "PRICE_DISCOVERY" else 1].append(d)
+    selected = []
+    # Balance discovery sources, not engine/BUY quotas; do not exhaust one lane
+    # while entirely starving the other. All unselected locators remain visible.
+    while len(selected) < limit and any(groups):
+        for g in groups:
+            if g and len(selected) < limit:
+                selected.append(g.pop(0))
+    matched = {sym for d in docs.values() for sym in d["anomaly_symbols"]}
+    return {"raw_observations":list(raw.values()),"mapped":mapped,"unmapped":sorted(symbols-set(mapped)),
+            "locators":list(docs.values()),"selected":selected,
+            "counts":{"raw_events":len(raw),"symbols":len(symbols),"mapped":len(mapped),
+                      "anomaly_symbols_with_index_match":len(matched),
+                      "independent_issuer_locators":sum(d["lane"]=="INDEPENDENT_ISSUER_DISCOVERY" for d in docs.values()),
+                      "locators":len(docs),"selected":len(selected),"reused_locator_count":len(set(docs)&seen)},
+            "economic_review_completed":0,"trade_authorized":False}
+
+
+def quick_source_extract(raw):
+    """Bounded machine-extracted evidence, not semantic or valuation certification."""
+    import re
+    from bs4 import BeautifulSoup
+    body = raw.decode("latin-1")
+    stamp = re.search(r"<ACCEPTANCE-DATETIME>(\d{14})",body)
+    docs = []
+    terms = re.compile(r"(?i)\b(revenues?|net sales|operating (?:profit|income)|gross margin|cash flow|guidance|outlook|backlog|dividend|repurchase|merger|purchase price|capacity|orders?|warrants?|debt|dilution|redemption|capital expenditure|financing|liquidation|preferred|distribution)\b")
+    for part in re.findall(r"<DOCUMENT>(.*?)</DOCUMENT>",body,re.S|re.I):
+        typ = re.search(r"<TYPE>([^\r\n<]+)",part,re.I)
+        typ = typ.group(1).strip().upper() if typ else ""
+        if not (typ in {"8-K","8-K/A","6-K","10-K","10-Q","20-F","40-F"} or typ.startswith(("EX-99","EX-2."))):
+            continue
+        content = re.split(r"<TEXT>",part,maxsplit=1,flags=re.I)[-1]
+        text = re.sub(r"\s+"," ",BeautifulSoup(content,"html.parser").get_text(" ",strip=True))
+        chunks = []
+        last = -1000
+        for hit in terms.finditer(text):
+            i = hit.start()
+            if i-last < 350:
+                continue
+            chunks.append(text[max(0,i-100):i+320])
+            last = i
+            if len(chunks) == 12:
+                break
+        docs.append({"type":typ,"text_chars":len(text),"opening":text[:3500] if typ in {"8-K","8-K/A","6-K"} else text[:900],"economic_passages":chunks})
+        if len(docs) == 5:
+            break
+    return {"sha256":hashlib.sha256(raw).hexdigest(),"bytes":len(raw),
+            "acceptance_raw_et":stamp.group(1) if stamp else None,"documents":docs,
+            "status":"SOURCE_EXTRACT_READY_NOT_ECONOMIC_REVIEW" if docs else "SOURCE_EXTRACT_UNKNOWN"}
+
+
+def run_quick_sources():
+    """Existing owner's optional source-preparation step. No market intake or trades."""
+    import subprocess
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import date,timedelta
+    from historical_scan.sec_index import user_agent_from_contact,parse_master
+    from vps_dropbox import DropboxService
+    health,prefilter,events,commit = pinned_reverse_price_source_fetch()
+    session = health["source_session_date"]
+    sha = health["prefilter_sha256"]
+    svc = DropboxService()
+    original,meta = svc.download_text(CHECKPOINT)
+    state = json.loads(original)["cross_radar_handoff"]
+    q = state["reverse_queue_v2"]
+    if q.get("latest_completed_price_session") != session or q.get("latest_prefilter_sha256") != sha:
+        raise ValueError("QUICK_SOURCE_PACKET_NOT_ACCEPTED")
+    key = "opportunity_first_quick_sources_" + session.replace("-","") + "_v1"
+    old = state.get(key) or {}
+    if old and old.get("market_sha") != sha:
+        raise ValueError("QUICK_SOURCE_SAME_SESSION_SHA_CONFLICT")
+    cached = old.get("documents") or {}
+    prior = set(cached)
+    reused_sources = {}
+    # Across sessions, retain references to successful unchanged submissions.
+    # Do not download the same accession again merely because the price changed.
+    for k,v in state.items():
+        if not k.startswith("opportunity_first_quick_sources_") or k == key or not isinstance(v,dict):
+            continue
+        for name,doc in (v.get("documents") or {}).items():
+            if doc.get("status") == "SOURCE_EXTRACT_READY_NOT_ECONOMIC_REVIEW" and doc.get("sha256"):
+                prior.add(name)
+                reused_sources[name] = {"checkpoint_key":k,"sha256":doc["sha256"]}
+    # Reuse actual earlier semantic receipts when the exact SEC submission
+    # was read and hashed; an unresolved cover-only receipt is not completion.
+    for k,v in state.items():
+        if not k.startswith("orv3_opportunity_first_current_source_pilot_") or not isinstance(v,dict):
+            continue
+        for r in v.get("source_results",[]):
+            url = r.get("source_url","")
+            if r.get("sha256") and r.get("source_semantics_reviewed") is True and url.startswith("https://www.sec.gov/Archives/"):
+                name = url.removeprefix("https://www.sec.gov/Archives/")
+                prior.add(name)
+                reused_sources[name] = {"checkpoint_key":k,"sha256":r["sha256"],"semantic_receipt":True}
+    status = json.loads(subprocess.check_output(["bw","status"],stderr=subprocess.DEVNULL))
+    ua = user_agent_from_contact(status.get("userEmail"))
+    def fetch(url,cap=20_000_000):
+        try:
+            req = urllib.request.Request(url,headers={"User-Agent":ua,"Accept":"*/*"})
+            with urllib.request.urlopen(req,timeout=12) as f:
+                data = f.read(cap+1)
+            if len(data)>cap:
+                raise ValueError("SEC_SOURCE_TOO_LARGE")
+            return data,None
+        except Exception as e:
+            return None,type(e).__name__+":"+str(getattr(e,"code",""))
+    # Use observed market sessions, not an arbitrary weekday/holiday guess.
+    days = sorted({e["source_session_date"] for e in events if e.get("source_session_date") and e["source_session_date"]<=session})[-4:]
+    urls = ["https://www.sec.gov/files/company_tickers_exchange.json"]
+    for day in days:
+        d=date.fromisoformat(day)
+        urls.append(f"https://www.sec.gov/Archives/edgar/daily-index/{d.year}/QTR{(d.month-1)//3+1}/master.{d:%Y%m%d}.idx")
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        sources = list(pool.map(fetch,urls))
+    if sources[0][0] is None:
+        raise RuntimeError("QUICK_TICKER_SOURCE_UNAVAILABLE:"+str(sources[0][1]))
+    filings = []
+    for data,err in sources[1:]:
+        if data is not None:
+            filings.extend(parse_master(data.decode("latin-1")))
+    plan = quick_source_plan(health,events,json.loads(sources[0][0]),filings,prior)
+    def extract(row):
+        url="https://www.sec.gov/Archives/"+row["filename"]
+        raw,err=fetch(url,12_000_000)
+        if raw is None:
+            return {"locator":row,"source_url":url,"status":"SOURCE_UNAVAILABLE","error":err}
+        try:
+            return dict(quick_source_extract(raw),locator=row,source_url=url)
+        except Exception as e:
+            return {"locator":row,"source_url":url,"status":"SOURCE_EXTRACT_UNKNOWN","error":type(e).__name__}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results=list(pool.map(extract,plan["selected"]))
+    # Keep successful extracts and exact failures visible. Failures are not
+    # repeatedly retried to fill batches; a new source/session may qualify.
+    merged=dict(cached)
+    for row in results:
+        merged[row["locator"]["filename"]]=row
+    source_errors={url:err for url,(_,err) in zip(urls,sources) if err}
+    payload={"market_session":session,"market_sha":sha,"market_commit":commit,
+             "source_hashes":{url:hashlib.sha256(b).hexdigest() for url,(b,err) in zip(urls,sources) if b},
+             "source_errors":source_errors,"plan":plan,"documents":merged,
+             "reused_sources":{x["filename"]:reused_sources[x["filename"]] for x in plan["locators"] if x["filename"] in reused_sources},
+             "status":"SOURCE_PREPARATION_PARTIAL" if source_errors else "SOURCE_PREPARATION_ONLY",
+             "economic_review_completed":0,"full_underwrites":0,"trade_authorized":False}
+    with svc.path_lock(CHECKPOINT):
+        current,metadata=svc.download_text(CHECKPOINT)
+        if metadata["rev"]!=meta["rev"]:
+            raise RuntimeError("QUICK_SOURCE_CONCURRENT_CHECKPOINT_CHANGED")
+        j=json.loads(current)
+        j["cross_radar_handoff"][key]=payload
+        assert_price_event_identity_nonloss(json.loads(current),j)
+        serialized=json.dumps(j,ensure_ascii=False,separators=(",",":"))+"\n"
+        if serialized!=current:
+            receipt=svc.upload_text(CHECKPOINT,serialized,expected_rev=metadata["rev"])
+            check,checkmeta=svc.download_text(CHECKPOINT)
+            if check!=serialized or checkmeta["rev"]!=receipt["rev"]:
+                raise RuntimeError("QUICK_SOURCE_CAS_READBACK_FAILED")
+        else:
+            checkmeta=metadata
+    print(json.dumps({"status":payload["status"],"market_session":session,"checkpoint_rev":checkmeta["rev"],
+                      "counts":plan["counts"],"source_errors":source_errors,
+                      "new_extracted":sum(r["status"]=="SOURCE_EXTRACT_READY_NOT_ECONOMIC_REVIEW" for r in results),
+                      "new_failed_or_unknown":sum(r["status"]!="SOURCE_EXTRACT_READY_NOT_ECONOMIC_REVIEW" for r in results),
+                      "economic_review_completed":0,"trade_authorized":False},ensure_ascii=False))
+    return 0
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--live", action="store_true", help="run existing source+checkpoint synchronization")
     p.add_argument("--sync-reverse", action="store_true",
                    help="Opportunity owner only: bounded latest-session price reverse intake")
+    p.add_argument("--quick-sources", action="store_true", help="prepare bounded primary-source extracts for the existing owner")
     args = p.parse_args()
+    if args.quick_sources:
+        if not args.live or args.sync_reverse:
+            p.error("--quick-sources requires --live without --sync-reverse")
+        return run_quick_sources()
     if not args.live:
         p.error("--live required (offline regression via unittest)")
     return run_live(sync_reverse=args.sync_reverse)
